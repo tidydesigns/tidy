@@ -1,5 +1,6 @@
 import type { Draft } from "../../features/composer/machine-context";
 import { runHarnessUsageTests } from "./harness-usage";
+import { runAppUpdateTests } from "./app-update";
 import { ThreadVideo } from "../../features/threads/video/thread-video";
 import { Conversation } from "../../features/threads/conversation";
 import { ThreadTitle } from "../../features/threads/thread-title";
@@ -515,6 +516,11 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   await run(
     "account usage opens immediately, retains refresh state and isolates providers",
     runHarnessUsageTests,
+  );
+
+  await run(
+    "updates stay visible, reflect native state and reject stale results",
+    runAppUpdateTests,
   );
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);

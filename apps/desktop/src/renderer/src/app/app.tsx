@@ -1835,6 +1835,22 @@ export function App({
           >
             <Icon name="settings" size={18} />
           </Button>
+          {api && executionProject && (
+            <HarnessUsage
+              key={`${executionProject.id}:${selectedHarness}`}
+              api={api}
+              projectId={executionProject.id}
+              harness={selectedHarness}
+              ready={harnessReady}
+              initial={harnessDetails[detailKey]?.info?.usage}
+              tokens={thread?.usage}
+              activity={thread?.status}
+              modelId={
+                (thread ? (thread.settings?.model ?? thread.actualModel) : draft.settings?.model) ??
+                harnessDetails[detailKey]?.info?.defaultModel
+              }
+            />
+          )}
           <AppUpdate api={api} />
         </div>
       </aside>
@@ -2345,24 +2361,6 @@ export function App({
                                 );
                             }}
                           />
-                          {api && executionProject && (
-                            <HarnessUsage
-                              key={`${executionProject.id}:${selectedHarness}`}
-                              api={api}
-                              projectId={executionProject.id}
-                              harness={selectedHarness}
-                              ready={harnessReady}
-                              initial={harnessDetails[detailKey]?.info?.usage}
-                              tokens={thread?.usage}
-                              activity={thread?.status}
-                              modelId={
-                                (thread
-                                  ? (thread.settings?.model ?? thread.actualModel)
-                                  : draft.settings?.model) ??
-                                harnessDetails[detailKey]?.info?.defaultModel
-                              }
-                            />
-                          )}
                         </div>
                         <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
                           <span ref={canvasDockHome} className="canvas-dock-home" />

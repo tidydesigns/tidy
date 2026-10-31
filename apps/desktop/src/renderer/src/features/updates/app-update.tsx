@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesktopAPI } from "../../../../shared/contracts/desktop";
@@ -6,15 +6,21 @@ import type { AppUpdateState } from "../../../../shared/contracts/app-updates";
 
 /** Show update progress and restart/retry actions with hover and keyboard-focus details. */
 export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
-  const [state, setState] = useState<AppUpdateState>({ status: "unsupported" });
+  const [state, setState] = useState<AppUpdateState>();
   const [error, setError] = useState(false);
+  const revision = useRef(0);
   const tooltipId = useId();
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
   useEffect(() => {
+    revision.current++;
+    setState(undefined);
+    setError(false);
     if (!api) return;
     let received = false;
     let active = true;
     const unsubscribe = api.onUpdate((value) => {
+      if (!active) return;
+      revision.current++;
       received = true;
       setError(false);
       setState(value);
@@ -24,47 +30,56 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
       .then((value) => {
         if (active && !received) setState(value);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active && !received) setState({ status: "error", error: "check" });
+      });
     return () => {
       active = false;
+      revision.current++;
       unsubscribe();
     };
   }, [api]);
 
-  const preview = import.meta.env.DEV && state.status === "unsupported";
-  if (!preview && ["unsupported", "idle"].includes(state.status)) return null;
-  const installing = state.status === "installing";
-  const busy = ["checking", "downloading", "installing"].includes(state.status);
-  const retry = state.status === "error";
-  const installError = error || state.error === "install";
+  const unavailable = !api || state?.status === "unsupported";
+  const installing = state?.status === "installing";
+  const busy = Boolean(state && ["checking", "downloading", "installing"].includes(state.status));
+  const retry = state?.status === "error";
+  const ready = state?.status === "ready";
+  const installError = error || state?.error === "install";
   const message = installError
     ? "Couldn’t restart to update. Click to retry."
     : retry
-      ? state.error === "download"
+      ? state?.error === "download"
         ? "Couldn’t download the update. Click to retry."
         : "Couldn’t check for updates. Click to retry."
       : null;
-  const label = preview
-    ? "Update available (development preview)"
+  const label = unavailable
+    ? "Automatic updates aren’t available in this build."
     : (message ??
       (installing
         ? "Restarting to update…"
-        : state.status === "checking"
+        : state?.status === "checking"
           ? "Checking for updates…"
-          : state.status === "downloading"
+          : state?.status === "downloading"
             ? `Downloading Tidy ${state.version}…`
-            : `Restart to update to Tidy ${state.version}`));
-  const actionLabel = preview
-    ? "Update preview"
+            : ready
+              ? `Restart to update to Tidy ${state.version}`
+              : state
+                ? "Check for updates"
+                : "Updates"));
+  const actionLabel = unavailable
+    ? "Updates unavailable"
     : retry
       ? "Retry update check"
       : installError
         ? "Retry restart to update"
         : busy
           ? label
-          : "Restart to update";
+          : ready
+            ? "Restart to update"
+            : label;
   return (
-    <footer className="sidebar-update">
+    <span className="sidebar-update">
       <span
         className="app-update-control"
         data-tooltip-dismissed={tooltipDismissed}
@@ -80,28 +95,39 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
           aria-label={actionLabel}
           aria-describedby={tooltipId}
           aria-busy={busy}
-          aria-disabled={busy}
-          data-state={busy ? "busy" : retry || installError ? "error" : "ready"}
+          aria-disabled={busy || unavailable || !state}
+          data-state={busy ? "busy" : retry || installError ? "error" : ready ? "ready" : "idle"}
           onClick={() => {
-            if (preview || busy || !api) return;
+            if (unavailable || busy || !state || !api) return;
             setError(false);
-            if (retry) {
+            if (!ready || retry) {
+              const request = ++revision.current;
               setState({ status: "checking" });
-              void api.checkUpdates().catch(() => {
-                setState({ status: "error", error: "check" });
-              });
+              void api
+                .checkUpdates()
+                .then(async () => {
+                  // A rate-limited native check can finish without publishing an event.
+                  if (revision.current !== request) return;
+                  const next = await api.updateState();
+                  if (revision.current === request) setState(next);
+                })
+                .catch(() => {
+                  if (revision.current === request) setState({ status: "error", error: "check" });
+                });
               return;
             }
             // Disable synchronously so repeated clicks cannot start a second install.
+            const request = ++revision.current;
             setState((current) => ({ ...current, status: "installing" }));
             void api.installUpdate().catch(() => {
+              if (revision.current !== request) return;
               setState((current) => ({ ...current, status: "ready" }));
               setError(true);
             });
           }}
         >
           <Icon name="update" size={16} className={busy ? "app-update-spinning" : ""} />
-          {!busy && (
+          {!busy && (ready || retry || installError) && (
             <span
               className={`app-update-badge ${retry || installError ? "app-update-warning" : "app-update-ready"}`}
               aria-hidden="true"
@@ -117,6 +143,6 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
       <span className="sr-only" role="status">
         {label}
       </span>
-    </footer>
+    </span>
   );
 }

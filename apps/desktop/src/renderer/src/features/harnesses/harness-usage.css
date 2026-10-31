@@ -1,11 +1,10 @@
-.account-usage-trigger .account-usage-trigger-value {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-muted-ink);
+.account-usage-control {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 .account-usage-ring {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   transform: rotate(-90deg);
   fill: none;
   stroke-width: 2;
@@ -228,12 +227,6 @@
   border-radius: 4px;
   background: var(--color-subtle-fill);
 }
-@media (max-width: 700px) {
-  .account-usage-trigger .account-usage-trigger-value {
-    display: none;
-  }
-}
-
 .account-usage-reset-time {
   display: flex;
   width: 100%;
@@ -243,4 +236,65 @@
 }
 .account-usage-window > .account-usage-line:last-child {
   flex-wrap: wrap;
+}
+.account-usage-trigger {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  cursor: pointer;
+}
+.account-usage-preview {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(250px, calc(100vw - 16px));
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--desktop-surface);
+  color: var(--color-ink);
+  box-shadow: 0 4px 16px #0002;
+  font-size: 12px;
+  line-height: 18px;
+}
+.account-usage-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.account-usage-preview-heading svg {
+  flex-shrink: 0;
+}
+.account-usage-preview-window + .account-usage-preview-window {
+  margin-top: 8px;
+}
+.account-usage-preview > .account-usage-line {
+  margin-top: 8px;
+}
+.account-usage-preview-hint {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.account-usage-trigger:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .account-usage-trigger:hover {
+    border-color: var(--color-border);
+    background: var(--color-hover-surface);
+    color: var(--color-ink);
+  }
 }

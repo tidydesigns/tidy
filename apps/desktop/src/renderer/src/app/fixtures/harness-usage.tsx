@@ -70,7 +70,58 @@ export async function runHarnessUsageTests(root: Root) {
   const panel = () =>
     required(host.querySelector<HTMLElement>('[role="dialog"]'), "Usage panel missing");
   render(usage);
+  check(!trigger().textContent?.trim(), "The sidebar usage trigger retained visible text");
+  check(
+    trigger().getBoundingClientRect().width === 30 &&
+      trigger().getBoundingClientRect().height === 30,
+    "Usage does not match the neighboring sidebar controls",
+  );
+  flushSync(() =>
+    trigger().dispatchEvent(
+      new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }),
+    ),
+  );
+  await settle();
+  const preview = required(host.querySelector<HTMLElement>('[role="tooltip"]'), "Usage preview");
+  check(preview.matches(":popover-open"), "Hover did not show its popover");
+  check(
+    preview.textContent?.includes("ChatGPT Plus") && preview.textContent?.includes("43% left"),
+    "Hover summary did not use the available account data",
+  );
+  check(
+    trigger().getAttribute("aria-describedby") === preview.id,
+    "The hover summary is not associated with its control",
+  );
+  check(!host.querySelector('[role="dialog"]'), "Hover opened the full usage panel");
+  flushSync(() =>
+    trigger().dispatchEvent(
+      new PointerEvent("pointerout", {
+        bubbles: true,
+        pointerType: "mouse",
+        relatedTarget: document.body,
+      }),
+    ),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  check(!host.querySelector('[role="tooltip"]'), "Hover summary stayed after the pointer left");
+  flushSync(() => {
+    trigger().blur();
+    trigger().focus();
+    trigger().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+  });
+  await settle();
+  check(host.querySelector('[role="tooltip"]'), "Keyboard focus did not show a usage summary");
+  flushSync(() =>
+    trigger().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    ),
+  );
+  check(!host.querySelector('[role="tooltip"]'), "Escape did not dismiss the usage summary");
   flushSync(() => trigger().click());
+  check(
+    !host.querySelector('[role="tooltip"]'),
+    "Click left the hover summary over the full panel",
+  );
   check(panel().textContent?.includes("43% left"), "Opening usage waited for its pending refresh");
   await settle();
   check(reads.length === 1, "Opening usage duplicated its pending preload");
@@ -204,7 +255,7 @@ export async function runHarnessUsageTests(root: Root) {
     "A closed usage trigger didn't refresh at its reset deadline",
   );
   check(
-    !trigger().textContent?.includes("0% left"),
+    trigger().querySelector("circle:last-child")?.getAttribute("stroke-dasharray") === "0 100",
     "The closed trigger retained an elapsed allowance",
   );
   harness = "opencode";

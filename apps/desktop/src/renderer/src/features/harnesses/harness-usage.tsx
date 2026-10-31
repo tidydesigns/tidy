@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -17,7 +18,7 @@ import type {
   AccountUsageWindow,
 } from "../../../../shared/contracts/harness-usage";
 import type { TokenUsage } from "../../../../shared/contracts/harness-settings";
-import { codeControlClassName, codeFontClassName } from "../../styles/code-ui";
+import { codeFontClassName } from "../../styles/code-ui";
 import { usageCache } from "./usage-cache";
 import {
   appliesToModel,
@@ -117,6 +118,12 @@ export const HarnessUsage = memo(function HarnessUsage({
   );
   const snapshot = useSyncExternalStore(cache.subscribe, cache.read, cache.read);
   const [open, setOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewId = useId();
+  const control = useRef<HTMLDivElement>(null);
+  const preview = useRef<HTMLDivElement>(null);
+  const previewDismissed = useRef(false);
+  const closePreview = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [now, setNow] = useState(Date.now);
   const [managementError, setManagementError] = useState(false);
   const previousActivity = useRef(activity);
@@ -132,12 +139,15 @@ export const HarnessUsage = memo(function HarnessUsage({
   useEffect(() => {
     if (!ready) cache.clear();
   }, [cache, ready]);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    clearTimeout(closePreview.current);
     setOpen(false);
+    setPreviewOpen(false);
+    previewDismissed.current = false;
     setManagementError(false);
   }, [cache, modelProvider]);
   useEffect(() => {
-    if (!open) return;
+    if (!open && !previewOpen) return;
     const refresh = () => {
       if (document.hidden) return;
       setNow(Date.now());
@@ -152,7 +162,38 @@ export const HarnessUsage = memo(function HarnessUsage({
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("focus", refresh);
     };
-  }, [open, cache, ready, api, providerApplicable]);
+  }, [open, previewOpen, cache, ready, api, providerApplicable]);
+  useEffect(() => () => clearTimeout(closePreview.current), []);
+  const showPreview = () => {
+    clearTimeout(closePreview.current);
+    if (!open && !previewDismissed.current) setPreviewOpen(true);
+  };
+  const hidePreview = (dismiss = false) => {
+    clearTimeout(closePreview.current);
+    if (dismiss) previewDismissed.current = true;
+    setPreviewOpen(false);
+  };
+  useLayoutEffect(() => {
+    const popup = preview.current;
+    if (!previewOpen || open || !popup || !control.current) return;
+    popup.showPopover();
+    const position = () => {
+      const anchor = control.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const bounds = popup.getBoundingClientRect();
+      popup.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`;
+      popup.style.top = `${Math.max(8, anchor.top - bounds.height - 6)}px`;
+    };
+    position();
+    const resize = new ResizeObserver(position);
+    resize.observe(popup);
+    window.addEventListener("resize", position);
+    return () => {
+      resize.disconnect();
+      window.removeEventListener("resize", position);
+      if (popup.matches(":popover-open")) popup.hidePopover();
+    };
+  }, [previewOpen, open]);
   const usage = ready && providerApplicable ? snapshot.value : undefined;
   const currentTime = Math.max(now, Date.now());
   const nextReset = usage?.windows.reduce<number | undefined>((next, window) => {
@@ -211,227 +252,300 @@ export const HarnessUsage = memo(function HarnessUsage({
         ? "Claude"
         : "OpenCode Console";
   return (
-    <SelectMenu
-      key={`${projectId}:${harness}:${modelProvider ?? ""}`}
-      label="Account & usage"
-      actionMenu
-      value=""
-      options={[]}
-      onChange={() => {}}
-      placement="top"
-      align="end"
-      maxMenuHeight={510}
-      triggerClassName={`${codeControlClassName} account-usage-trigger`}
-      menuClassName={`${codeFontClassName} account-usage-popover`}
-      onOpenChange={setOpen}
-      triggerContent={
-        <>
-          <svg
-            data-ph-private
-            className="account-usage-ring"
-            data-low={low || limited || undefined}
-            aria-hidden="true"
-            viewBox="0 0 20 20"
-          >
-            <circle cx="10" cy="10" r="7" />
-            <circle
-              cx="10"
-              cy="10"
-              r="7"
-              pathLength="100"
-              strokeDasharray={`${activeWindow ? remainingPercent(activeWindow) : 0} 100`}
-            />
-          </svg>
-          <span>Usage</span>
-          {activeWindow && (
-            <span
+    <div
+      ref={control}
+      className="account-usage-control"
+      onPointerEnter={(event) => {
+        if (event.pointerType === "touch") return;
+        previewDismissed.current = false;
+        showPreview();
+      }}
+      onPointerLeave={() => {
+        clearTimeout(closePreview.current);
+        closePreview.current = setTimeout(() => hidePreview(), 100);
+      }}
+      onFocusCapture={(event) => {
+        if (event.target.closest(".account-usage-trigger")) showPreview();
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          previewDismissed.current = false;
+          hidePreview();
+        }
+      }}
+      onClickCapture={() => hidePreview(true)}
+      onKeyDownCapture={(event) => {
+        if (event.key === "Escape" && previewOpen && !open) {
+          event.preventDefault();
+          event.stopPropagation();
+          hidePreview(true);
+        }
+      }}
+    >
+      <SelectMenu
+        key={`${projectId}:${harness}:${modelProvider ?? ""}`}
+        label="Account & usage"
+        describedBy={previewOpen && !open ? previewId : undefined}
+        actionMenu
+        value=""
+        options={[]}
+        onChange={() => {}}
+        placement="top"
+        align="start"
+        maxMenuHeight={510}
+        triggerClassName="account-usage-trigger"
+        menuClassName={`${codeFontClassName} account-usage-popover`}
+        onOpenChange={(value) => {
+          setOpen(value);
+          if (value) hidePreview(true);
+        }}
+        triggerContent={
+          <>
+            <svg
               data-ph-private
-              className="account-usage-trigger-value"
-              title={`${activeWindow.name}: ${percentLabel(activeWindow)}`}
+              className="account-usage-ring"
+              data-low={low || limited || undefined}
+              aria-hidden="true"
+              viewBox="0 0 20 20"
             >
-              {percentLabel(activeWindow)}
-            </span>
-          )}
-          {limited && !activeWindow && (
-            <span data-ph-private className="account-usage-trigger-value">
-              Limit reached
-            </span>
-          )}
-        </>
-      }
-      menuContent={() => (
-        <div data-ph-private className="account-usage-content">
-          <div className="account-usage-header">
-            <HarnessIcon harness={harness} size={20} />
-            <div>
-              <div className="account-usage-plan">
-                {consoleBilling && usage
-                  ? "OpenCode Console"
-                  : (planName(harness, usage?.account?.plan) ?? name)}
+              <circle cx="10" cy="10" r="7" />
+              <circle
+                cx="10"
+                cy="10"
+                r="7"
+                pathLength="100"
+                strokeDasharray={`${activeWindow ? remainingPercent(activeWindow) : 0} 100`}
+              />
+            </svg>
+          </>
+        }
+        menuContent={() => (
+          <div data-ph-private className="account-usage-content">
+            <div className="account-usage-header">
+              <HarnessIcon harness={harness} size={20} />
+              <div>
+                <div className="account-usage-plan">
+                  {consoleBilling && usage
+                    ? "OpenCode Console"
+                    : (planName(harness, usage?.account?.plan) ?? name)}
+                </div>
+                <div className="account-usage-muted">
+                  {[
+                    usage?.account?.workspace,
+                    billing === "api"
+                      ? "API billing"
+                      : billing === "subscription"
+                        ? "Subscription"
+                        : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Account & usage"}
+                </div>
               </div>
-              <div className="account-usage-muted">
-                {[
-                  usage?.account?.workspace,
-                  billing === "api"
-                    ? "API billing"
-                    : billing === "subscription"
-                      ? "Subscription"
-                      : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "Account & usage"}
-              </div>
-            </div>
-            <Button
-              className="account-usage-refresh"
-              aria-label="Refresh account usage"
-              title="Refresh account usage"
-              data-select-initial
-              disabled={snapshot.loading || !ready || !api.harnessUsage || !providerApplicable}
-              onClick={() => {
-                setNow(Date.now());
-                void cache.refresh(true);
-              }}
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 20 20"
-                data-loading={snapshot.loading || undefined}
+              <Button
+                className="account-usage-refresh"
+                aria-label="Refresh account usage"
+                title="Refresh account usage"
+                data-select-initial
+                disabled={snapshot.loading || !ready || !api.harnessUsage || !providerApplicable}
+                onClick={() => {
+                  setNow(Date.now());
+                  void cache.refresh(true);
+                }}
               >
-                <path d="M16 7a6.5 6.5 0 1 0 .4 5M16 3v4h-4" />
-              </svg>
-            </Button>
-          </div>
-          <div className="account-usage-body">
-            {visibleWindows.length || limited ? (
-              <div className="account-usage-section">
-                {limited && (
-                  <div className="account-usage-notice">
-                    A usage limit has been reached. Check the reset time or your provider account.
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 20 20"
+                  data-loading={snapshot.loading || undefined}
+                >
+                  <path d="M16 7a6.5 6.5 0 1 0 .4 5M16 3v4h-4" />
+                </svg>
+              </Button>
+            </div>
+            <div className="account-usage-body">
+              {visibleWindows.length || limited ? (
+                <div className="account-usage-section">
+                  {limited && (
+                    <div className="account-usage-notice">
+                      A usage limit has been reached. Check the reset time or your provider account.
+                    </div>
+                  )}
+                  {visibleWindows.map((window) => (
+                    <UsageWindow key={window.id} window={window} now={currentTime} />
+                  ))}
+                </div>
+              ) : null}
+              {!usage && snapshot.loading && (
+                <div
+                  className="account-usage-section account-usage-loading"
+                  role="status"
+                  aria-label="Loading account usage"
+                >
+                  <span />
+                  <span />
+                </div>
+              )}
+              {usage?.resets && usage.resets.availableCount > 0 && (
+                <details className="account-usage-section account-usage-disclosure">
+                  <summary>
+                    Banked resets<span>{usage.resets.availableCount} available</span>
+                  </summary>
+                  <div className="account-usage-reset-list">
+                    {usage.resets.items?.map((item) => (
+                      <div className="account-usage-line" key={item.id}>
+                        <span>{item.title ?? "Rate-limit reset"}</span>
+                        <span className="account-usage-muted">
+                          {item.expiresAt !== undefined && item.expiresAt !== null
+                            ? `Expires ${new Date(item.expiresAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                            : item.expiresAt === null
+                              ? "No expiry"
+                              : "Expiry not reported"}
+                        </span>
+                      </div>
+                    ))}
+                    {!usage.resets.items?.length && (
+                      <div className="account-usage-muted">
+                        Expiry details aren't reported by this connection.
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+              {usage?.credits &&
+                (usage.credits.unlimited || usage.credits.balance !== undefined) && (
+                  <div className="account-usage-section account-usage-line">
+                    <span>Credits</span>
+                    <span className="account-usage-number">
+                      {usage.credits.unlimited ? "Unlimited" : `${usage.credits.balance} remaining`}
+                    </span>
                   </div>
                 )}
-                {visibleWindows.map((window) => (
-                  <UsageWindow key={window.id} window={window} now={currentTime} />
-                ))}
-              </div>
-            ) : null}
-            {!usage && snapshot.loading && (
-              <div
-                className="account-usage-section account-usage-loading"
-                role="status"
-                aria-label="Loading account usage"
-              >
-                <span />
-                <span />
-              </div>
-            )}
-            {usage?.resets && usage.resets.availableCount > 0 && (
-              <details className="account-usage-section account-usage-disclosure">
-                <summary>
-                  Banked resets<span>{usage.resets.availableCount} available</span>
-                </summary>
-                <div className="account-usage-reset-list">
-                  {usage.resets.items?.map((item) => (
-                    <div className="account-usage-line" key={item.id}>
-                      <span>{item.title ?? "Rate-limit reset"}</span>
-                      <span className="account-usage-muted">
-                        {item.expiresAt !== undefined && item.expiresAt !== null
-                          ? `Expires ${new Date(item.expiresAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                          : item.expiresAt === null
-                            ? "No expiry"
-                            : "Expiry not reported"}
-                      </span>
+              {tokens && (
+                <details className="account-usage-section account-usage-disclosure">
+                  <summary>
+                    This conversation
+                    <span>{tokenCount(tokens.inputTokens + tokens.outputTokens)} tokens</span>
+                  </summary>
+                  <div className="account-usage-token-list">
+                    <div className="account-usage-line">
+                      <span>Input</span>
+                      <span>{tokens.inputTokens.toLocaleString()}</span>
                     </div>
-                  ))}
-                  {!usage.resets.items?.length && (
-                    <div className="account-usage-muted">
-                      Expiry details aren't reported by this connection.
+                    <div className="account-usage-line account-usage-muted">
+                      <span>Cached · included above</span>
+                      <span>{tokens.cachedInputTokens.toLocaleString()}</span>
                     </div>
-                  )}
-                </div>
-              </details>
-            )}
-            {usage?.credits && (usage.credits.unlimited || usage.credits.balance !== undefined) && (
-              <div className="account-usage-section account-usage-line">
-                <span>Credits</span>
-                <span className="account-usage-number">
-                  {usage.credits.unlimited ? "Unlimited" : `${usage.credits.balance} remaining`}
+                    <div className="account-usage-line">
+                      <span>Output</span>
+                      <span>{tokens.outputTokens.toLocaleString()}</span>
+                    </div>
+                    {tokens.costUSD !== undefined && (
+                      <>
+                        <div className="account-usage-line">
+                          <span>Estimated model cost</span>
+                          <span>{dollars(tokens.costUSD)}</span>
+                        </div>
+                        <div className="account-usage-muted">
+                          {billing === "subscription"
+                            ? "API-equivalent estimate, not a subscription charge."
+                            : "Model estimate. Check your provider for billed usage."}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </details>
+              )}
+              {(usage?.note || !ready || !api.harnessUsage || !providerApplicable) && (
+                <p className="account-usage-note">
+                  {!ready
+                    ? `Sign in to ${name} to view account usage.`
+                    : !providerApplicable
+                      ? "OpenCode doesn't expose account allowances for this model's provider."
+                      : (usage?.note ??
+                        "This connection doesn't report account limits. Check your provider account.")}
+                </p>
+              )}
+              {ready && providerApplicable && snapshot.error && (
+                <p className="account-usage-error" role="status">
+                  {snapshot.error}
+                </p>
+              )}
+              {managementError && (
+                <p className="account-usage-error" role="alert">
+                  Couldn't open the usage page. Try again.
+                </p>
+              )}
+            </div>
+            <div className="account-usage-footer">
+              <span className="account-usage-muted" aria-live="polite">
+                {snapshot.loading
+                  ? "Refreshing…"
+                  : usage
+                    ? `${visibleWindows.length ? "Reported" : "Checked"} ${Date.now() - Date.parse(usage.updatedAt) < 60_000 ? "just now" : `${Math.floor(Math.max(0, now - Date.parse(usage.updatedAt)) / 60_000)}m ago`}`
+                    : "Account limits unavailable"}
+              </span>
+              {providerApplicable && (
+                <Button className="account-usage-manage" onClick={() => void manage()}>
+                  {provider}
+                  <span aria-hidden="true">↗</span>
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      />
+      {previewOpen && !open && (
+        <div
+          ref={preview}
+          id={previewId}
+          className={`${codeFontClassName} account-usage-preview`}
+          role="tooltip"
+          popover="manual"
+          data-ph-private
+        >
+          <div className="account-usage-preview-heading">
+            <HarnessIcon harness={harness} size={16} />
+            <span>
+              {consoleBilling && usage
+                ? "OpenCode Console"
+                : (planName(harness, usage?.account?.plan) ?? name)}
+            </span>
+          </div>
+          {visibleWindows.slice(0, 2).map((window) => (
+            <div className="account-usage-preview-window" key={window.id}>
+              <div className="account-usage-line">
+                <span>{window.name}</span>
+                <span>
+                  {window.resetsAt !== undefined && window.resetsAt * 1000 <= currentTime
+                    ? "Checking…"
+                    : percentLabel(window)}
                 </span>
               </div>
-            )}
-            {tokens && (
-              <details className="account-usage-section account-usage-disclosure">
-                <summary>
-                  This conversation
-                  <span>{tokenCount(tokens.inputTokens + tokens.outputTokens)} tokens</span>
-                </summary>
-                <div className="account-usage-token-list">
-                  <div className="account-usage-line">
-                    <span>Input</span>
-                    <span>{tokens.inputTokens.toLocaleString()}</span>
-                  </div>
-                  <div className="account-usage-line account-usage-muted">
-                    <span>Cached · included above</span>
-                    <span>{tokens.cachedInputTokens.toLocaleString()}</span>
-                  </div>
-                  <div className="account-usage-line">
-                    <span>Output</span>
-                    <span>{tokens.outputTokens.toLocaleString()}</span>
-                  </div>
-                  {tokens.costUSD !== undefined && (
-                    <>
-                      <div className="account-usage-line">
-                        <span>Estimated model cost</span>
-                        <span>{dollars(tokens.costUSD)}</span>
-                      </div>
-                      <div className="account-usage-muted">
-                        {billing === "subscription"
-                          ? "API-equivalent estimate, not a subscription charge."
-                          : "Model estimate. Check your provider for billed usage."}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </details>
-            )}
-            {(usage?.note || !ready || !api.harnessUsage || !providerApplicable) && (
-              <p className="account-usage-note">
-                {!ready
-                  ? `Sign in to ${name} to view account usage.`
-                  : !providerApplicable
-                    ? "OpenCode doesn't expose account allowances for this model's provider."
-                    : (usage?.note ??
-                      "This connection doesn't report account limits. Check your provider account.")}
-              </p>
-            )}
-            {ready && providerApplicable && snapshot.error && (
-              <p className="account-usage-error" role="status">
-                {snapshot.error}
-              </p>
-            )}
-            {managementError && (
-              <p className="account-usage-error" role="alert">
-                Couldn't open the usage page. Try again.
-              </p>
-            )}
-          </div>
-          <div className="account-usage-footer">
-            <span className="account-usage-muted" aria-live="polite">
-              {snapshot.loading
-                ? "Refreshing…"
-                : usage
-                  ? `${visibleWindows.length ? "Reported" : "Checked"} ${Date.now() - Date.parse(usage.updatedAt) < 60_000 ? "just now" : `${Math.floor(Math.max(0, now - Date.parse(usage.updatedAt)) / 60_000)}m ago`}`
-                  : "Account limits unavailable"}
-            </span>
-            {providerApplicable && (
-              <Button className="account-usage-manage" onClick={() => void manage()}>
-                {provider}
-                <span aria-hidden="true">↗</span>
-              </Button>
-            )}
-          </div>
+              {window.resetsAt !== undefined && (
+                <div className="account-usage-muted">{untilTime(window.resetsAt, currentTime)}</div>
+              )}
+            </div>
+          ))}
+          {!visibleWindows.length && (
+            <div className="account-usage-muted">
+              {!ready
+                ? `Sign in to ${name} to view usage.`
+                : limited
+                  ? "Usage limit reached"
+                  : snapshot.loading
+                    ? "Checking usage…"
+                    : "Account limits unavailable"}
+            </div>
+          )}
+          {usage?.resets && usage.resets.availableCount > 0 && (
+            <div className="account-usage-line account-usage-muted">
+              <span>Banked resets</span>
+              <span>{usage.resets.availableCount} available</span>
+            </div>
+          )}
+          <div className="account-usage-preview-hint">Click for full details</div>
         </div>
       )}
-    />
+    </div>
   );
 });
