@@ -222,7 +222,7 @@ export function App({
   draftsRef.current = drafts;
   const canvasDockHome = useRef<HTMLSpanElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const focusAfterStart = useRef(false);
+  const focusComposerAfterSelection = useRef(false);
   const [error, setError] = useState<WorkspaceError | null>(null);
   const {
     loading,
@@ -291,10 +291,10 @@ export function App({
   const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
   useLayoutEffect(() => {
-    if (!focusAfterStart.current) return;
-    focusAfterStart.current = false;
+    if (!focusComposerAfterSelection.current) return;
+    focusComposerAfterSelection.current = false;
     document.getElementById("thread-prompt")?.focus({ preventScroll: true });
-  }, [selectedThreadId]);
+  });
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
   const promptHistory = useMemo(
@@ -759,6 +759,22 @@ export function App({
       setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
     },
     [readThread],
+  );
+
+  const newThreadText = drafts[`${project?.id}:new`]?.text ?? "";
+  const sidebarDraft = useMemo(
+    () =>
+      project
+        ? {
+            text: newThreadText,
+            selected: !selectedThreadId,
+            onSelect: () => {
+              focusComposerAfterSelection.current = true;
+              selectThread(project.id, null);
+            },
+          }
+        : undefined,
+    [newThreadText, selectedThreadId, project, selectThread],
   );
 
   useEffect(() => {
@@ -1240,7 +1256,7 @@ export function App({
       [key]: { ...draft, text: "", attachments: [] },
       ...(id !== selectedThreadId ? { [pendingKey]: { ...draft, text: "", attachments: [] } } : {}),
     }));
-    focusAfterStart.current = !thread;
+    focusComposerAfterSelection.current = !thread;
     setSelectedThreads((current) => ({ ...current, [projectId]: id }));
     setError(null);
     try {
@@ -1828,14 +1844,7 @@ export function App({
                   threads={snapshot.threads}
                   search={deferredThreadQueries[project.id] ?? ""}
                   renderThread={renderThread}
-                  draft={{
-                    text: drafts[`${project.id}:new`]?.text ?? "",
-                    selected: !selectedThreadId,
-                    onSelect: () => {
-                      selectThread(project.id, null);
-                      document.getElementById("thread-prompt")?.focus();
-                    },
-                  }}
+                  draft={sidebarDraft}
                 />
               </ThreadReadingContext>
             </div>
