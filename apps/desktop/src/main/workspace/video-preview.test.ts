@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
+import { homedir, tmpdir } from "node:os";
 import { readVideoChunk } from "./video-preview";
 import {
   MAX_VIDEO_BYTES,
@@ -49,7 +50,7 @@ test("absolute paths and file URLs inside the execution folder are supported", a
   }
 });
 
-test("traversal and symlinks cannot expose files outside the project", async () => {
+test("recordings outside the project resolve through absolute, parent-relative and symlink paths", async () => {
   const { root, directory } = await fixture();
   const outside = join(directory, "private.mp4");
   await writeFile(outside, "private");
@@ -57,12 +58,14 @@ test("traversal and symlinks cannot expose files outside the project", async () 
   await symlink(directory, join(root, "linked"));
   for (const href of [
     outside,
+    pathToFileURL(outside).href,
     "../private.mp4",
     "%2e%2e/private.mp4",
     "escape.mp4",
     "linked/private.mp4",
   ]) {
-    await expect(readVideoChunk({ root, href, offset: 0 })).rejects.toThrow("project folder");
+    const chunk = await readVideoChunk({ root, href, offset: 0 });
+    expect(Buffer.from(chunk.data, "base64").toString()).toBe("private");
   }
 });
 
@@ -104,4 +107,43 @@ test("changed recordings and invalid continuation offsets fail instead of mixing
       }),
     ).rejects.toThrow("position");
   }
+});
+
+test("home-relative recordings resolve on the host instead of inside the project", async () => {
+  const { root } = await fixture();
+  const home = await mkdtemp(join(homedir(), ".tidy-video-preview-test-"));
+  directories.push(home);
+  const path = join(home, "home recording.mp4");
+  await writeFile(path, "home recording");
+  const href = `~/${relative(homedir(), path)}`;
+  const chunk = await readVideoChunk({ root, href, offset: 0 });
+  expect(Buffer.from(chunk.data, "base64").toString()).toBe("home recording");
+});
+
+test("absolute recordings remain available when the project folder is unavailable", async () => {
+  const { root, directory } = await fixture();
+  const path = join(directory, "demo.mp4");
+  await writeFile(path, "external recording");
+  await rm(root, { recursive: true });
+  const chunk = await readVideoChunk({ root, href: path, offset: 0 });
+  expect(Buffer.from(chunk.data, "base64").toString()).toBe("external recording");
+});
+
+test("projects opened through directory symlinks can preview relative recordings", async () => {
+  const { root, directory } = await fixture();
+  const alias = join(directory, "project-alias");
+  await symlink(root, alias);
+  await writeFile(join(root, "demo.mp4"), "recording");
+  expect((await readVideoChunk({ root: alias, href: "demo.mp4", offset: 0 })).size).toBe(9);
+});
+
+test("missing recordings explain which machine needs the file", async () => {
+  const { root } = await fixture();
+  await expect(readVideoChunk({ root, href: "missing.mp4", offset: 0 })).rejects.toThrow(
+    "no longer available on the machine running this thread",
+  );
+  if (process.platform !== "win32")
+    await expect(
+      readVideoChunk({ root, href: "C:/recordings/demo.mp4", offset: 0 }),
+    ).rejects.toThrow("different operating system");
 });

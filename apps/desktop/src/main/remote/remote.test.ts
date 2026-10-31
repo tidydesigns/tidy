@@ -1059,6 +1059,19 @@ test("remote video preview transfers authenticated project bytes and rejects ano
   expect(
     Buffer.concat([Buffer.from(first.data, "base64"), Buffer.from(second.data, "base64")]),
   ).toEqual(data);
+  const outside = join(f.root, "temporary recording.webm");
+  await writeFile(outside, data);
+  for (const href of [outside, "../temporary%20recording.webm"]) {
+    const external = await client.operation("read-video-chunk", { ...input, href });
+    expect(Buffer.from(external.data, "base64")).toEqual(data.subarray(0, 512 * 1024));
+    const continuation = await client.operation("read-video-chunk", {
+      ...input,
+      href,
+      offset: 512 * 1024,
+      revision: external.revision,
+    });
+    expect(Buffer.from(continuation.data, "base64")).toEqual(data.subarray(512 * 1024));
+  }
   await expect(
     client.operation("read-video-chunk", { ...input, threadId: randomUUID() }),
   ).rejects.toThrow();

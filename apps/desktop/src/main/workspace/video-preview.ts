@@ -1,6 +1,6 @@
 import { openProjectVideo } from "../platform/project-video-file";
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { resolveChatFilePath } from "./chat-file-path";
 import { parseChatLink } from "../../shared/models/chat-links";
 import {
   MAX_VIDEO_BYTES,
@@ -21,13 +21,7 @@ export async function readVideoChunk({
   const link = parseChatLink(href);
   const mimeType = link?.kind === "file" ? videoMimeType(link.path) : null;
   if (!link || link.kind !== "file" || !mimeType) throw new Error("Choose a supported video file.");
-  const projectRoot = await realpath(root);
-  if (projectRoot !== resolve(root))
-    throw new Error("The project directory has moved. Open it again.");
-  const path = await realpath(resolve(projectRoot, link.path));
-  const within = relative(projectRoot, path);
-  if (!within || isAbsolute(within) || within === ".." || within.startsWith(`..${sep}`))
-    throw new Error("Video previews must stay inside this thread's project folder.");
+  const path = await resolveChatFilePath({ root, path: link.path });
   const file = await openProjectVideo(path);
   try {
     const info = await file.stat({ bigint: true });
