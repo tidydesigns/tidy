@@ -134,7 +134,7 @@ export const HarnessUsage = memo(function HarnessUsage({
   useEffect(() => {
     setOpen(false);
     setManagementError(false);
-  }, [cache]);
+  }, [cache, modelProvider]);
   useEffect(() => {
     if (!open) return;
     const refresh = () => {
@@ -153,7 +153,31 @@ export const HarnessUsage = memo(function HarnessUsage({
     };
   }, [open, cache, ready, api, providerApplicable]);
   const usage = ready && providerApplicable ? snapshot.value : undefined;
-  const activeWindow = relevantWindow(usage, now);
+  const currentTime = Math.max(now, Date.now());
+  const nextReset = usage?.windows.reduce<number | undefined>((next, window) => {
+    const at = window.resetsAt === undefined ? undefined : window.resetsAt * 1000;
+    return at !== undefined && at > currentTime && (next === undefined || at < next) ? at : next;
+  }, undefined);
+  useEffect(() => {
+    if (nextReset === undefined) return;
+    // One deadline keeps a closed trigger current without background polling.
+    const deadline = window.setTimeout(
+      () => {
+        setNow(Date.now());
+        if (
+          Date.now() >= nextReset &&
+          !document.hidden &&
+          ready &&
+          providerApplicable &&
+          api.harnessUsage
+        )
+          void cache.refresh(true);
+      },
+      Math.min(2_147_483_647, Math.max(1, nextReset - Date.now())),
+    );
+    return () => window.clearTimeout(deadline);
+  }, [cache, nextReset, now, ready, providerApplicable, api]);
+  const activeWindow = relevantWindow(usage, currentTime);
   const limited = usage?.state === "limited";
   const low = usage?.state === "warning" || Boolean(activeWindow && activeWindow.usedPercent >= 90);
   const name = harnessNames[harness];
@@ -273,7 +297,7 @@ export const HarnessUsage = memo(function HarnessUsage({
                   </div>
                 )}
                 {usage?.windows.map((window) => (
-                  <UsageWindow key={window.id} window={window} now={now} />
+                  <UsageWindow key={window.id} window={window} now={currentTime} />
                 ))}
               </div>
             ) : null}

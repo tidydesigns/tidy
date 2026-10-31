@@ -1,4 +1,4 @@
-import { observeUsage } from "./usage-state";
+import { observeUsage, usageScope } from "./usage-state";
 import { HarnessFailureError } from "./provider-failure";
 import { randomUUID } from "node:crypto";
 import {
@@ -173,8 +173,9 @@ export class HarnessSession {
       opencode: createOpenCodeAdapter,
     };
     this.adapter = adapters[input.harness](context);
+    let scope = "";
     this.transport.onMessage = (value) => {
-      observeUsage(harness, cwd, value);
+      observeUsage(harness, cwd, value, scope);
       this.adapter.consume(value);
     };
     this.transport.onClose = (error) => {
@@ -182,11 +183,18 @@ export class HarnessSession {
       this.finish(error);
       this.state = { kind: "closed" };
     };
-    this.ready = this.adapter.initialize().catch((error: unknown) => {
-      this.finish(error instanceof Error ? error : new Error("The harness could not initialize."));
-      this.close();
-      throw error;
-    });
+    this.ready = this.adapter
+      .initialize()
+      .then(() => {
+        scope = usageScope(harness, cwd) ?? "";
+      })
+      .catch((error: unknown) => {
+        this.finish(
+          error instanceof Error ? error : new Error("The harness could not initialize."),
+        );
+        this.close();
+        throw error;
+      });
     void this.ready.catch(() => {});
   }
   get available() {

@@ -6,7 +6,7 @@ import {
   parseCodexUsage,
   parseOpenCodeUsage,
 } from "./usage-protocol";
-import { claudeAccountUsage, observeUsage, observedUsage } from "./usage-state";
+import { claudeAccountUsage, observeUsage, observedUsage, usageScope } from "./usage-state";
 import { readCodexUsage } from "./harness-usage";
 
 const window = { usedPercent: 40, windowDurationMins: 300, resetsAt: 2_000_000_000 };
@@ -149,4 +149,41 @@ test("OpenCode converts millisecond resets, separates shared budgets and avoids 
   expect(value.account?.plan).toBe("OpenCode Go");
   expect(value.state).toBe("warning");
   expect(() => parseOpenCodeUsage({})).toThrow("supported usage");
+});
+
+test("late observations from an older authenticated connection cannot restore another account's usage", () => {
+  const cwd = `/synthetic/${crypto.randomUUID()}`;
+  const init = (email: string) => ({
+    account: { email, subscriptionType: "max", tokenSource: "oauth" },
+  });
+  claudeAccountUsage(init("first@example.invalid"), cwd);
+  const oldScope = usageScope("claude", cwd)!;
+  claudeAccountUsage(init("second@example.invalid"), cwd);
+  observeUsage(
+    "claude",
+    cwd,
+    { type: "rate_limit_event", rate_limit_info: { status: "rejected", utilization: 1 } },
+    oldScope,
+  );
+  expect(observedUsage("claude", cwd)?.windows).toEqual([]);
+  observeUsage(
+    "claude",
+    cwd,
+    { type: "rate_limit_event", rate_limit_info: { status: "allowed", utilization: 0.2 } },
+    usageScope("claude", cwd),
+  );
+  expect(observedUsage("claude", cwd)?.windows[0].usedPercent).toBe(20);
+});
+test("unknown Claude limit categories stay bounded and status-only events don't re-date old percentages", () => {
+  const cwd = `/synthetic/${crypto.randomUUID()}`;
+  for (let i = 0; i < 120; i++)
+    observeUsage("claude", cwd, {
+      type: "rate_limit_event",
+      rate_limit_info: { status: "allowed", utilization: 0.3, rateLimitType: `unknown-${i}` },
+    });
+  const previous = observedUsage("claude", cwd)!;
+  expect(previous.windows).toHaveLength(1);
+  expect(harnessUsageSchema.safeParse(previous).success).toBe(true);
+  observeUsage("claude", cwd, { type: "rate_limit_event", rate_limit_info: { status: "allowed" } });
+  expect(observedUsage("claude", cwd)?.updatedAt).toBe(previous.updatedAt);
 });

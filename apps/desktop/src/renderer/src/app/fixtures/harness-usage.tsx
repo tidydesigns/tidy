@@ -184,4 +184,27 @@ export async function runHarnessUsageTests(root: Root) {
     !panel().querySelector('[role="meter"]') && panel().textContent?.includes("model's provider"),
     "Console allowances were attributed to another OpenCode provider",
   );
+  harness = "codex";
+  const beforeDeadline = reads.length;
+  render({
+    ...usage,
+    updatedAt: new Date().toISOString(),
+    windows: [
+      {
+        id: "expiring",
+        name: "5-hour limit",
+        usedPercent: 100,
+        resetsAt: (Date.now() + 150) / 1000,
+      },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  check(
+    reads.length === beforeDeadline + 1,
+    "A closed usage trigger didn't refresh at its reset deadline",
+  );
+  check(
+    !trigger().textContent?.includes("0% left"),
+    "The closed trigger retained an elapsed allowance",
+  );
 }

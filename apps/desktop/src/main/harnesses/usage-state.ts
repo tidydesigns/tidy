@@ -36,6 +36,9 @@ export function scopeUsage(harness: HarnessId, cwd: string, value: unknown) {
   accountScopes.set(id, signature);
   if (accountScopes.size > 64) accountScopes.delete(accountScopes.keys().next().value!);
 }
+export function usageScope(harness: HarnessId, cwd: string) {
+  return accountScopes.get(key(harness, cwd));
+}
 export function observedUsage(harness: HarnessId, cwd: string) {
   const value = observations.get(key(harness, cwd));
   return value && Date.now() - Date.parse(value.updatedAt) < 30 * 60_000 ? value : undefined;
@@ -48,7 +51,14 @@ export function rememberUsage(harness: HarnessId, cwd: string, value: HarnessUsa
 }
 
 /** Observe native events without persisting account details into a conversation or sync file. */
-export function observeUsage(harness: HarnessId, cwd: string, value: Record<string, unknown>) {
+export function observeUsage(
+  harness: HarnessId,
+  cwd: string,
+  value: Record<string, unknown>,
+  scope?: string,
+) {
+  // A connection authenticated before an account change cannot replace the new account's data.
+  if (scope !== undefined && scope !== usageScope(harness, cwd)) return;
   if (harness === "codex" && value.method === "account/updated") {
     observations.delete(key(harness, cwd));
     return;
@@ -74,6 +84,8 @@ export function observeUsage(harness: HarnessId, cwd: string, value: Record<stri
       ...previous,
       ...next,
       windows: [...windows, ...next.windows],
+      updatedAt:
+        next.windows.length || !previous?.windows.length ? next.updatedAt : previous.updatedAt,
       usagePage: previous?.usagePage ?? "subscription",
       note: "Claude reports limits as you work. Other account limits may also apply.",
     });

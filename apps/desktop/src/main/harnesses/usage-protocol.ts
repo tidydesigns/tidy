@@ -176,7 +176,7 @@ export function parseClaudeLimit(
         status: z.enum(["allowed", "allowed_warning", "rejected"]),
         utilization: z.number().min(0).max(1).optional(),
         resetsAt: timestamp.optional(),
-        rateLimitType: z.string().optional(),
+        rateLimitType: z.string().max(200).optional(),
       }),
     })
     .safeParse(value);
@@ -188,7 +188,7 @@ export function parseClaudeLimit(
       info.utilization !== undefined
         ? [
             {
-              id: info.rateLimitType ?? "reported",
+              id: known ? info.rateLimitType! : "reported",
               name:
                 info.rateLimitType === "five_hour"
                   ? "5-hour limit"
