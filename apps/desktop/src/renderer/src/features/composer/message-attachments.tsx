@@ -1,7 +1,5 @@
 import { ImagePreview } from "../../components/chat-image";
 import { Fragment, useEffect, useState } from "react";
-import { ClipboardCopyButton } from "../threads/message-copy-button";
-import { copyAttachmentImage } from "../threads/image-clipboard";
 import { attachmentParts } from "../../../../shared/models/attachment-references";
 import { Button } from "@tidy/ui/button";
 import type { AttachedFile, Attachment } from "../../../../shared/contracts/attachments";
@@ -18,11 +16,9 @@ export const attachmentReferenceClassName =
 export function AttachmentList({
   files,
   onRemove,
-  onCopyImage,
 }: {
   files: AttachedFile[];
   onRemove?: (id: string) => void;
-  onCopyImage?: (id: string) => Promise<void>;
 }) {
   if (!files.length) return null;
   return (
@@ -33,7 +29,7 @@ export function AttachmentList({
       {files.map((file) => (
         <li
           aria-busy={file.importState === "pending" || undefined}
-          className={`group/attachment relative message-attachment flex max-w-60 items-center gap-[9px] rounded-lg border border-border bg-panel text-ink ${file.previewUrl ? "message-attachment-image relative size-18 min-h-0 p-0" : "min-h-12 px-2 py-1.5"}`}
+          className={`message-attachment flex max-w-60 items-center gap-[9px] rounded-lg border border-border bg-panel text-ink ${file.previewUrl ? "message-attachment-image relative size-18 min-h-0 p-0" : "min-h-12 px-2 py-1.5"}`}
           key={file.referenceId ?? file.id}
           title={file.name}
         >
@@ -72,13 +68,6 @@ export function AttachmentList({
                     : attachmentSize(file.size)}
               </small>
             </span>
-          )}
-          {onCopyImage && file.previewUrl && (
-            <ClipboardCopyButton
-              label={`Copy image: ${file.name}`}
-              onCopy={() => onCopyImage(file.id)}
-              className="absolute right-1 bottom-1 border border-border bg-panel opacity-0 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 [@media(hover:none)]:opacity-100 data-[copied]:opacity-100"
-            />
           )}
           {onRemove && (
             <Button
@@ -123,10 +112,7 @@ export function MessageAttachments({
     };
   }, [api, projectId, imageIds]);
   return (
-    <AttachmentList
-      files={files.map((file) => ({ ...file, previewUrl: previews[file.id] }))}
-      onCopyImage={(attachmentId) => copyAttachmentImage({ api, projectId, attachmentId })}
-    />
+    <AttachmentList files={files.map((file) => ({ ...file, previewUrl: previews[file.id] }))} />
   );
 }
 
