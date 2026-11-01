@@ -236,7 +236,12 @@ export function ThreadCard({
               setOpen(true);
             }}
           >
-            <ChatLink href={latestPullRequest} api={api} projectId={thread.projectId}>
+            <ChatLink
+              href={latestPullRequest}
+              api={api}
+              projectId={thread.projectId}
+              className="[&>span]:decoration-1 [&>span]:underline-offset-2 focus-visible:[&>span]:underline pointer-fine:hover:[&>span]:underline"
+            >
               {`#${latestPullRequest.split("/").at(-1)}`}
             </ChatLink>
             {thread.pullRequests && thread.pullRequests.length > 1 && (

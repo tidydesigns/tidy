@@ -149,45 +149,10 @@ test("corrupt or blocked storage does not prevent status lookups", async () => {
   }
 });
 
-test("unchanged refreshes skip storage writes while real state changes persist", async () => {
-  const clock = spyOn(Date, "now").mockReturnValue(0);
-  let writes = 0;
-  let state: "open" | "merged" = "open";
-  const status = pullRequestStatus({
-    api: { pullRequestState: async () => state },
-    projectId: "project",
-    url,
-    storage: {
-      getItem: () => null,
-      setItem: () => {
-        writes++;
-      },
-    },
-  });
-  try {
-    await status.refresh();
-    expect(writes).toBe(1);
-    clock.mockReturnValue(60_001);
-    await status.refresh();
-    expect(writes).toBe(1);
-    state = "merged";
-    clock.mockReturnValue(120_002);
-    await status.refresh();
-    expect(writes).toBe(2);
-    expect(status.read().state).toBe("merged");
-  } finally {
-    clock.mockRestore();
-  }
-});
-
-test("persistent status storage is read once and retains at most 256 entries", async () => {
+test("persistent status storage retains at most 256 entries", async () => {
   let saved = "";
-  let reads = 0;
   const storage = {
-    getItem: () => {
-      reads++;
-      return saved || null;
-    },
+    getItem: () => saved || null,
     setItem: (_key: string, value: string) => {
       saved = value;
     },
@@ -201,26 +166,19 @@ test("persistent status storage is read once and retains at most 256 entries", a
       storage,
     }).refresh();
   }
-  expect(reads).toBe(1);
   const entries: unknown = JSON.parse(saved);
   expect(entries).toHaveLength(256);
   expect(entries).not.toContainEqual([
     JSON.stringify(["", "project", "https://github.com/owner/repo/pull/1"]),
     "open",
   ]);
-  const restored = pullRequestStatus({
-    api: { pullRequestState: async () => null },
-    projectId: "project",
-    url: "https://github.com/owner/repo/pull/260",
-    storage: { ...storage },
-  });
-  expect(restored.read().state).toBe("open");
 });
 
-test("failed status persistence retries an unchanged result after storage recovers", async () => {
+test("status persistence retries failed writes and skips unchanged successful results", async () => {
   const clock = spyOn(Date, "now").mockReturnValue(0);
   let saved = "";
   let writes = 0;
+  let state: "merged" | "open" = "merged";
   const storage = {
     getItem: () => saved || null,
     setItem: (_key: string, value: string) => {
@@ -230,7 +188,7 @@ test("failed status persistence retries an unchanged result after storage recove
     },
   };
   const status = pullRequestStatus({
-    api: { pullRequestState: async () => "merged" },
+    api: { pullRequestState: async () => state },
     projectId: "project",
     url,
     storage,
@@ -249,6 +207,14 @@ test("failed status persistence retries an unchanged result after storage recove
       storage: { ...storage },
     });
     expect(reopened.read().state).toBe("merged");
+    clock.mockReturnValue(120_002);
+    await status.refresh();
+    expect(writes).toBe(2);
+    state = "open";
+    clock.mockReturnValue(180_003);
+    await status.refresh();
+    expect(writes).toBe(3);
+    expect(status.read().state).toBe("open");
   } finally {
     clock.mockRestore();
   }

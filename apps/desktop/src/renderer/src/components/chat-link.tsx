@@ -13,11 +13,13 @@ export function ChatLink({
   children,
   api,
   projectId,
+  className = "",
 }: {
   href?: string;
   children: ReactNode;
   api: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
   projectId: string;
+  className?: string;
 }) {
   const openBrowser = useContext(BrowserNavigationContext);
   const link = parseChatLink(href);
@@ -46,7 +48,7 @@ export function ChatLink({
   };
   return (
     <a
-      className={file ? "chat-file-link" : "chat-web-link"}
+      className={`${file ? "chat-file-link" : "chat-web-link"} ${className}`}
       href={href}
       title={file ? `Show in folder: ${link.path}${position}` : link.url}
       onClick={(event) => {

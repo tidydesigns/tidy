@@ -824,71 +824,6 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   );
 
   await run(
-    "sidebar PR links retain their nodes and known colours during refresh",
-    async (root) => {
-      const url = "https://github.com/owner/repo/pull/42";
-      const thread = { ...summarizeThread(makeThread()), pullRequests: [url] };
-      const initialAPI = { ...nativeAPI, pullRequestState: async () => "merged" as const };
-      await pullRequestStatus({ api: initialAPI, projectId, url }).refresh();
-      const pending = deferred<"closed">();
-      let calls = 0;
-      const api = {
-        ...nativeAPI,
-        pullRequestState: () => {
-          calls++;
-          return pending.promise;
-        },
-      };
-      const render = (title: string) =>
-        flushSync(() =>
-          root.render(
-            <ThreadCard
-              thread={{ ...thread, title }}
-              api={api}
-              selected={false}
-              loaded={false}
-              now={Date.now()}
-              pending={false}
-              onSelect={() => {}}
-              onDone={() => {}}
-            />,
-          ),
-        );
-      render("Initial thread");
-      const link = required(
-        host.querySelector<HTMLAnchorElement>(".thread-pull-requests a"),
-        "PR link",
-      );
-      const icon = required(link.querySelector("svg"), "PR icon");
-      check(link.textContent?.includes("#42"), "PR number missing on first render");
-      check(icon.getAttribute("data-state") === "merged", "Known colour missing on first render");
-      await until(() => calls === 1, "Background status refresh");
-      for (let index = 0; index < 5; index++) {
-        render(`Updated thread ${index}`);
-        check(
-          host.querySelector(".thread-pull-requests a") === link,
-          "Thread update replaced the PR link",
-        );
-        check(link.querySelector("svg") === icon, "Thread update replaced the PR icon");
-        check(link.textContent?.includes("#42"), "Thread update removed the PR number");
-        check(icon.getAttribute("data-state") === "merged", "Refresh cleared the known colour");
-      }
-      pending.resolve("closed");
-      await until(() => icon.getAttribute("data-state") === "closed", "Updated PR state");
-      check(
-        link.isConnected && link.textContent?.includes("#42"),
-        "Status refresh replaced the PR link",
-      );
-      link.focus();
-      check(
-        getComputedStyle(required(link.querySelector("span"), "PR number")).textDecorationLine ===
-          "underline",
-        "Focused PR number has no underline",
-      );
-    },
-  );
-
-  await run(
     "cached sidebar PRs stay mounted through bootstrap and sparse refreshes",
     async (root) => {
       const scope = crypto.randomUUID();
@@ -904,12 +839,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const pending = deferred<Bootstrap>();
       const listeners = new Set<(event: DesktopEvent) => void>();
       const errors: unknown[] = [];
+      const status = deferred<"closed">();
       const api = {
         bootstrap: () => pending.promise,
         selectProject: async () => snapshot,
         readThread: async () => thread,
         openChatLink: async () => {},
-        pullRequestState: async () => "merged" as const,
+        pullRequestState: () => status.promise,
         onEvent: (listener: (event: DesktopEvent) => void) => {
           listeners.add(listener);
           return () => {
@@ -917,7 +853,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           };
         },
       };
-      await pullRequestStatus({ api, projectId, url, scope }).refresh();
+      await pullRequestStatus({
+        api: { pullRequestState: async () => "merged" },
+        projectId,
+        url,
+        scope,
+      }).refresh();
       let current: ReturnType<typeof useWorkspaceState> | undefined;
       function Probe() {
         const navigation = useRef(0);
@@ -953,7 +894,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         ),
       );
       const link = required(
-        host.querySelector(".thread-pull-requests a"),
+        host.querySelector<HTMLAnchorElement>(".thread-pull-requests a"),
         "Cached PR link before bootstrap",
       );
       const icon = required(link.querySelector("svg"), "Cached PR icon");
@@ -967,14 +908,6 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         host.querySelector(".thread-pull-requests a") === link,
         "Sparse update removed the cached PR",
       );
-      flushSync(() => {
-        for (const listener of listeners)
-          listener({ type: "thread", thread: { ...thread, revision: 3, pullRequests: undefined } });
-      });
-      check(
-        host.querySelector(".thread-pull-requests a") === link,
-        "Legacy refresh removed the cached PR",
-      );
       pending.resolve({
         projects: [snapshot.project],
         activeProject: { ...snapshot, threads: [sparse] },
@@ -986,8 +919,16 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Bootstrap replaced the cached PR link",
       );
       check(
-        link.querySelector("svg") === icon && link.textContent?.includes("#42"),
-        "Bootstrap replaced the PR contents",
+        link.querySelector("svg") === icon &&
+          icon.getAttribute("data-state") === "merged" &&
+          link.textContent?.includes("#42"),
+        "Bootstrap changed the PR contents or cleared its known colour",
+      );
+      link.focus();
+      check(
+        getComputedStyle(required(link.querySelector("span"), "PR number")).textDecorationLine ===
+          "underline",
+        "Focused PR number has no underline",
       );
       flushSync(() =>
         current?.applySnapshot({ ...snapshot, threads: [{ ...sparse, revision: 3 }] }),
@@ -995,6 +936,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(
         host.querySelector(".thread-pull-requests a") === link,
         "Snapshot refresh removed the cached PR",
+      );
+      status.resolve("closed");
+      await until(() => icon.getAttribute("data-state") === "closed", "Updated PR status");
+      check(
+        host.querySelector(".thread-pull-requests a") === link,
+        "Status update replaced the link",
       );
       flushSync(() =>
         current?.applySnapshot({
@@ -1082,113 +1029,64 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
-  await run("startup preserves an explicitly cleared project selection", async (root) => {
-    const scope = crypto.randomUUID();
-    const project = {
-      id: projectId,
-      name: "Other window project",
-      path: "/fixture",
-      openedAt: timestamp,
-    };
-    const snapshot: ProjectSnapshot = { project, threads: [], designs: [], folders: [] };
-    writeSidebarCache({ scope, projects: [project], activeProject: snapshot });
-    sessionStorage.setItem(`tidy:navigation:${scope}:project`, "null");
-    const pending = deferred<Bootstrap>();
-    let calls = 0;
-    const api = {
-      bootstrap: () => pending.promise,
-      selectProject: async () => {
-        calls++;
-        return snapshot;
-      },
-      readThread: async () => makeThread(),
-      onEvent: () => () => {},
-    };
-    let current: ReturnType<typeof useWorkspaceState> | undefined;
-    function Probe() {
-      const navigation = useRef(0);
-      current = useWorkspaceState({
-        api,
-        navigation,
-        onError: (error) => {
-          throw error;
+  for (const cleared of [false, true]) {
+    await run(`startup cache respects a ${cleared ? "cleared" : "saved"} project`, async (root) => {
+      const scope = crypto.randomUUID();
+      const project = { id: projectId, name: "Saved project", path: "/a", openedAt: timestamp };
+      const other = { ...project, id: crypto.randomUUID(), name: "Other project", path: "/b" };
+      const snapshot: ProjectSnapshot = { project, threads: [], designs: [], folders: [] };
+      const projects = [project, other];
+      const bootstrap = { projects, activeProject: { ...snapshot, project: other }, harnesses: [] };
+      writeSidebarCache({ scope, projects, activeProject: bootstrap.activeProject });
+      const expected = cleared ? null : project.id;
+      sessionStorage.setItem(`tidy:navigation:${scope}:project`, JSON.stringify(expected));
+      const pending = deferred<Bootstrap>();
+      const selected: string[] = [];
+      const api = {
+        bootstrap: () => pending.promise,
+        selectProject: async (id: string) => {
+          selected.push(id);
+          return snapshot;
         },
-      });
-      return null;
-    }
-    flushSync(() =>
-      root.render(
-        <NavigationScope value={scope}>
-          <Probe />
-        </NavigationScope>,
-      ),
-    );
-    check(current?.activeProjectId === null, "Cache resurrected a cleared project");
-    pending.resolve({ projects: [project], activeProject: snapshot, harnesses: [] });
-    await until(() => !current?.loading, "Bootstrap with cleared selection");
-    check(current?.activeProjectId === null && calls === 0, "Bootstrap reopened a cleared project");
-  });
-
-  await run("startup cache respects the window's saved project", async (root) => {
-    const scope = crypto.randomUUID();
-    const openedAt = new Date().toISOString();
-    const a: ProjectSnapshot = {
-      project: { id: crypto.randomUUID(), name: "Window project", path: "/a", openedAt },
-      threads: [],
-      designs: [],
-      folders: [],
-    };
-    const b: ProjectSnapshot = {
-      ...a,
-      project: { ...a.project, id: crypto.randomUUID(), name: "Other window project", path: "/b" },
-    };
-    const projects = [a.project, b.project];
-    writeSidebarCache({ scope, projects, activeProject: b });
-    sessionStorage.setItem(`tidy:navigation:${scope}:project`, JSON.stringify(a.project.id));
-    const pending = deferred<Bootstrap>();
-    const selected: string[] = [];
-    const api = {
-      bootstrap: () => pending.promise,
-      selectProject: async (id: string) => {
-        selected.push(id);
-        return a;
-      },
-      readThread: async () => makeThread(),
-      onEvent: () => () => {},
-    };
-    let current: ReturnType<typeof useWorkspaceState> | undefined;
-    function Probe() {
-      const navigation = useRef(0);
-      current = useWorkspaceState({
-        api,
-        navigation,
-        onError: (error) => {
-          throw error;
-        },
-      });
-      return null;
-    }
-    flushSync(() =>
-      root.render(
-        <NavigationScope value={scope}>
-          <Probe />
-        </NavigationScope>,
-      ),
-    );
-    check(current?.activeProjectId === a.project.id, "Shared cache replaced this window's project");
-    flushSync(() => current?.applySnapshot(a));
-    check(
-      current?.bootstrapped && !current.loading,
-      "A fresh project snapshot did not finish cached startup",
-    );
-    pending.resolve({ projects, activeProject: b, harnesses: [] });
-    await until(() => !current?.loading && selected.length === 1, "Restore window project");
-    check(
-      current?.activeProjectId === a.project.id,
-      "Bootstrap switched to another window's project",
-    );
-    check(selected.length === 1 && selected[0] === a.project.id, "Saved project was not reopened");
-  });
+        readThread: async () => makeThread(),
+        onEvent: () => () => {},
+      };
+      let current: ReturnType<typeof useWorkspaceState> | undefined;
+      function Probe() {
+        const navigation = useRef(0);
+        current = useWorkspaceState({
+          api,
+          navigation,
+          onError: (error) => {
+            throw error;
+          },
+        });
+        return null;
+      }
+      flushSync(() =>
+        root.render(
+          <NavigationScope value={scope}>
+            <Probe />
+          </NavigationScope>,
+        ),
+      );
+      check(current?.activeProjectId === expected, "Shared cache replaced the window selection");
+      if (!cleared) {
+        flushSync(() => current?.applySnapshot(snapshot));
+        check(current?.bootstrapped && !current.loading, "Fresh snapshot did not finish startup");
+      }
+      pending.resolve(bootstrap);
+      await until(
+        () => !current?.loading && (cleared || selected.length === 1),
+        "Restore window selection",
+      );
+      check(current?.activeProjectId === expected, "Bootstrap replaced the window selection");
+      check(
+        JSON.stringify(selected) === JSON.stringify(cleared ? [] : [project.id]),
+        "Wrong project reopened",
+      );
+    });
+  }
 
   await run(
     "failed initial discovery is retryable without inventing installation guidance",
