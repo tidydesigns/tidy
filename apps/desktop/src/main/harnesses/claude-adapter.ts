@@ -1,8 +1,15 @@
 import { claudeAccountUsage } from "./usage-state";
 import { skillCommand } from "../../shared/contracts/skills";
 import { z } from "zod";
+import { claudePermissionMode } from "../../shared/contracts/permissions";
 import { createClaudeParser } from "./harnesses";
-import { HarnessNotSubmittedError, object, text } from "./harness-transport";
+import {
+  HarnessNotSubmittedError,
+  HarnessPermissionChangeError,
+  HarnessRequestError,
+  object,
+  text,
+} from "./harness-transport";
 import type { AdapterContext, HarnessAdapter } from "./session-types";
 
 const taskStatus = z.enum([
@@ -48,6 +55,28 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
   return {
     async initialize() {
       claudeAccountUsage(await context.transport.request("initialize"), input.cwd);
+    },
+    async setPermissionMode(mode) {
+      // Bypass must have been enabled at process startup. Do not opt restrictive
+      // sessions into that capability merely to avoid a future restart.
+      if (mode === "auto" && input.settings?.permissionMode !== "auto") return false;
+      try {
+        await context.transport.request(
+          "set_permission_mode",
+          { mode: claudePermissionMode(mode) },
+          2000,
+        );
+      } catch (error) {
+        // A supported control can reject Auto for this model. Restarting with the
+        // same rejected policy would unnecessarily destroy the working session.
+        if (
+          error instanceof HarnessRequestError &&
+          error.message.startsWith("Cannot set permission mode")
+        )
+          throw new HarnessPermissionChangeError(error.message);
+        throw error;
+      }
+      return true;
     },
     async submit(message) {
       parse = createClaudeParser(emit);

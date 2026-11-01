@@ -256,9 +256,21 @@ export function createWorkspaceRequests<Context>(
   );
   handle(
     "thread-execution-project",
-    z.object({ projectId, threadId: uuid, executionProjectId: uuid.optional() }).strict(),
+    z
+      .object({
+        projectId,
+        threadId: uuid,
+        executionProjectId: uuid.optional(),
+        stopActive: z.boolean().optional(),
+      })
+      .strict(),
     (value) =>
-      service.setThreadExecutionProject(value.projectId, value.threadId, value.executionProjectId),
+      service.setThreadExecutionProject(
+        value.projectId,
+        value.threadId,
+        value.executionProjectId,
+        value.stopActive,
+      ),
   );
   handle("repository-context", z.object({ projectId }).strict(), (value) =>
     readRepositoryContext(store.project(value.projectId).path),

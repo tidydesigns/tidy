@@ -231,6 +231,7 @@ export type DesktopAPI = {
     projectId: string,
     threadId: string,
     executionProjectId?: string,
+    stopActive?: boolean,
   ): Promise<Thread>;
   renameThread(projectId: string, threadId: string, title: string): Promise<Thread>;
   regenerateThreadTitle(projectId: string, threadId: string, naming: ThreadNaming): Promise<Thread>;

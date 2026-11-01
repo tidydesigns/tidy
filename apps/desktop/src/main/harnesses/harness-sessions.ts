@@ -90,6 +90,30 @@ export class HarnessSessions {
       throw new HarnessNotSubmittedError(sessionConflictMessages.settings);
   }
 
+  async updatePermissions(id: string, projectId: string, settings: HarnessSettings) {
+    const entry = this.entries.get(id);
+    if (
+      !entry ||
+      entry.context.projectId !== projectId ||
+      entry.invalidated ||
+      entry.retireWhenIdle ||
+      settings.model !== entry.context.settings?.model ||
+      settings.effort !== entry.context.settings?.effort
+    )
+      return false;
+    if (
+      !(await entry.session.setPermissionMode(
+        effectivePermissionMode(entry.context.harness, settings.permissionMode),
+      ))
+    )
+      return false;
+    if (this.entries.get(id) !== entry || entry.invalidated) return false;
+    entry.context = { ...entry.context, settings };
+    entry.key = contextKey(entry.context);
+    if (entry.session.idle) this.release(id, entry);
+    return true;
+  }
+
   private compatible(entry: Entry, context: ManagedContext) {
     // Native upgrades move the executable symlink. Keep compatible background work
     // on its retained process until it is safe to retire it.

@@ -57,6 +57,9 @@ export type SessionActivity = {
 };
 export type HarnessAdapter = {
   initialize(): Promise<void>;
+  setPermissionMode?(
+    mode: import("../../shared/contracts/permissions").PermissionMode,
+  ): Promise<boolean>;
   submit(message: TurnInput): Promise<void>;
   consume(message: ProtocolMessage): void;
   interrupt(): Promise<void>;

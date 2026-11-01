@@ -9,6 +9,7 @@ export const object = (value: unknown) => protocolObject.parse(value ?? {});
 export const text = (value: unknown) => (typeof value === "string" ? value : "");
 export class HarnessRequestError extends HarnessFailureError {}
 export class HarnessNotSubmittedError extends Error {}
+export class HarnessPermissionChangeError extends Error {}
 const envelope = z
   .object({
     id: z.union([z.string(), z.number()]).optional(),

@@ -74,7 +74,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
   const request = context.transport.request.bind(context.transport);
   const write = context.transport.write.bind(context.transport);
   const rejectRequest = context.transport.reject.bind(context.transport);
-  const mode = validatePermissionMode(input.harness, input.settings?.permissionMode);
+  let mode = validatePermissionMode(input.harness, input.settings?.permissionMode);
   let threadId: string | undefined,
     turnId: string | undefined,
     failure: HarnessFailureError | undefined;
@@ -92,6 +92,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
     async initialize() {
       await request("initialize", {
         clientInfo: { name: "tidy_desktop", title: "Tidy", version },
+        capabilities: { experimentalApi: true, requestAttestation: false },
       });
       write({ method: "initialized", params: {} });
       const params = {
@@ -123,6 +124,46 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       if (!threadId) throw new Error("Codex did not return a thread identifier.");
       emit({ type: "session", id: threadId });
       if (typeof response.model === "string") emit({ type: "model", model: response.model });
+    },
+    async setPermissionMode(next) {
+      const previous = codexPermissions(mode),
+        permissions = codexPermissions(next);
+      // The live-turn API can update the reviewer, but cannot replace its sandbox
+      // or approval policy. Those changes need a fresh native session.
+      if (
+        !threadId ||
+        previous.sandbox !== permissions.sandbox ||
+        previous.approvalPolicy !== permissions.approvalPolicy
+      )
+        return false;
+      const active = context.isActive();
+      const target = turnId;
+      if (active && !target) return false;
+      await request(
+        "thread/settings/update",
+        {
+          threadId,
+          approvalPolicy: permissions.approvalPolicy,
+          approvalsReviewer: permissions.approvalsReviewer,
+        },
+        2000,
+      );
+      if (active) {
+        const response = object(
+          await request(
+            "turn/settings/update",
+            {
+              threadId,
+              turnId: target,
+              approvalsReviewer: permissions.approvalsReviewer,
+            },
+            2000,
+          ),
+        );
+        if (response.status !== "applied") return false;
+      }
+      mode = next;
+      return true;
     },
     async submit(message) {
       failure = undefined;

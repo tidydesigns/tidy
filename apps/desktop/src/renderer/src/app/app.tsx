@@ -1,5 +1,7 @@
 import {
   currentDefaultAccess,
+  accessDefaultOfferDismissed,
+  dismissAccessDefaultOffer,
   subscribeDefaultAccess,
   selectDefaultAccess,
   defaultAccessSchema,
@@ -237,9 +239,13 @@ export function App({
     });
   }, [defaultAccess, setDrafts]);
   const [accessOffer, setAccessOffer] = useState<DefaultAccess>();
+  const offerDismissed = useSyncExternalStore(subscribeDefaultAccess, accessDefaultOfferDismissed);
   const accessChoice = useRef(0);
   const [settingsPending, setSettingsPending] = useState<
     Record<string, Pick<Partial<Thread>, "settings" | "executionProjectId"> | undefined>
+  >({});
+  const configurationRequests = useRef<
+    Record<string, Partial<Record<"settings" | "executionProjectId", symbol>>>
   >({});
   const detailRequests = useRef<Record<string, number>>({});
   const [now, setNow] = useState(Date.now);
@@ -322,6 +328,10 @@ export function App({
   const selectedThreadId = project ? selectedThreads[project.id] : null;
   const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
+  useEffect(() => {
+    accessChoice.current++;
+    setAccessOffer(undefined);
+  }, [draftKey]);
   useLayoutEffect(() => {
     if (!focusAfterStart.current) return;
     focusAfterStart.current = false;
@@ -728,6 +738,7 @@ export function App({
     if (
       applied &&
       changedAccess &&
+      !accessDefaultOfferDismissed() &&
       choice === accessChoice.current &&
       offered.success &&
       offered.data !== currentDefaultAccess()
@@ -740,7 +751,6 @@ export function App({
     persist: () => Promise<Thread>,
   ) {
     if (!thread || !api || !project) return;
-    if (running && "executionProjectId" in patch) return;
     const threadId = thread.id,
       projectId = project.id;
     const apply = (value: Thread) => {
@@ -766,16 +776,28 @@ export function App({
             };
       });
     };
-    setSettingsPending((current) => ({ ...current, [thread.id]: patch }));
+    const request = Symbol();
+    const fields = (["settings", "executionProjectId"] as const).filter((field) => field in patch);
+    const pending = (configurationRequests.current[threadId] ??= {});
+    for (const field of fields) pending[field] = request;
+    setSettingsPending((current) => ({
+      ...current,
+      [threadId]: { ...current[threadId], ...patch },
+    }));
     try {
       apply(await persist());
       return true;
     } catch (cause) {
       setError({ projectId, text: errorText(cause), original: cause });
     } finally {
-      setSettingsPending((current) =>
-        current[threadId] === patch ? { ...current, [threadId]: undefined } : current,
-      );
+      const finished = fields.filter((field) => pending[field] === request);
+      for (const field of finished) delete pending[field];
+      if (!Object.keys(pending).length) delete configurationRequests.current[threadId];
+      setSettingsPending((current) => {
+        const remaining = { ...current[threadId] };
+        for (const field of finished) delete remaining[field];
+        return { ...current, [threadId]: Object.keys(remaining).length ? remaining : undefined };
+      });
     }
   }
 
@@ -935,7 +957,6 @@ export function App({
       !api ||
       !project?.cloud ||
       (selectedThreadId && !thread) ||
-      running ||
       opening ||
       (thread && settingsPending[thread.id])
     )
@@ -948,7 +969,7 @@ export function App({
       if (thread.executionProjectId === executionProjectId) return;
       updateDraft({ skill: undefined });
       await changeThreadConfiguration({ executionProjectId }, () =>
-        api.setThreadExecutionProject(project.id, thread.id, executionProjectId),
+        api.setThreadExecutionProject(project.id, thread.id, executionProjectId, running),
       );
     };
     if (value !== "open") {
@@ -1037,17 +1058,35 @@ export function App({
   const executionContext = project?.cloud
     ? {
         value: executionProjectId ?? "design",
+        disabled:
+          busy ||
+          opening ||
+          Boolean(thread?.doneAt) ||
+          Boolean(thread && settingsPending[thread.id]),
         options: [
           {
             value: "design",
-            label: "Design only",
+            label: running && executionProjectId ? "Stop and switch to Design only" : "Design only",
+            disabled: running && !executionProjectId,
             description: "Work with workspace designs on this computer",
           },
-          ...projects.map((item) => ({ value: item.id, label: item.name, description: item.path })),
+          ...projects.map((item) => ({
+            value: item.id,
+            label:
+              running && item.id !== executionProjectId
+                ? `Stop and switch to ${item.name}`
+                : item.name,
+            description: item.path,
+            disabled: running && item.id === executionProjectId,
+          })),
           ...(executionProjectId && !projects.some((item) => item.id === executionProjectId)
             ? [{ value: executionProjectId, label: "Project unavailable" }]
             : []),
-          { value: "open", label: "Open project…" },
+          {
+            value: "open",
+            label: "Open project…",
+            ...(running ? { description: "Stop and switch after choosing a folder" } : {}),
+          },
         ],
         ...(!selectedThreadId || (thread && !settingsPending[thread.id])
           ? { onChange: (value: string) => void chooseExecutionProject(value) }
@@ -2323,7 +2362,7 @@ export function App({
                           event.currentTarget.value = "";
                         }}
                       />
-                      {accessOffer && (
+                      {accessOffer && !offerDismissed && (
                         <div
                           className="mx-1.5 mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-2 text-xs text-muted-ink"
                           role="status"
@@ -2345,6 +2384,9 @@ export function App({
                                   "Access changed for this session, but could not be remembered.",
                                 );
                               setAccessOffer(undefined);
+                              document
+                                .getElementById("thread-prompt")
+                                ?.focus({ preventScroll: true });
                             }}
                           >
                             Make default
@@ -2353,7 +2395,16 @@ export function App({
                             type="button"
                             className={codeControlClassName}
                             aria-label="Dismiss default access suggestion"
-                            onClick={() => setAccessOffer(undefined)}
+                            onClick={() => {
+                              if (!dismissAccessDefaultOffer())
+                                showToast(
+                                  "Suggestion dismissed for this session, but could not be remembered.",
+                                );
+                              setAccessOffer(undefined);
+                              document
+                                .getElementById("thread-prompt")
+                                ?.focus({ preventScroll: true });
+                            }}
                           >
                             ×
                           </Button>

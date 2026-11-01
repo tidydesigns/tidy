@@ -1356,3 +1356,293 @@ for (const harness of harnessIdSchema.options) {
     }
   });
 }
+
+for (const harness of ["codex", "claude"] as const) {
+  test(`${harness} updates supported permissions on the running native session without replaying its request`, async () => {
+    const { ProjectStore } = await import("../workspace/project-store");
+    const { WorkspaceService } = await import("../workspace/workspace-service");
+    const cwd = await mkdtemp(join(directory, `${harness}-live-update-`));
+    await writeFile(join(cwd, "live-permissions"), "");
+    const store = new ProjectStore(join(cwd, "private"));
+    await store.initialize();
+    const { project } = await store.open(cwd);
+    const service = new WorkspaceService(
+      store,
+      undefined,
+      async () => executable,
+      async () => {},
+    );
+    const started = Promise.withResolvers<void>();
+    service.subscribe((event) => {
+      if (event.type === "thread" && event.thread.activity === "Working") started.resolve();
+    });
+    try {
+      const thread = await service.startThread({
+        projectId: project.id,
+        harness,
+        prompt: "hold",
+        designIds: [],
+      });
+      await started.promise;
+      const before = await service.readThread(project.id, thread.id);
+      const pid = (await events(cwd))[0].pid;
+      const after = await service.setThreadSettings(project.id, thread.id, {
+        permissionMode: "provider-auto",
+      });
+      expect(after.status).toBe("running");
+      expect(after.sessionId).toBe(before.sessionId);
+      expect(after.messages).toEqual(before.messages);
+      expect(after.settings?.permissionMode).toBe("provider-auto");
+      const log = await events(cwd);
+      expect(new Set(log.map((event) => event.pid))).toEqual(new Set([pid]));
+      expect(
+        log.filter((event) => event.method === "turn/start" || event.type === "user"),
+      ).toHaveLength(1);
+      expect(
+        log.some(
+          (event) =>
+            event.method === (harness === "codex" ? "turn/settings/update" : "set_permission_mode"),
+        ),
+      ).toBe(true);
+      if (harness === "codex")
+        expect(
+          log.find((event) => event.method === "turn/settings/update")?.value.params,
+        ).toMatchObject({ approvalsReviewer: "auto_review" });
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      // A live downgrade uses the same connection, too.
+      await service.setThreadSettings(project.id, thread.id, { permissionMode: "default" });
+      expect(new Set((await events(cwd)).map((event) => event.pid))).toEqual(new Set([pid]));
+    } finally {
+      await service.close();
+    }
+  });
+
+  test(`${harness} falls back to a single continuation when live permissions are unsupported`, async () => {
+    const { ProjectStore } = await import("../workspace/project-store");
+    const { WorkspaceService } = await import("../workspace/workspace-service");
+    const cwd = await mkdtemp(join(directory, `${harness}-unsupported-live-`));
+    const store = new ProjectStore(join(cwd, "private"));
+    await store.initialize();
+    const { project } = await store.open(cwd);
+    const service = new WorkspaceService(
+      store,
+      undefined,
+      async () => executable,
+      async () => {},
+    );
+    const started = Promise.withResolvers<void>();
+    service.subscribe((event) => {
+      if (event.type === "thread" && event.thread.activity === "Working") started.resolve();
+    });
+    try {
+      const thread = await service.startThread({
+        projectId: project.id,
+        harness,
+        prompt: "hold",
+        designIds: [],
+      });
+      await started.promise;
+      const before = await service.readThread(project.id, thread.id);
+      await service.setThreadSettings(project.id, thread.id, { permissionMode: "provider-auto" });
+      for (
+        let i = 0;
+        (await service.readThread(project.id, thread.id)).status === "running" && i < 100;
+        i++
+      )
+        await Bun.sleep(5);
+      const after = await service.readThread(project.id, thread.id);
+      expect(after.status).toBe("completed");
+      expect(after.sessionId).toBe(before.sessionId);
+      expect(after.messages.filter((message) => message.role === "user")).toHaveLength(1);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+      const log = await events(cwd);
+      expect(
+        log.filter((event) => event.method === "turn/start" || event.type === "user"),
+      ).toHaveLength(2);
+      expect(JSON.stringify(log)).toContain("Do not repeat completed actions");
+      expect(JSON.stringify(log)).toContain("Do not assume an interruption rolled back");
+    } finally {
+      await service.close();
+    }
+  });
+}
+
+test("a pending approval forces a handover instead of silently approving it under a live policy", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "pending-live-"));
+  await writeFile(join(cwd, "live-permissions"), "");
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  try {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "approve",
+      designIds: [],
+    });
+    for (
+      let i = 0;
+      !(await service.readThread(project.id, thread.id)).pendingApprovals?.length && i < 100;
+      i++
+    )
+      await Bun.sleep(5);
+    expect((await service.readThread(project.id, thread.id)).pendingApprovals).toHaveLength(1);
+    await service.setThreadSettings(project.id, thread.id, { permissionMode: "provider-auto" });
+    for (
+      let i = 0;
+      (await service.readThread(project.id, thread.id)).status === "running" && i < 100;
+      i++
+    )
+      await Bun.sleep(5);
+    const after = await service.readThread(project.id, thread.id);
+    expect(after.status).toBe("completed");
+    expect(after.pendingApprovals).toBeUndefined();
+    const log = await events(cwd);
+    expect(log.some((event) => event.method === "turn/settings/update")).toBe(false);
+    expect(new Set(log.map((event) => event.pid)).size).toBe(2);
+    expect(after.messages.filter((message) => message.role === "user")).toHaveLength(1);
+  } finally {
+    await service.close();
+  }
+});
+
+test("Stop while the provider acknowledges a live change cannot restart the thread", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "stop-live-"));
+  await writeFile(join(cwd, "live-permissions"), "");
+  await writeFile(join(cwd, "slow-live-permissions"), "");
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  const started = Promise.withResolvers<void>();
+  service.subscribe((event) => {
+    if (event.type === "thread" && event.thread.activity === "Working") started.resolve();
+  });
+  try {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "hold",
+      designIds: [],
+    });
+    await started.promise;
+    const change = service.setThreadSettings(project.id, thread.id, {
+      permissionMode: "provider-auto",
+    });
+    for (
+      let i = 0;
+      !(await events(cwd)).some((event) => event.method === "thread/settings/update") && i < 100;
+      i++
+    )
+      await Bun.sleep(2);
+    await service.stopThread(project.id, thread.id);
+    await change;
+    expect((await service.readThread(project.id, thread.id)).status).toBe("stopped");
+    expect((await events(cwd)).filter((event) => event.method === "turn/start")).toHaveLength(1);
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await service.close();
+  }
+});
+
+test("idle live permission updates preserve a compatible native session for the next message", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "idle-live-"));
+  await writeFile(join(cwd, "live-permissions"), "");
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  try {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "first",
+      designIds: [],
+    });
+    for (
+      let i = 0;
+      (await service.readThread(project.id, thread.id)).status === "running" && i < 100;
+      i++
+    )
+      await Bun.sleep(5);
+    await service.setThreadSettings(project.id, thread.id, { permissionMode: "provider-auto" });
+    await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "second" });
+    for (
+      let i = 0;
+      (await service.readThread(project.id, thread.id)).status === "running" && i < 100;
+      i++
+    )
+      await Bun.sleep(5);
+    const after = await service.readThread(project.id, thread.id);
+    expect(after.status).toBe("completed");
+    expect(after.messages.filter((message) => message.role === "user")).toHaveLength(2);
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await service.close();
+  }
+});
+
+test("a rejected Claude Auto mode keeps the previous permissions and running session", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "rejected-live-"));
+  await writeFile(join(cwd, "reject-live-permissions"), "");
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  const started = Promise.withResolvers<void>();
+  service.subscribe((event) => {
+    if (event.type === "thread" && event.thread.activity === "Working") started.resolve();
+  });
+  try {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "hold",
+      designIds: [],
+    });
+    await started.promise;
+    const pid = (await events(cwd))[0].pid;
+    await expect(
+      service.setThreadSettings(project.id, thread.id, { permissionMode: "provider-auto" }),
+    ).rejects.toThrow("auto mode unavailable");
+    const after = await service.readThread(project.id, thread.id);
+    expect(after.status).toBe("running");
+    expect(after.settings?.permissionMode).toBe("default");
+    expect((await store.readThread(project.id, thread.id)).settings?.permissionMode).toBe(
+      "default",
+    );
+    expect(new Set((await events(cwd)).map((event) => event.pid))).toEqual(new Set([pid]));
+    expect(() => process.kill(pid, 0)).not.toThrow();
+  } finally {
+    await service.close();
+  }
+});

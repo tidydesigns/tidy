@@ -35,7 +35,8 @@ export function ComposerContext({
   };
   execution?: {
     value: string;
-    options: Array<{ value: string; label: string; description?: string }>;
+    disabled?: boolean;
+    options: Array<{ value: string; label: string; description?: string; disabled?: boolean }>;
     onChange?(value: string): void;
   };
 }) {
@@ -90,7 +91,7 @@ export function ComposerContext({
           value={execution.value}
           options={execution.options}
           onChange={(value) => execution.onChange?.(value)}
-          disabled={disabled || !execution.onChange}
+          disabled={(execution.disabled ?? disabled) || !execution.onChange}
           placement="top"
           align="start"
           triggerClassName={codeContextTriggerClassName}

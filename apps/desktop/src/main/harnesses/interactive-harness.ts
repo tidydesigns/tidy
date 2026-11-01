@@ -12,6 +12,7 @@ import { createOpenCodeAdapter } from "./opencode-adapter";
 import { harnessEnvironment } from "./harnesses";
 import {
   HarnessNotSubmittedError,
+  HarnessPermissionChangeError,
   HarnessRequestError,
   HarnessTransport,
 } from "./harness-transport";
@@ -219,6 +220,32 @@ export class HarnessSession {
   }
   get hasBackgroundWork() {
     return this.backgroundOverflow || this.backgroundTasks.size > 0;
+  }
+  async setPermissionMode(mode: import("../../shared/contracts/permissions").PermissionMode) {
+    if (
+      !this.available ||
+      this.hasBackgroundWork ||
+      this.approvals.size ||
+      !this.adapter.setPermissionMode
+    )
+      return false;
+    try {
+      await this.ready;
+      if (
+        !this.available ||
+        this.state.kind === "cancelling" ||
+        this.hasBackgroundWork ||
+        this.approvals.size
+      )
+        return false;
+      const applied = await this.adapter.setPermissionMode(mode);
+      // A pending tool or child task can arrive while the provider acknowledges the update.
+      // Restart instead of leaving that work attached to an earlier permission policy.
+      return applied && this.available && !this.hasBackgroundWork && !this.approvals.size;
+    } catch (error) {
+      if (error instanceof HarnessPermissionChangeError) throw error;
+      return false;
+    }
   }
   get lastProviderActivity() {
     return this.activityAt;

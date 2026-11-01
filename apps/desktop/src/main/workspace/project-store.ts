@@ -497,7 +497,17 @@ export class ProjectStore {
       executionProjectId ? this.project(executionProjectId).path : undefined,
       true,
     );
-    await this.writeThread(next);
+    try {
+      await this.writeThread(next);
+    } catch (error) {
+      await this.authority.write(
+        this.project(thread.projectId).path,
+        thread,
+        thread.executionProjectId ? this.project(thread.executionProjectId).path : undefined,
+        true,
+      );
+      throw error;
+    }
     return next;
   }
 

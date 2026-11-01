@@ -5,6 +5,27 @@ export type DefaultAccess = z.infer<typeof defaultAccessSchema>;
 const storageKey = "tidy:default-access";
 const listeners = new Set<() => void>();
 let cached: DefaultAccess | undefined;
+let offerDismissed: boolean | undefined;
+const dismissedKey = "tidy:access-default-offer-dismissed";
+export function accessDefaultOfferDismissed() {
+  if (offerDismissed !== undefined) return offerDismissed;
+  try {
+    offerDismissed = z.boolean().parse(JSON.parse(localStorage.getItem(dismissedKey) ?? "false"));
+  } catch {
+    offerDismissed = false;
+  }
+  return offerDismissed;
+}
+export function dismissAccessDefaultOffer() {
+  offerDismissed = true;
+  for (const listener of listeners) listener();
+  try {
+    localStorage.setItem(dismissedKey, "true");
+    return true;
+  } catch {
+    return false;
+  }
+}
 function read(): DefaultAccess {
   try {
     return defaultAccessSchema.parse(JSON.parse(localStorage.getItem(storageKey) ?? '"default"'));
@@ -33,7 +54,8 @@ export function selectDefaultAccess(value: DefaultAccess) {
 }
 if (typeof window !== "undefined")
   window.addEventListener("storage", (event) => {
-    if (event.key !== storageKey && event.key !== null) return;
+    if (event.key !== storageKey && event.key !== dismissedKey && event.key !== null) return;
     cached = read();
+    offerDismissed = undefined;
     for (const listener of listeners) listener();
   });

@@ -142,7 +142,35 @@ for await (const line of createInterface({ input: process.stdin })) {
         ...(existsSync("delete-capability") ? { sessionCapabilities: { delete: {} } } : {}),
       },
     });
-  else if (method === "thread/start" || method === "thread/resume")
+  else if (
+    ["set_permission_mode", "thread/settings/update", "turn/settings/update"].includes(
+      String(method),
+    )
+  ) {
+    if (claude && existsSync("reject-live-permissions")) {
+      send({
+        type: "control_response",
+        response: {
+          subtype: "error",
+          request_id: value.request_id,
+          error: "Cannot set permission mode to auto: auto mode unavailable for this model",
+        },
+      });
+    } else if (existsSync("live-permissions")) {
+      if (existsSync("slow-live-permissions"))
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      reply(value, method === "turn/settings/update" ? { status: "applied" } : {});
+    } else if (claude)
+      send({
+        type: "control_response",
+        response: {
+          subtype: "error",
+          request_id: value.request_id,
+          error: "Live permissions unsupported",
+        },
+      });
+    else send({ id: value.id, error: { code: -32601, message: "Live permissions unsupported" } });
+  } else if (method === "thread/start" || method === "thread/resume")
     reply(value, { thread: { id: sessionId } });
   else if (method === "session/new" || method === "session/load") {
     if (method === "session/load" && existsSync("replay-cost")) cost(0.25);
