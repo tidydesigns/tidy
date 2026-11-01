@@ -48,7 +48,7 @@ export function ChatLink({
   };
   return (
     <a
-      className={`${file ? "chat-file-link" : "chat-web-link"} ${className}`}
+      className={`${file ? "chat-file-link" : "chat-web-link"} ${className}`.trim()}
       href={href}
       title={file ? `Show in folder: ${link.path}${position}` : link.url}
       onClick={(event) => {
