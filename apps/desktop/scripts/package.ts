@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "../package.json";
+import { desktopAppName } from "../src/shared/app-name";
 
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 const repository = fileURLToPath(new URL("../../..", import.meta.url));
+const appName = desktopAppName(manifest.version, process.platform);
 /** Package the native app with numeric macOS versions and security fuses, ready for signing. */
 export async function packageDesktop() {
   const stagingDirectory = await mkdtemp(join(tmpdir(), "tidy-desktop-"));
@@ -48,7 +50,7 @@ export async function packageDesktop() {
       join(stagingDirectory, "package.json"),
       JSON.stringify({
         name: "tidy-desktop",
-        productName: "Tidy",
+        productName: appName,
         version: manifest.version,
         type: manifest.type,
         main: manifest.main,
@@ -58,7 +60,8 @@ export async function packageDesktop() {
 
     const paths = await packager({
       dir: stagingDirectory,
-      name: "Tidy",
+      name: appName,
+      executableName: "Tidy",
       icon:
         process.platform === "darwin"
           ? join(appDirectory, "resources/icon.icns")
@@ -77,9 +80,15 @@ export async function packageDesktop() {
     for (const path of paths) {
       const executable =
         process.platform === "darwin"
-          ? join(path, "Tidy.app")
+          ? join(path, `${appName}.app`)
           : join(path, process.platform === "win32" ? "Tidy.exe" : "Tidy");
       if (process.platform === "darwin") {
+        // Packager derives the display name from executableName; keep them distinct.
+        execFileSync("/usr/libexec/PlistBuddy", [
+          "-c",
+          `Set :CFBundleDisplayName ${appName}`,
+          join(executable, "Contents/Info.plist"),
+        ]);
         // Keep the full SemVer in app.asar while giving macOS numeric bundle versions.
         const frameworks = join(executable, "Contents/Frameworks");
         const helpers = (await readdir(frameworks))

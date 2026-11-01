@@ -10,9 +10,12 @@ import { promisify } from "node:util";
 import manifest from "../package.json";
 import { packageDesktop } from "./package";
 import { retryStapler } from "./stapler";
+import { desktopAppName } from "../src/shared/app-name";
 
 const execute = promisify(execFile);
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
+const appName = desktopAppName(manifest.version, process.platform);
+const appBundleName = `${appName}.app`;
 const identity = process.env.TIDY_MAC_SIGN_IDENTITY?.trim();
 const profile = process.env.TIDY_NOTARY_PROFILE?.trim();
 const keychain = process.env.TIDY_MAC_SIGN_KEYCHAIN?.trim();
@@ -100,10 +103,10 @@ await run("xcrun", [
   "json",
 ]);
 const paths = resume
-  ? [join(appDirectory, "release", `Tidy-darwin-${process.arch}`)]
+  ? [join(appDirectory, "release", `${appName}-darwin-${process.arch}`)]
   : await packageDesktop();
 if (paths.length !== 1) throw new Error("Expected one native-architecture macOS package.");
-const app = join(paths[0], "Tidy.app");
+const app = join(paths[0], appBundleName);
 const temporary = await mkdtemp(join(tmpdir(), "tidy-release-"));
 const artifactName = `Tidy-${manifest.version}-mac-${process.arch}.dmg`;
 const artifact = join(appDirectory, "release", artifactName);
@@ -114,6 +117,8 @@ try {
   if (resume) {
     // Reuse only a matching, previously notarized app. Never silently skip signing.
     for (const [key, expected] of [
+      ["CFBundleDisplayName", appName],
+      ["CFBundleName", appName],
       ["CFBundleShortVersionString", manifest.version.split("-")[0]],
       ["CFBundleVersion", manifest.desktopBuildNumber],
     ]) {
@@ -159,7 +164,7 @@ try {
   await run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, updateArtifact]);
   const extracted = join(temporary, "update-check");
   await run("ditto", ["-x", "-k", updateArtifact, extracted]);
-  const extractedApp = join(extracted, "Tidy.app");
+  const extractedApp = join(extracted, appBundleName);
   await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", extractedApp]);
   await stapler("validate", extractedApp);
   await run("spctl", ["--assess", "--type", "execute", "--verbose=2", extractedApp]);
@@ -168,14 +173,14 @@ try {
   await writeFile(`${updateArtifact}.sha256`, `${updateHash.digest("hex")}  ${updateName}\n`);
 
   const contents = join(temporary, "contents");
-  const copiedApp = join(contents, "Tidy.app");
+  const copiedApp = join(contents, appBundleName);
   await cp(app, copiedApp, { recursive: true, verbatimSymlinks: true });
   await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", copiedApp]);
   await symlink("/Applications", join(contents, "Applications"));
   await run("hdiutil", [
     "create",
     "-volname",
-    `Tidy ${manifest.version}`,
+    `${appName} ${manifest.version}`,
     "-srcfolder",
     contents,
     "-format",

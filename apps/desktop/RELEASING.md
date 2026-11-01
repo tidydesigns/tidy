@@ -44,6 +44,13 @@ shared developer Mac. Prefer protecting `main` with review and required PR check
 
 ## Versions and artifacts
 
+macOS beta builds install as `Tidy (Beta).app` and display `Tidy (Beta)` in
+the Dock, application menu and About panel. Stable versions retain `Tidy`.
+The bundle identifier, native executable, update asset filenames and existing
+`Tidy` application-data directory stay unchanged so installed users keep their
+profiles and credentials. The signing, resume and archive checks use the same
+version-derived bundle name as packaging.
+
 The desktop manifest owns the human-selected base version. For example,
 `0.1.0-beta.1` plus workflow run `41` and offset `1` produces
 `0.1.0-beta.42`, build `42`, and tag `desktop-v0.1.0-beta.42`. Only the disposable

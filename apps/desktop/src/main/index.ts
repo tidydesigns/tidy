@@ -4,6 +4,7 @@ import { RemoteClient } from "./remote/client";
 import { MachineProfiles } from "./remote/profiles";
 import { discoverSshHosts } from "./remote/ssh";
 import { version } from "../../package.json";
+import { desktopAppName } from "../shared/app-name";
 import { DesktopAnalytics } from "./analytics";
 import {
   app,
@@ -19,6 +20,7 @@ import {
 } from "electron";
 import { join } from "node:path";
 import { hostname } from "node:os";
+import { mkdirSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import {
@@ -58,6 +60,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
+const appName = desktopAppName(version, process.platform);
 
 let localClient: RemoteClient | undefined;
 let ownedHost: WorkspaceHost | undefined;
@@ -81,7 +84,7 @@ const appIcon = app.isPackaged
 async function createWindow() {
   const startedAt = Date.now();
   const window = new BrowserWindow({
-    title: "Tidy",
+    title: appName,
     icon: appIcon,
     width: 1200,
     height: 800,
@@ -136,6 +139,7 @@ async function createWindow() {
   window.webContents.on("will-redirect", (event) => event.preventDefault());
   window.webContents.on("will-frame-navigate", (event) => event.preventDefault());
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
+  window.on("page-title-updated", (event) => event.preventDefault());
   await window.loadURL(entryURL);
 }
 
@@ -176,9 +180,14 @@ const connectMachine = machineConnections(async (target) => {
   broadcast("tidy:machines-changed");
 });
 
-app.setName("Tidy");
+// A display-name change must keep existing profiles, sessions and cloud credentials.
+const userData = join(app.getPath("appData"), "Tidy");
+mkdirSync(userData, { recursive: true });
+app.setPath("userData", userData);
+app.setPath("sessionData", userData);
+app.setName(appName);
 const profiles = new MachineProfiles(join(app.getPath("userData"), "remote-machines.json"));
-app.setAboutPanelOptions({ applicationName: "Tidy", applicationVersion: version });
+app.setAboutPanelOptions({ applicationName: appName, applicationVersion: version });
 const ownsWorkspace = app.requestSingleInstanceLock();
 if (!ownsWorkspace) app.quit();
 app.on("second-instance", () => {
