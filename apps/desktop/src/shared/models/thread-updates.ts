@@ -2,6 +2,15 @@ import type { Thread, ThreadSummary, ProjectSnapshot, DesktopEvent } from "../co
 import { threadPullRequests } from "./thread-pull-requests";
 export type ThreadPatch = Omit<Extract<DesktopEvent, { type: "thread-patch" }>, "type">;
 
+export function retainThreadPullRequests(
+  previous: ThreadSummary | undefined,
+  incoming: ThreadSummary,
+) {
+  return incoming.pullRequests === undefined && previous?.pullRequests !== undefined
+    ? { ...incoming, pullRequests: previous.pullRequests }
+    : incoming;
+}
+
 export function summarizeThread(thread: Thread): ThreadSummary {
   let preview: string | undefined;
   for (let index = thread.messages.length - 1; index >= 0; index--) {
@@ -88,7 +97,7 @@ export function applyProjectEvent(snapshot: ProjectSnapshot, event: DesktopEvent
   if (projectId !== snapshot.project.id) return snapshot;
   if (event.type === "designs")
     return { ...snapshot, designs: event.designs, folders: event.folders };
-  const summary =
+  let summary =
     event.type === "thread-patch"
       ? event.summary
       : event.type === "thread-summary"
@@ -96,6 +105,14 @@ export function applyProjectEvent(snapshot: ProjectSnapshot, event: DesktopEvent
         : summarizeThread(event.thread);
   const previous = snapshot.threads.find((item) => item.id === summary.id);
   if (previous && previous.revision > summary.revision) return snapshot;
+  summary = retainThreadPullRequests(
+    previous,
+    event.type === "thread" &&
+      event.thread.pullRequests === undefined &&
+      !summary.pullRequests?.length
+      ? { ...summary, pullRequests: undefined }
+      : summary,
+  );
   return {
     ...snapshot,
     threads: previous

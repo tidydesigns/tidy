@@ -303,6 +303,7 @@ export function App({
   const [error, setError] = useState<WorkspaceError | null>(null);
   const {
     loading,
+    bootstrapped,
     projects,
     setProjects,
     activeProjectId,
@@ -934,7 +935,7 @@ export function App({
     )
       return;
     if (!snapshot?.threads.some((item) => item.id === selectedThreadId)) {
-      selectThread(project.id, null);
+      if (!loading && bootstrapped) selectThread(project.id, null);
       return;
     }
     let active = true;
@@ -946,6 +947,8 @@ export function App({
     };
   }, [
     api,
+    loading,
+    bootstrapped,
     project,
     selectedThreadId,
     selectedThreadCached,
@@ -2076,6 +2079,7 @@ export function App({
                   key={project.id}
                   projectId={project.id}
                   threads={snapshot.threads}
+                  complete={!loading && bootstrapped}
                   search={deferredThreadQueries[project.id] ?? ""}
                   renderThread={renderThread}
                   draft={sidebarDraft}

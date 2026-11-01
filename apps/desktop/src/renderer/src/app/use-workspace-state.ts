@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { z } from "zod";
 import type {
   DesktopAPI,
@@ -10,8 +18,13 @@ import type {
   Thread,
   Bootstrap,
 } from "../../../shared/contracts/desktop";
-import { applyProjectEvent, applyThreadPatch } from "../../../shared/models/thread-updates";
-import { useSessionState } from "./session-state";
+import {
+  applyProjectEvent,
+  applyThreadPatch,
+  retainThreadPullRequests,
+} from "../../../shared/models/thread-updates";
+import { NavigationScope, useSessionState } from "./session-state";
+import { readSidebarCache, writeSidebarCache } from "./sidebar-cache";
 import { errorText, type WorkspaceError } from "./workspace-error";
 
 export function useWorkspaceState({
@@ -32,18 +45,35 @@ export function useWorkspaceState({
   initialThreads?: Thread[];
   connection?: string;
 }) {
+  const scope = useContext(NavigationScope);
+  const [cached] = useState(() => {
+    const value = !initial && api ? readSidebarCache(scope) : undefined;
+    if (!value) return undefined;
+    let projectId: string | null | undefined = value.activeProject?.project.id;
+    try {
+      const saved = sessionStorage.getItem(`tidy:navigation:${scope ? `${scope}:` : ""}project`);
+      if (saved !== null) {
+        const parsed = z.string().uuid().nullable().safeParse(JSON.parse(saved));
+        if (parsed.success) projectId = parsed.data;
+      }
+    } catch {}
+    return { ...value, projectId };
+  });
+  const initialWorkspace = initial ?? cached;
   const initialBootstrap = useRef(initial);
   const loaded = useRef(Boolean(initial));
   const [loading, setLoading] = useState(!initial);
-  const [projects, setProjects] = useState<Project[]>(initial?.projects ?? []);
+  const [projects, setProjects] = useState<Project[]>(initialWorkspace?.projects ?? []);
   const [activeProjectId, setActiveProjectId] = useSessionState(
     "project",
     z.string().nullable(),
-    initial?.activeProject?.project.id ?? null,
-    initial?.activeProject?.project.id,
+    initialWorkspace?.activeProject?.project.id ?? null,
+    initial?.activeProject?.project.id ?? cached?.projectId,
   );
   const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>(() =>
-    initial?.activeProject ? { [initial.activeProject.project.id]: initial.activeProject } : {},
+    initialWorkspace?.activeProject
+      ? { [initialWorkspace.activeProject.project.id]: initialWorkspace.activeProject }
+      : {},
   );
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>(initial?.harnesses ?? []);
   const [harnessDiscoveryFailed, setHarnessDiscoveryFailed] = useState(false);
@@ -56,6 +86,23 @@ export function useWorkspaceState({
   }, [threads]);
   const reads = useRef(new Map<string, Promise<Thread>>());
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
+  const activeSnapshot = activeProjectId ? snapshots[activeProjectId] : undefined;
+
+  useEffect(() => {
+    if (loading || !api) return;
+    const persist = () =>
+      writeSidebarCache({
+        scope,
+        projects,
+        activeProject: activeSnapshot ?? null,
+      });
+    const timer = setTimeout(persist, 200);
+    window.addEventListener("pagehide", persist);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pagehide", persist);
+    };
+  }, [scope, projects, activeSnapshot, loading, api]);
 
   const readThread = useCallback(
     ({ projectId, threadId }: { projectId: string; threadId: string }): Promise<Thread> => {
@@ -86,6 +133,10 @@ export function useWorkspaceState({
   );
 
   function applySnapshot(value: ProjectSnapshot, activate = true, expected?: ProjectSnapshot) {
+    if (!value.project.cloud) {
+      loaded.current = true;
+      setLoading(false);
+    }
     setSnapshots((current) => {
       const previous = current[value.project.id];
       if (expected && !previous) return current;
@@ -95,12 +146,14 @@ export function useWorkspaceState({
         : undefined;
       const summaries = new Map(value.threads.map((item) => [item.id, item]));
       for (const item of previous?.threads ?? []) {
-        const revision = summaries.get(item.id)?.revision ?? -1;
+        const incoming = summaries.get(item.id);
+        const revision = incoming?.revision ?? -1;
         if (
           revision < item.revision ||
           (revision === item.revision && expectedThreads && expectedThreads.get(item.id) !== item)
         )
           summaries.set(item.id, item);
+        else if (incoming) summaries.set(item.id, retainThreadPullRequests(item, incoming));
       }
       return {
         ...current,
@@ -132,6 +185,7 @@ export function useWorkspaceState({
       return;
     }
     let mounted = true;
+    const restoreClearedProject = !loaded.current && cached?.projectId === null;
     const refresh = connection !== "offline" || !loaded.current;
     let bootstrapping = refresh;
     const initialEvents = new Map<string, DesktopEvent>();
@@ -222,9 +276,23 @@ export function useWorkspaceState({
         }
         if (!mounted) return;
         if (navigation.current === initialNavigation) {
-          if (activeProject && !activeProject.project.cloud) {
+          if (restoreClearedProject) setActiveProjectId(null);
+          else if (activeProject && !activeProject.project.cloud) {
             const snapshot = [...initialEvents.values()].reduce(applyProjectEvent, activeProject);
-            setSnapshots((current) => ({ ...current, [snapshot.project.id]: snapshot }));
+            setSnapshots((current) => {
+              const previous = new Map(
+                current[snapshot.project.id]?.threads.map((item) => [item.id, item]),
+              );
+              return {
+                ...current,
+                [snapshot.project.id]: {
+                  ...snapshot,
+                  threads: snapshot.threads.map((item) =>
+                    retainThreadPullRequests(previous.get(item.id), item),
+                  ),
+                },
+              };
+            });
             setActiveProjectId(snapshot.project.id);
           } else setActiveProjectId(null);
         }
@@ -245,6 +313,7 @@ export function useWorkspaceState({
 
   return {
     loading,
+    bootstrapped: loaded.current,
     projects,
     setProjects,
     activeProjectId,

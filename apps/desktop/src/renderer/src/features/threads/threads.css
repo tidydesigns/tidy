@@ -664,8 +664,17 @@
   border-radius: 3px;
   text-decoration: none;
 }
-.thread-pull-requests .chat-web-link:hover {
-  color: var(--color-ink);
+.thread-pull-requests .chat-web-link:focus-visible > span {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .thread-pull-requests .chat-web-link:hover > span {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
 }
 .thread-pull-requests .chat-link-icon {
   width: 13px;

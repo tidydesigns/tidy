@@ -1,5 +1,6 @@
 import { pullRequestStatus } from "./pull-request-status";
-import { useEffect, useMemo, useRef, useSyncExternalStore, type Ref } from "react";
+import { useContext, useEffect, useMemo, useRef, useSyncExternalStore, type Ref } from "react";
+import { NavigationScope } from "../app/session-state";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
 import type { PullRequestState } from "../../../shared/contracts/pull-request";
 
@@ -13,7 +14,11 @@ export function PullRequestIcon({
   projectId: string;
 }) {
   const element = useRef<SVGSVGElement>(null);
-  const status = useMemo(() => pullRequestStatus({ api, projectId, url }), [api, projectId, url]);
+  const scope = useContext(NavigationScope);
+  const status = useMemo(
+    () => pullRequestStatus({ api, projectId, url, scope }),
+    [api, projectId, url, scope],
+  );
   const { state, checking } = useSyncExternalStore(status.subscribe, status.read, status.read);
   useEffect(() => {
     if (!api.pullRequestState) return;

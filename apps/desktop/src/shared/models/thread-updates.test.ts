@@ -231,3 +231,41 @@ test("thread summaries retain the execution project without copying conversation
   expect(summary).not.toHaveProperty("messages");
   expect(summary).not.toHaveProperty("sessionId");
 });
+
+test("sparse thread summary updates retain PR links until explicitly replaced", () => {
+  const projectId = randomUUID();
+  const thread: Thread = {
+    id: randomUUID(),
+    projectId,
+    revision: 1,
+    title: "Review",
+    harness: "codex",
+    status: "idle",
+    designIds: [],
+    messages: [],
+    updatedAt: new Date().toISOString(),
+    pullRequests: ["https://github.com/owner/repo/pull/42"],
+  };
+  const snapshot: ProjectSnapshot = {
+    project: { id: projectId, name: "Project", path: "/project", openedAt: thread.updatedAt },
+    threads: [summarizeThread(thread)],
+    designs: [],
+    folders: [],
+  };
+  const sparse = { ...snapshot.threads[0], pullRequests: undefined };
+  const refreshed = applyProjectEvent(snapshot, {
+    type: "thread-summary",
+    thread: { ...sparse, revision: 2 },
+  });
+  expect(refreshed.threads[0].pullRequests).toBe(snapshot.threads[0].pullRequests);
+  const legacy = applyProjectEvent(refreshed, {
+    type: "thread",
+    thread: { ...thread, revision: 3, pullRequests: undefined, toolActivities: [] },
+  });
+  expect(legacy.threads[0].pullRequests).toBe(snapshot.threads[0].pullRequests);
+  const removed = applyProjectEvent(legacy, {
+    type: "thread-summary",
+    thread: { ...sparse, revision: 4, pullRequests: [] },
+  });
+  expect(removed.threads[0].pullRequests).toEqual([]);
+});

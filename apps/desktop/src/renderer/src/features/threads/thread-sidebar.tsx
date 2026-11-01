@@ -80,34 +80,44 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   search,
   renderThread,
   draft,
+  complete = true,
 }: {
   projectId: string;
   threads: ThreadSummary[];
   search: string;
   renderThread: RenderThread;
   draft?: { text: string; selected: boolean; onSelect(): void };
+  complete?: boolean;
 }) {
   const [order, setOrder] = useState(() => readOrder(projectId));
-  const ordered = useMemo(() => {
+  const orderedIds = useMemo(() => {
     const known = new Set(order);
     const incoming = threads.filter((item) => !known.has(item.id)).map((item) => item.id);
-    const ids = [...incoming, ...order];
-    const ranks = new Map(ids.map((id, index) => [id, index]));
-    return [...threads].sort((a, b) => (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0));
+    return [...incoming, ...order];
   }, [threads, order]);
-  const drag = useThreadDrag({ ids: ordered.map((item) => item.id), setOrder });
+  const ordered = useMemo(() => {
+    const ranks = new Map(orderedIds.map((id, index) => [id, index]));
+    return [...threads].sort((a, b) => (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0));
+  }, [threads, orderedIds]);
+  const drag = useThreadDrag({
+    ids: complete ? ordered.map((item) => item.id) : orderedIds,
+    setOrder,
+  });
   useEffect(() => {
+    if (!complete) return;
     const ids = ordered.map((item) => item.id);
     if (ids.length !== order.length || ids.some((id, index) => id !== order[index])) setOrder(ids);
-  }, [ordered, order]);
+  }, [ordered, order, complete]);
   useEffect(() => {
-    if (drag.draggingId) return;
+    if (drag.draggingId || (!complete && !order.length)) return;
     try {
-      localStorage.setItem(`tidy:thread-order:${projectId}`, JSON.stringify(order));
+      const key = `tidy:thread-order:${projectId}`;
+      const value = JSON.stringify(order);
+      if (localStorage.getItem(key) !== value) localStorage.setItem(key, value);
     } catch {
       /* A private browser may disable preference storage. */
     }
-  }, [projectId, order, drag.draggingId]);
+  }, [projectId, order, drag.draggingId, complete]);
   const query = search.trim().toLocaleLowerCase();
   const matches = (item: ThreadSummary) => item.title.toLocaleLowerCase().includes(query);
   const visibleDraft = Boolean(
