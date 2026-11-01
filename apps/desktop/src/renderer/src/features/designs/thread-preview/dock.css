@@ -102,7 +102,7 @@
   border-bottom-left-radius: inherit;
   border-bottom-right-radius: inherit;
   overflow: hidden;
-  background: light-dark(#f4f4f4, #171717);
+  background: var(--thread-design-canvas-background);
   color: var(--color-ink);
   cursor: pointer;
   touch-action: none;
@@ -277,8 +277,7 @@
   display: block;
   overflow: hidden;
   border-radius: inherit;
-  background: light-dark(#f4f4f4eb, #171717eb);
-  backdrop-filter: blur(12px);
+  background: var(--thread-design-canvas-background);
   pointer-events: none;
 }
 .thread-design-artwork {
@@ -333,7 +332,7 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: var(--color-panel);
+  background: var(--thread-design-canvas-background);
   box-shadow: none;
   transform-origin: top left;
   pointer-events: auto;
@@ -351,6 +350,7 @@
 .thread-design-canvas {
   width: 100%;
   height: 100%;
+  background: var(--thread-design-canvas-background);
   transform-origin: top left;
 }
 .thread-design-transition-edge {
@@ -360,9 +360,8 @@
   border-radius: 0;
   pointer-events: none;
 }
-.thread-design-dialog .tidy-editor,
-.thread-design-dialog [aria-label="Design canvas"] {
-  background-color: var(--color-panel);
+.thread-design-dialog .tidy-editor {
+  background-color: var(--thread-design-canvas-background);
 }
 .thread-design-canvas [data-canvas-control],
 .thread-design-canvas .editor-panel {
@@ -374,7 +373,6 @@
 }
 :root[data-titlebar="hidden"] .thread-design-canvas {
   padding-top: 40px;
-  background: var(--color-panel);
 }
 :root[data-titlebar="hidden"] .thread-design-canvas::before {
   content: "";

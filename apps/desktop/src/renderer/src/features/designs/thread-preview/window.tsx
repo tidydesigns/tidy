@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent,
   type RefObject,
 } from "react";
@@ -34,7 +35,7 @@ import type { CanvasViewportMemory } from "@tidy/editor";
 import type { CanvasGeometry } from "./dock-state";
 
 type Phase = "closed" | "opening" | "open" | "closing";
-const enterEasing = "cubic-bezier(0.6, 0.04, 0.85, 0.24)";
+const enterEasing = "cubic-bezier(0.32, 0.72, 0, 1)";
 const exitEasing = "cubic-bezier(0.15, 0.65, 0.3, 1)";
 const previewRatio = 1.5;
 const minimiseIcon = (
@@ -529,7 +530,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       growingRim.currentTime = previewRim.currentTime;
     if (open && !surface.open) surface.showModal();
     flushSync(() => setPhase(open ? "opening" : "closing"));
-    const duration = reduced ? 100 : open ? 480 : 360;
+    const duration = reduced ? 100 : open ? 280 : 220;
     const timing = { duration, easing: open ? enterEasing : exitEasing, fill: "both" as const };
     const aperture = surface.animate(
       reduced
@@ -586,7 +587,13 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       data-working={working}
       data-floating={floating}
       hidden={!active}
-      style={{ zIndex: stackOrder }}
+      style={
+        {
+          zIndex: stackOrder,
+          "--thread-design-canvas-background":
+            value?.document.pages?.[0]?.background ?? "var(--color-canvas)",
+        } as CSSProperties
+      }
     >
       <div
         ref={frame}
