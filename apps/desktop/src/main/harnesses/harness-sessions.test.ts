@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1356,6 +1356,103 @@ for (const harness of harnessIdSchema.options) {
     }
   });
 }
+
+test.each([false, true])(
+  "access handover preserves an unsubmitted queued request and its attachments (Stop: %s)",
+  async (stop) => {
+    const { ProjectStore } = await import("../workspace/project-store");
+    const { WorkspaceService } = await import("../workspace/workspace-service");
+    const { ThreadPorts } = await import("../processes/thread-ports");
+    const cwd = await mkdtemp(join(directory, "queued-access-handover-"));
+    const store = new ProjectStore(join(cwd, "private"));
+    await store.initialize();
+    const { project } = await store.open(cwd);
+    const attachment = await store.addAttachment(
+      project.id,
+      "second-task.txt",
+      "data:text/plain;base64,bm90ZXM=",
+    );
+    const service = new WorkspaceService(
+      store,
+      undefined,
+      async () => executable,
+      async () => {},
+    );
+    const firstFinished = Promise.withResolvers<void>();
+    const secondFinished = Promise.withResolvers<void>();
+    const registering = Promise.withResolvers<void>();
+    const releaseRegistration = Promise.withResolvers<void>();
+    const handingOver = Promise.withResolvers<void>();
+    service.subscribe((event) => {
+      if (event.type !== "thread") return;
+      if (event.thread.activity === "Resuming with updated access") handingOver.resolve();
+      if (event.thread.status !== "completed") return;
+      if (event.thread.messages.some((message) => message.text === "Second pending request"))
+        secondFinished.resolve();
+      else firstFinished.resolve();
+    });
+    let holdRegistration = false;
+    const register = ThreadPorts.prototype.register;
+    const registration = spyOn(ThreadPorts.prototype, "register").mockImplementation(
+      async function (this: InstanceType<typeof ThreadPorts>, ...args) {
+        if (holdRegistration) {
+          holdRegistration = false;
+          registering.resolve();
+          await releaseRegistration.promise;
+        }
+        return register.apply(this, args);
+      },
+    );
+    try {
+      const thread = await service.startThread({
+        projectId: project.id,
+        harness: "codex",
+        prompt: "First finished request",
+        designIds: [],
+      });
+      await firstFinished.promise;
+      await service.stopThread(project.id, thread.id);
+      holdRegistration = true;
+      await service.sendMessage({
+        projectId: project.id,
+        threadId: thread.id,
+        text: "Second pending request",
+        attachmentIds: [attachment.id],
+        delivery: "queue",
+      });
+      await registering.promise;
+      const changing = service.setThreadSettings(project.id, thread.id, {
+        permissionMode: "auto",
+      });
+      await handingOver.promise;
+      const stopping = stop ? service.stopThread(project.id, thread.id) : undefined;
+      releaseRegistration.resolve();
+      await stopping;
+      await changing;
+      if (!stop) await secondFinished.promise;
+      const after = await service.readThread(project.id, thread.id);
+      const users = after.messages.filter((message) => message.role === "user");
+      expect(users.map((message) => message.text)).toEqual(
+        stop ? ["First finished request"] : ["First finished request", "Second pending request"],
+      );
+      expect(after.queuedMessages?.map((message) => message.text)).toEqual(
+        stop ? ["Second pending request"] : [],
+      );
+      const delivered = stop ? after.queuedMessages?.[0] : users[1];
+      expect(delivered?.attachments?.map((file) => file.id)).toEqual([attachment.id]);
+      const turns = (await events(cwd)).filter((event) => event.method === "turn/start");
+      expect(turns).toHaveLength(stop ? 1 : 2);
+      if (!stop) {
+        expect(JSON.stringify(turns[1].value.params)).toContain("Second pending request");
+        expect(JSON.stringify(turns[1].value.params)).toContain("second-task.txt");
+      }
+    } finally {
+      releaseRegistration.resolve();
+      registration.mockRestore();
+      await service.close();
+    }
+  },
+);
 
 for (const harness of ["codex", "claude"] as const) {
   test(`${harness} updates supported permissions on the running native session without replaying its request`, async () => {

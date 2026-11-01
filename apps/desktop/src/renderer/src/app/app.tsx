@@ -2526,7 +2526,11 @@ export function App({
                             onHarnessChange={
                               thread
                                 ? undefined
-                                : (harness) => updateDraft({ harness, settings: {} })
+                                : (harness) => {
+                                    accessChoice.current++;
+                                    setAccessOffer(undefined);
+                                    updateDraft({ harness, settings: {} });
+                                  }
                             }
                             onSettingsChange={(settings) => void changeSettings(settings)}
                             onRefresh={() => {

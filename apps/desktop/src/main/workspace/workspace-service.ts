@@ -901,6 +901,15 @@ export class WorkspaceService {
         if (canResume()) {
           if (automaticQueue) this.automaticQueues.add(threadId);
           try {
+            const restored = job?.queuedDelivery?.message;
+            if (restored && thread.queuedMessages?.some((message) => message.id === restored.id))
+              return await this.run(
+                thread,
+                restored.text,
+                restored.attachments?.map((file) => file.id),
+                restored.id,
+                restored.skillId,
+              );
             return await this.run(
               thread,
               [
