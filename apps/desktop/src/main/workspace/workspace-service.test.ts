@@ -752,6 +752,61 @@ for (const shutdown of ["update", "quit"] as const) {
   }
 }
 
+test("deleted design references do not block follow-ups or drafts and surviving references still reach the harness", async () => {
+  const { store, service, project, runs } = await fixture();
+  const deleted = await store.createDesign(project.id);
+  const kept = await store.createDesign(project.id);
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Review these designs",
+    designIds: [deleted.id, kept.id],
+  });
+  const complete = finished(service, thread.id);
+  runs[0].complete();
+  await complete;
+  await store.setDesignArchived(project.id, deleted.id, true);
+  await store.deleteDesign(project.id, deleted.id);
+
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Continue with the remaining design",
+  });
+  expect(runs[1].input.prompt).toContain(kept.path);
+  expect(runs[1].input.prompt).not.toContain(deleted.path);
+  const draft = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Start from a saved draft",
+    designIds: [deleted.id, kept.id],
+  });
+  expect(draft.status).toBe("running");
+  expect(runs[2].input.prompt).toContain(kept.path);
+  expect(runs[2].input.prompt).not.toContain(deleted.path);
+});
+
+test("design reference failures other than missing files still prevent harness execution", async () => {
+  const { store, service, project, runs } = await fixture();
+  const design = await store.createDesign(project.id);
+  const read = spyOn(store, "readDesignReference").mockRejectedValue(
+    Object.assign(new Error("Permission denied"), { code: "EACCES" }),
+  );
+  try {
+    await expect(
+      service.startThread({
+        projectId: project.id,
+        harness: "codex",
+        prompt: "Review the design",
+        designIds: [design.id],
+      }),
+    ).rejects.toThrow("Permission denied");
+    expect(runs).toHaveLength(0);
+  } finally {
+    read.mockRestore();
+  }
+});
+
 test("design references reach the harness and follow-up messages resume the same session", async () => {
   const { service, store, project, runs } = await fixture();
   const design = await store.createDesign(project.id);

@@ -1156,8 +1156,14 @@ export class WorkspaceService {
     const [executable, references, images] = await Promise.all([
       this.locate(thread.harness),
       Promise.all(
-        thread.designIds.map((designId) => this.store.readDesignReference(owner.id, designId)),
-      ),
+        thread.designIds.map((designId) =>
+          this.store.readDesignReference(owner.id, designId).catch((error: unknown) => {
+            // Permanent deletion must not make an existing thread or draft unusable.
+            if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return null;
+            throw error;
+          }),
+        ),
+      ).then((values) => values.filter((value) => value !== null)),
       imagesPromise,
     ]);
     if (!executable)
