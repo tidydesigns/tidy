@@ -1,8 +1,9 @@
 import { z } from "zod";
-export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENTS = 100;
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-export const MAX_ATTACHMENT_TOTAL_BYTES = 25 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENT_TOTAL_BYTES = 80 * 1024 * 1024;
+export const ATTACHMENT_LIMIT_MESSAGE = `Attach up to ${MAX_ATTACHMENTS} files and ${MAX_ATTACHMENT_TOTAL_BYTES / 1024 / 1024} MB per message.`;
 export const attachmentSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(200),
@@ -14,4 +15,5 @@ export type AttachedFile = Attachment & {
   previewUrl?: string;
   referenceId?: string;
   importState?: "pending" | "failed";
+  clipboardId?: string;
 };

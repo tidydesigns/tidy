@@ -724,7 +724,7 @@ test("image attachments use verified raster MIME types and reject invalid or ove
   await expect(
     store.addAttachment(project.id, "bad.txt", "data:text/plain;base64,%%%"),
   ).rejects.toThrow();
-  const oversized = Buffer.alloc(5 * 1024 * 1024 + 1);
+  const oversized = Buffer.alloc(10 * 1024 * 1024 + 1);
   Buffer.from(png, "base64").copy(oversized);
   await expect(
     store.addAttachment(
@@ -732,7 +732,7 @@ test("image attachments use verified raster MIME types and reject invalid or ove
       "big.png",
       `data:image/png;base64,${oversized.toString("base64")}`,
     ),
-  ).rejects.toThrow("5 MB");
+  ).rejects.toThrow("10 MB");
 });
 
 test("execution bindings survive restart but cannot be inserted, removed or redirected in portable JSON", async () => {

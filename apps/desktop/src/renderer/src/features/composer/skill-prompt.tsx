@@ -1,12 +1,14 @@
 import type { AttachedFile } from "../../../../shared/contracts/attachments";
 import {
   useEffect,
+  useCallback,
   useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ComponentProps,
+  type Ref,
 } from "react";
 import { PromptEditor, type PromptEditorHandle } from "./prompt-editor";
 import { Button } from "@tidy/ui/button";
@@ -17,14 +19,17 @@ import type { Message } from "../../../../shared/contracts/desktop";
 type HistoryEntry = Pick<Message, "text"> & { attachments?: AttachedFile[] };
 
 type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
+  ref?: Ref<PromptEditorHandle>;
   skills: Skill[];
   status: "loading" | "ready" | "error";
   retry(): void;
   history?: readonly HistoryEntry[];
+  historyDisabled?: boolean;
   onRecall?(entry: HistoryEntry): void;
 };
 
 export function SkillPrompt({
+  ref,
   value,
   onChange,
   skills,
@@ -32,10 +37,19 @@ export function SkillPrompt({
   retry,
   onKeyDown,
   history = [],
+  historyDisabled = false,
   onRecall,
   ...props
 }: Props) {
   const input = useRef<PromptEditorHandle>(null);
+  const assignInput = useCallback(
+    (value: PromptEditorHandle | null) => {
+      input.current = value;
+      if (typeof ref === "function") ref(value);
+      else if (ref) ref.current = value;
+    },
+    [ref],
+  );
   const menu = useRef<HTMLDivElement>(null);
   const selection = useRef<{ text: string; cursor: number } | null>(null);
   const browsing = useRef<{
@@ -149,7 +163,7 @@ export function SkillPrompt({
       )}
       <PromptEditor
         {...props}
-        ref={input}
+        ref={assignInput}
         value={value}
         role="textbox"
         aria-autocomplete="list"
@@ -197,6 +211,7 @@ export function SkillPrompt({
           }
           if (
             !props.disabled &&
+            !historyDisabled &&
             !event.defaultPrevented &&
             !event.shiftKey &&
             !event.metaKey &&

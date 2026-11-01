@@ -1,8 +1,11 @@
+import { scheduleAttachmentTransfer } from "../composer/attachment-transfer";
 import { z } from "zod";
 import {
   attachmentSchema,
+  ATTACHMENT_LIMIT_MESSAGE,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_TOTAL_BYTES,
+  MAX_IMAGE_BYTES,
   type AttachedFile,
 } from "../../../../shared/contracts/attachments";
 import type { DesktopAPI, Message } from "../../../../shared/contracts/desktop";
@@ -10,6 +13,7 @@ import { machineIdSchema } from "../../../../shared/remote";
 import {
   attachmentParts,
   attachmentReference,
+  resolveAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 
 export const MESSAGE_CLIPBOARD_MIME = "web application/x-tidy-message+json";
@@ -31,9 +35,13 @@ const clipboardMessageSchema = z
   .refine(
     (value) =>
       new Set(value.attachments.map((file) => file.id)).size === value.attachments.length &&
+      value.attachments.every(
+        (file) => !file.mimeType.startsWith("image/") || file.size <= MAX_IMAGE_BYTES,
+      ) &&
       value.attachments.reduce((total, file) => total + file.size, 0) <= MAX_ATTACHMENT_TOTAL_BYTES,
   );
 export type ClipboardMessage = z.infer<typeof clipboardMessageSchema>;
+type CopyableMessage = Pick<Message, "text"> & { attachments?: AttachedFile[] };
 let cachedClientId: string | undefined;
 export function clipboardClientId() {
   if (cachedClientId) return cachedClientId;
@@ -93,7 +101,7 @@ function imageMarkdown(file: ClipboardMessage["attachments"][number]) {
   const name = file.name.replace(/[\r\n]/g, " ").replace(/[\\[\]]/g, "\\$&");
   return `![${name}](tidy-context://v1/image/${file.id})`;
 }
-export function messageClipboardText(message: Pick<Message, "text" | "attachments">) {
+export function messageClipboardText(message: CopyableMessage) {
   const attachments = message.attachments ?? [];
   const included = new Set<string>();
   const label = (file: ClipboardMessage["attachments"][number]) =>
@@ -116,7 +124,7 @@ function readImageReferences(text: string, storage: ClipboardStorage | undefined
   let source: ClipboardMessage["source"] | undefined;
   let invalid = false;
   const restored = text.replace(
-    /!\[(?:\\.|[^\]\\\r\n])*\]\(tidy-context:\/\/v1\/image\/([0-9a-f-]{36})\)/g,
+    /!\[(?:\\.|[^\]\\\r\n]){0,400}\]\(tidy-context:\/\/v1\/image\/([0-9a-f-]{36})\)/g,
     (markdown, id: string) => {
       const entry = references.get(id);
       if (
@@ -151,28 +159,90 @@ export function messageClipboardContent({
   clientId = clipboardClientId(),
   storage = clipboardStorage(),
 }: {
-  message: Pick<Message, "text" | "attachments">;
+  message: CopyableMessage;
   projectId: string;
   machineId?: string;
   clientId?: string;
   storage?: ClipboardStorage;
 }) {
+  const attachments = message.attachments ?? [];
+  const included = new Set(
+    attachmentParts(message.text, attachments).flatMap((part) =>
+      part.kind === "attachment" ? [part.file.id] : [],
+    ),
+  );
+  const textWithReferences = [
+    resolveAttachmentReferences(message.text, attachments),
+    ...attachments
+      .filter((file) => !included.has(file.id))
+      .map((file) => attachmentReference({ id: file.id })),
+  ]
+    .filter(Boolean)
+    .join("\n");
   const fragment = clipboardMessageSchema.parse({
     version: 1,
     source: { clientId, machineId, projectId },
-    text: message.text,
-    attachments: (message.attachments ?? []).map((file) => attachmentSchema.parse(file)),
+    text: textWithReferences,
+    attachments: attachments.map((file) => attachmentSchema.parse(file)),
   });
   const encoded = JSON.stringify(fragment);
   if (encoded.length > maxFragmentLength) throw new Error("This message is too large to copy.");
   rememberImages(fragment, storage);
-  const text = messageClipboardText(message);
+  const text = messageClipboardText(fragment);
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return {
     text,
     encoded,
     html: `<pre data-tidy-message="${encodeURIComponent(encoded)}">${escaped}</pre>`,
   };
+}
+
+export function prepareMessagePaste({
+  message,
+  current,
+  projectId,
+  machineId = "local",
+}: {
+  message: ClipboardMessage;
+  current: AttachedFile[];
+  projectId: string;
+  machineId?: string;
+}) {
+  const imports: { file: ClipboardMessage["attachments"][number]; placeholder: AttachedFile }[] =
+    [];
+  const attachments = [...current];
+  const mapped = message.attachments.map((file) => {
+    const clipboardId = JSON.stringify([
+      message.source.clientId,
+      message.source.machineId,
+      message.source.projectId,
+      file.id,
+    ]);
+    const existing = current.find(
+      (item) =>
+        item.clipboardId === clipboardId ||
+        (message.source.projectId === projectId &&
+          message.source.machineId === machineId &&
+          item.id === file.id),
+    );
+    if (existing && existing.importState !== "failed") return existing;
+    const placeholder: AttachedFile = {
+      ...file,
+      id: existing?.id ?? crypto.randomUUID(),
+      importState: "pending",
+      clipboardId,
+    };
+    if (existing) attachments[attachments.indexOf(existing)] = placeholder;
+    else attachments.push(placeholder);
+    imports.push({ file, placeholder });
+    return placeholder;
+  });
+  if (
+    attachments.length > MAX_ATTACHMENTS ||
+    attachments.reduce((sum, file) => sum + file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES
+  )
+    throw new Error(ATTACHMENT_LIMIT_MESSAGE);
+  return { attachments, mapped, imports };
 }
 
 export function decodeMessageClipboard(raw: string) {
@@ -255,13 +325,20 @@ export async function importMessageAttachment({
   }
   check();
   if (!source.exportAttachment) throw new Error("The source machine cannot export attachments.");
-  const value = await source.exportAttachment(message.source.projectId, file.id);
+  const exportAttachment = source.exportAttachment;
+  const value = await scheduleAttachmentTransfer(source, () => {
+    check();
+    return exportAttachment(message.source.projectId, file.id);
+  });
   check();
   const match = /^data:([^;,]*);base64,([A-Za-z0-9+/]*={0,2})$/.exec(value.dataUrl);
   const padding = match?.[2].endsWith("==") ? 2 : match?.[2].endsWith("=") ? 1 : 0;
   if (!match || match[1] !== file.mimeType || (match[2].length / 4) * 3 - padding !== file.size)
     throw new Error("The original attachment no longer matches the copied message.");
-  const imported = await target.addAttachment(projectId, value.name, value.dataUrl);
+  const imported = await scheduleAttachmentTransfer(target, () => {
+    check();
+    return target.addAttachment(projectId, value.name, value.dataUrl);
+  });
   check();
   return imported;
 }

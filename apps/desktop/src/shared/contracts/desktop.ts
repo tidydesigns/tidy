@@ -5,7 +5,7 @@ import type { RepositoryContext } from "./repository-context";
 import type { ThreadPort } from "./thread-ports";
 import type { SkillCatalog } from "./skills";
 import { z } from "zod";
-import { attachmentSchema, type AttachedFile } from "./attachments";
+import { attachmentSchema, MAX_ATTACHMENTS, type AttachedFile } from "./attachments";
 import { toolActivitySchema, MAX_TOOL_ACTIVITIES } from "./tool-activity";
 import { approvalRequestSchema, type ApprovalDecision } from "./permissions";
 import {
@@ -67,7 +67,7 @@ const messageSchema = z.object({
   turn: z
     .object({ startedAt: z.string().datetime(), endedAt: z.string().datetime().optional() })
     .optional(),
-  attachments: z.array(attachmentSchema).max(10).optional(),
+  attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
 });
 export const storedThreadSchema = z.object({
   revision: z.number().int().min(0).default(0),

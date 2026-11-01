@@ -351,7 +351,7 @@ export class ProjectStore {
     )
       mimeType = "image/webp";
     if (mimeType.startsWith("image/") && bytes.length > MAX_IMAGE_BYTES)
-      throw new Error("Choose an image under 5 MB.");
+      throw new Error(`Choose an image under ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`);
     const suffix =
       (
         {
@@ -399,7 +399,7 @@ export class ProjectStore {
       ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(data.mimeType) &&
       data.size > MAX_IMAGE_BYTES
     )
-      throw new Error("Choose an image under 5 MB.");
+      throw new Error(`Choose an image under ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`);
     return { ...attachmentSchema.parse(data), path };
   }
 
@@ -408,7 +408,8 @@ export class ProjectStore {
     const { path, ...value } = file;
     if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(value.mimeType))
       return value;
-    if (value.size > MAX_IMAGE_BYTES) throw new Error("Choose an image under 5 MB.");
+    if (value.size > MAX_IMAGE_BYTES)
+      throw new Error(`Choose an image under ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`);
     return {
       ...value,
       previewUrl: `data:${value.mimeType};base64,${(await readLocalFile(path, MAX_IMAGE_BYTES)).toString("base64")}`,

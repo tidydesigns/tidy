@@ -54,6 +54,7 @@ import {
 import {
   attachmentSchema,
   MAX_ATTACHMENTS,
+  ATTACHMENT_LIMIT_MESSAGE,
   MAX_ATTACHMENT_TOTAL_BYTES,
   MAX_IMAGE_BYTES,
 } from "../../shared/contracts/attachments";
@@ -1262,7 +1263,7 @@ export class WorkspaceService {
       [...new Set(attachmentIds)].map((id) => this.store.resolveAttachment(projectId, id)),
     );
     if (attachments.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES)
-      throw new Error("Keep attachments under 25 MB per message.");
+      throw new Error(ATTACHMENT_LIMIT_MESSAGE);
     return attachments;
   }
 

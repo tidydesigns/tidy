@@ -8,6 +8,8 @@ import {
   type DefaultAccess,
 } from "../features/settings/access-preferences";
 import { effectivePermissionMode, permissionModes } from "../../../shared/contracts/permissions";
+import type { PromptEditorHandle } from "../features/composer/prompt-editor";
+import { scheduleAttachmentTransfer } from "../features/composer/attachment-transfer";
 import { AnimatedHeight } from "../components/animated-height";
 import {
   restoreDraftAttachments,
@@ -15,6 +17,7 @@ import {
 } from "../features/composer/draft-attachments";
 import {
   importMessageAttachment,
+  prepareMessagePaste,
   type ClipboardMessage,
 } from "../features/threads/message-clipboard";
 import { promptThreadTitle } from "../../../shared/models/thread-naming";
@@ -90,6 +93,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_IMAGE_BYTES,
   MAX_ATTACHMENT_TOTAL_BYTES,
+  ATTACHMENT_LIMIT_MESSAGE,
 } from "../../../shared/contracts/attachments";
 import { ProjectSwitcher } from "../features/workspace/project-switcher";
 import { ProjectFiles } from "../features/workspace/project-files";
@@ -267,6 +271,7 @@ export function App({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const attachmentImports = useRef(new Map<string, AbortController>());
+  const attachmentImportScope = useRef({});
   const importsMounted = useRef(false);
   useEffect(() => {
     importsMounted.current = true;
@@ -292,6 +297,7 @@ export function App({
   }, [draftCache, machine?.current.id]);
   const canvasDockHome = useRef<HTMLSpanElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const promptEditor = useRef<PromptEditorHandle>(null);
   const focusComposerAfterSelection = useRef(false);
   const [error, setError] = useState<WorkspaceError | null>(null);
   const {
@@ -854,16 +860,20 @@ export function App({
   function changePrompt(text: string, attachments?: AttachedFile[]) {
     const name = skillCommand(text)?.name;
     const skill = availableSkills.find((skill) => skill.name === name);
-    updateDraft({
-      text,
-      // Text edits can follow attachment insertion in the same event. Only recall
-      // replaces files; otherwise preserve the latest draft's attachment list.
-      ...(attachments === undefined ? {} : { attachments }),
-      skill: skill
-        ? { id: skill.id, name: skill.name, harness: selectedHarness }
-        : draft.skill?.name === name
-          ? draft.skill
-          : undefined,
+    setDrafts((state) => {
+      const latest = state[draftKey] ?? draft;
+      const next = {
+        ...latest,
+        text,
+        ...(attachments === undefined ? {} : { attachments }),
+        skill: skill
+          ? { id: skill.id, name: skill.name, harness: selectedHarness }
+          : latest.skill?.name === name
+            ? latest.skill
+            : undefined,
+      };
+      draftsRef.current = { ...draftsRef.current, [draftKey]: next };
+      return { ...state, [draftKey]: next };
     });
   }
 
@@ -1182,13 +1192,13 @@ export function App({
     const errors: string[] = [];
     for (const file of files) {
       if (attached.length >= MAX_ATTACHMENTS) {
-        errors.push("Attach up to 10 files per message.");
+        errors.push(ATTACHMENT_LIMIT_MESSAGE);
         break;
       }
       const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type);
       if (file.size > (image ? MAX_IMAGE_BYTES : MAX_ATTACHMENT_BYTES)) {
         errors.push(
-          `${file.name}: choose ${image ? "an image under 5 MB" : "a file under 20 MB"}.`,
+          `${file.name}: choose ${image ? `an image under ${MAX_IMAGE_BYTES / 1024 / 1024} MB` : "a file under 20 MB"}.`,
         );
         continue;
       }
@@ -1196,7 +1206,7 @@ export function App({
         attached.reduce((total, value) => total + value.size, file.size) >
         MAX_ATTACHMENT_TOTAL_BYTES
       ) {
-        errors.push("Keep attachments under 25 MB per message.");
+        errors.push(ATTACHMENT_LIMIT_MESSAGE);
         continue;
       }
       const attachment: AttachedFile = {
@@ -1273,20 +1283,19 @@ export function App({
     const key = draftKey;
     const projectId = project.id;
     const current = draftsRef.current[key] ?? draft;
-    const attached = message.attachments.map((file): AttachedFile => ({
-      ...file,
-      id: crypto.randomUUID(),
-      importState: "pending",
-    }));
-    if (
-      (current.attachments?.length ?? 0) + attached.length > MAX_ATTACHMENTS ||
-      [...(current.attachments ?? []), ...attached].reduce((sum, file) => sum + file.size, 0) >
-        MAX_ATTACHMENT_TOTAL_BYTES
-    ) {
-      showToast("Keep each message under 10 attachments and 25 MB.");
+    let prepared: ReturnType<typeof prepareMessagePaste>;
+    try {
+      prepared = prepareMessagePaste({
+        message,
+        current: current.attachments ?? [],
+        projectId,
+        machineId: machine?.current.id ?? "local",
+      });
+    } catch (cause) {
+      showToast(errorText(cause));
       return [];
     }
-    const next = { ...current, attachments: [...(current.attachments ?? []), ...attached] };
+    const next = { ...current, attachments: prepared.attachments };
     draftsRef.current = { ...draftsRef.current, [key]: next };
     setDrafts((state) => ({
       ...state,
@@ -1298,7 +1307,8 @@ export function App({
         : machine?.machines.some((value) => value.id === message.source.machineId)
           ? machine.api?.(message.source.machineId)
           : undefined;
-    for (const [index, placeholder] of attached.entries()) {
+    let importErrorShown = false;
+    for (const { file, placeholder } of prepared.imports) {
       const controller = new AbortController();
       attachmentImports.current.set(placeholder.id, controller);
       const update = (file: AttachedFile) => {
@@ -1316,24 +1326,23 @@ export function App({
           return { ...state, [key]: next };
         });
       };
-      void Promise.resolve()
-        .then(async () => {
-          if (!source)
-            throw new Error("The source machine is unavailable. Reconnect and paste again.");
-          const imported = await importMessageAttachment({
-            source,
-            target: api,
-            message,
-            file: message.attachments[index],
-            projectId,
-            signal: controller.signal,
-            isRetained: () =>
-              draftsRef.current[key]?.attachments?.some((file) => file.id === placeholder.id) ??
-              false,
-          });
-          update({ ...imported, referenceId: placeholder.id });
-        })
-        .catch((cause: unknown) => {
+      void scheduleAttachmentTransfer(attachmentImportScope.current, async () => {
+        if (!source)
+          throw new Error("The source machine is unavailable. Reconnect and paste again.");
+        const imported = await importMessageAttachment({
+          source,
+          target: api,
+          message,
+          file,
+          projectId,
+          signal: controller.signal,
+          isRetained: () =>
+            draftsRef.current[key]?.attachments?.some((file) => file.id === placeholder.id) ??
+            false,
+        });
+        update({ ...imported, referenceId: placeholder.id, clipboardId: placeholder.clipboardId });
+      })
+        .catch(() => {
           if (
             controller.signal.aborted ||
             !importsMounted.current ||
@@ -1341,11 +1350,17 @@ export function App({
           )
             return;
           update({ ...placeholder, importState: "failed" });
-          showToast(`Could not load ${placeholder.name}. ${errorText(cause)}`);
+          if (!importErrorShown) {
+            importErrorShown = true;
+            showToast("Some attachments could not load. Paste again to retry.");
+          }
         })
-        .finally(() => attachmentImports.current.delete(placeholder.id));
+        .finally(() => {
+          if (attachmentImports.current.get(placeholder.id) === controller)
+            attachmentImports.current.delete(placeholder.id);
+        });
     }
-    return attached;
+    return prepared.mapped;
   }
 
   async function send(delivery: MessageDelivery = "queue") {
@@ -2352,7 +2367,10 @@ export function App({
                     onDrop={(event) => {
                       if (event.dataTransfer.files.length) {
                         event.preventDefault();
-                        attachFiles(Array.from(event.dataTransfer.files));
+                        promptEditor.current?.insertAttachments(
+                          attachFiles(Array.from(event.dataTransfer.files)),
+                          { x: event.clientX, y: event.clientY },
+                        );
                       }
                     }}
                     onSubmit={(event) => {
@@ -2458,6 +2476,7 @@ export function App({
                         </p>
                       )}
                       <AttachmentList
+                        key={draftKey}
                         files={draft.attachments ?? []}
                         onRemove={
                           thread?.doneAt
@@ -2497,7 +2516,9 @@ export function App({
                         hidden
                         aria-label="Attach files"
                         onChange={(event) => {
-                          attachFiles(Array.from(event.currentTarget.files ?? []));
+                          promptEditor.current?.insertAttachments(
+                            attachFiles(Array.from(event.currentTarget.files ?? [])),
+                          );
                           event.currentTarget.value = "";
                         }}
                       />
@@ -2550,6 +2571,7 @@ export function App({
                         </div>
                       )}
                       <SkillPrompt
+                        ref={promptEditor}
                         className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
@@ -2577,6 +2599,15 @@ export function App({
                         files={draft.attachments ?? []}
                         onAttachFiles={attachFiles}
                         onPasteMessage={pasteMessage}
+                        clipboardSource={{
+                          projectId: project.id,
+                          machineId: machine?.current.id ?? "local",
+                        }}
+                        attachmentsReady={!uploading[draftKey]}
+                        historyDisabled={
+                          Boolean(uploading[draftKey]) ||
+                          Boolean(draft.attachments?.some((file) => file.importState))
+                        }
                         placeholder={
                           thread?.doneAt
                             ? "Reopen this thread to continue…"

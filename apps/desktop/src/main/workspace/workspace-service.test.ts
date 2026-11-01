@@ -1314,6 +1314,45 @@ test("attachment-only turns keep files with the message and send images to the h
   expect((await store.readThread(project.id, thread.id)).messages[0].attachments?.length).toBe(2);
 });
 
+test("a hundred image attachments survive sending, checkpointing and reload in order", async () => {
+  const { store, service, project, runs } = await fixture();
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jSkcAAAAASUVORK5CYII=";
+  const attachments = [];
+  for (let index = 0; index < 100; index++)
+    attachments.push(
+      await store.addAttachment(
+        project.id,
+        `Screen ${index + 1}.png`,
+        `data:image/png;base64,${png}`,
+      ),
+    );
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Review these screens",
+    designIds: [],
+    attachmentIds: attachments.map((file) => file.id),
+  });
+  expect(thread.messages[0].attachments?.map((file) => file.id)).toEqual(
+    attachments.map((file) => file.id),
+  );
+  expect(runs[0].input.images).toHaveLength(100);
+  expect((await store.readThread(project.id, thread.id)).messages[0].attachments).toHaveLength(100);
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Too many screens",
+      designIds: [],
+      attachmentIds: [...attachments.map((file) => file.id), randomUUID()],
+    }),
+  ).rejects.toThrow();
+  const complete = finished(service, thread.id);
+  runs[0].complete();
+  await complete;
+});
+
 test("missing attachments and empty turns cannot launch a harness", async () => {
   const { service, project, runs } = await fixture();
   await expect(

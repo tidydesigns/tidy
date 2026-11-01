@@ -1,3 +1,4 @@
+import { scheduleAttachmentTransfer } from "../composer/attachment-transfer";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import {
   importMessageAttachment,
   messageClipboardContent,
   messageClipboardText,
+  prepareMessagePaste,
 } from "./message-clipboard";
 
 const clientId = "aa6ea601-6dbb-4ea5-bb1a-218dd938d5ed";
@@ -414,8 +416,8 @@ test("non-image filenames remain readable and unavailable reference storage pres
 
 test("plain-text references enforce attachment count and combined byte limits", () => {
   for (const [count, size] of [
-    [11, 3],
-    [2, 13 * 1024 * 1024],
+    [101, 3],
+    [9, 10 * 1024 * 1024],
   ]) {
     const storage = referenceStorage();
     const text = Array.from(
@@ -429,4 +431,153 @@ test("plain-text references enforce attachment count and combined byte limits", 
     ).join(" ");
     expect(readMessageClipboard(plainClipboard(text), storage)).toBeNull();
   }
+});
+
+test("rich and plain copy use the same positions for aliases and tray attachments", () => {
+  const alias = crypto.randomUUID();
+  const second = { ...file, id: crypto.randomUUID(), name: "第二张.png" };
+  const storage = referenceStorage();
+  const value = messageClipboardContent({
+    message: {
+      text: `Before [[attachment:${alias}]] after`,
+      attachments: [{ ...file, referenceId: alias }, second],
+    },
+    projectId,
+    storage,
+  });
+  const rich = decodeMessageClipboard(value.encoded);
+  const plain = readMessageClipboard(plainClipboard(value.text), storage);
+  expect(rich?.text).toBe(`Before [[attachment:${file.id}]] after\n[[attachment:${second.id}]]`);
+  expect(plain).toEqual(rich);
+  expect(value.encoded).not.toContain(alias);
+});
+
+test("one hundred images preserve their order and an extra image is rejected", () => {
+  const attachments = Array.from({ length: 100 }, (_, index) => ({
+    ...file,
+    id: crypto.randomUUID(),
+    name: `Screen ${index + 1}.png`,
+  }));
+  const value = messageClipboardContent({
+    message: { text: "Review these", attachments },
+    projectId,
+  });
+  const message = decodeMessageClipboard(value.encoded);
+  if (!message) throw new Error("Valid message rejected");
+  const result = prepareMessagePaste({ message, current: [], projectId: crypto.randomUUID() });
+  expect(result.mapped.map((item) => item.name)).toEqual(attachments.map((item) => item.name));
+  expect(result.imports).toHaveLength(100);
+  expect(() =>
+    prepareMessagePaste({
+      message,
+      current: [{ ...file, id: crypto.randomUUID() }],
+      projectId: crypto.randomUUID(),
+    }),
+  ).toThrow("100 files");
+  expect(
+    decodeMessageClipboard(
+      JSON.stringify({
+        ...message,
+        attachments: [...attachments, { ...file, id: crypto.randomUUID() }],
+      }),
+    ),
+  ).toBeNull();
+});
+
+test("repeated paste reuses an imported image even when the composer is at capacity", () => {
+  const message = decodeMessageClipboard(content().encoded);
+  if (!message) throw new Error("Valid fixture rejected");
+  const first = prepareMessagePaste({ message, current: [], projectId: crypto.randomUUID() });
+  const ready = {
+    ...first.mapped[0],
+    id: crypto.randomUUID(),
+    referenceId: first.mapped[0].id,
+    importState: undefined,
+  };
+  const current = [
+    ready,
+    ...Array.from({ length: 99 }, () => ({ ...file, id: crypto.randomUUID() })),
+  ];
+  const repeated = prepareMessagePaste({ message, current, projectId: crypto.randomUUID() });
+  expect(repeated.attachments).toHaveLength(100);
+  expect(repeated.mapped[0]).toBe(ready);
+  expect(repeated.imports).toEqual([]);
+});
+
+test("failed imports retry in their existing slot while duplicate filenames stay distinct", () => {
+  const value = messageClipboardContent({
+    message: { text: "", attachments: [file, { ...file, id: crypto.randomUUID() }] },
+    projectId,
+  });
+  const message = decodeMessageClipboard(value.encoded);
+  if (!message) throw new Error("Valid fixture rejected");
+  const destination = crypto.randomUUID();
+  const first = prepareMessagePaste({ message, current: [], projectId: destination });
+  const failed = first.mapped.map((item) => ({ ...item, importState: "failed" as const }));
+  const retry = prepareMessagePaste({ message, current: failed, projectId: destination });
+  expect(retry.attachments).toHaveLength(2);
+  expect(retry.mapped.map((item) => item.id)).toEqual(failed.map((item) => item.id));
+  expect(retry.imports).toHaveLength(2);
+  expect(retry.mapped.every((item) => item.importState === "pending")).toBe(true);
+  expect(retry.mapped[0].id).not.toBe(retry.mapped[1].id);
+});
+
+test("a paste exceeding the byte budget leaves the existing attachments untouched", () => {
+  const message = decodeMessageClipboard(content().encoded);
+  if (!message) throw new Error("Valid fixture rejected");
+  const current = Array.from({ length: 8 }, () => ({
+    ...file,
+    id: crypto.randomUUID(),
+    size: 10 * 1024 * 1024,
+  }));
+  const before = structuredClone(current);
+  expect(() => prepareMessagePaste({ message, current, projectId: crypto.randomUUID() })).toThrow(
+    "80 MB",
+  );
+  expect(current).toEqual(before);
+});
+
+test("clipboard image limits reject oversized metadata before any image transfer", () => {
+  const valid = decodeMessageClipboard(content().encoded);
+  if (!valid) throw new Error("Valid fixture rejected");
+  expect(
+    decodeMessageClipboard(
+      JSON.stringify({ ...valid, attachments: [{ ...file, size: 10 * 1024 * 1024 + 1 }] }),
+    ),
+  ).toBeNull();
+});
+
+test("removing a queued image cancels before the source host is read", async () => {
+  const message = decodeMessageClipboard(content().encoded);
+  if (!message) throw new Error("Valid fixture rejected");
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let exports = 0;
+  const source = {
+    exportAttachment: async () => {
+      exports++;
+      return { name: file.name, dataUrl: "data:image/png;base64,AQID" };
+    },
+  };
+  const busy = scheduleAttachmentTransfer(source, () => gate);
+  const controller = new AbortController();
+  const imported = importMessageAttachment({
+    source,
+    target: {
+      addAttachment: async () => {
+        throw new Error("Cancelled image must not be written");
+      },
+    },
+    message,
+    file,
+    projectId,
+    signal: controller.signal,
+  });
+  controller.abort();
+  release();
+  await expect(imported).rejects.toMatchObject({ name: "AbortError" });
+  await busy;
+  expect(exports).toBe(0);
 });

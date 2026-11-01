@@ -114,3 +114,46 @@
   color: var(--color-muted-ink);
   font-size: 13px;
 }
+
+@media (max-width: 700px) {
+  .composer .prompt-editor {
+    max-height: min(160px, 30dvh);
+  }
+  .composer-actions {
+    gap: 8px;
+    padding-block: 8px;
+  }
+  .composer-actions > .composer-settings {
+    display: flex;
+    flex: 0 0 100%;
+    order: 1;
+    min-width: 0;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .composer-settings .harness-setting-trigger {
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 6px 4px;
+    gap: 6px;
+    line-height: 20px;
+  }
+  .composer-settings > div,
+  .composer-settings > .contents > div {
+    flex-shrink: 0;
+  }
+  .composer-settings .harness-setting-trigger > svg {
+    width: 16px;
+    height: 16px;
+  }
+  .composer-actions > button,
+  .composer .composer-submit {
+    width: 32px;
+    height: 32px;
+  }
+  .composer-actions > .composer-tools {
+    margin-left: 0;
+    margin-inline-start: auto;
+  }
+}

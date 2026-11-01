@@ -1,4 +1,9 @@
-import { readMessageClipboard, type ClipboardMessage } from "../threads/message-clipboard";
+import {
+  readMessageClipboard,
+  messageClipboardContent,
+  MESSAGE_CLIPBOARD_MIME,
+  type ClipboardMessage,
+} from "../threads/message-clipboard";
 import {
   useImperativeHandle,
   useLayoutEffect,
@@ -7,11 +12,7 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
-import {
-  MAX_ATTACHMENTS,
-  MAX_ATTACHMENT_TOTAL_BYTES,
-  type AttachedFile,
-} from "../../../../shared/contracts/attachments";
+import { type AttachedFile } from "../../../../shared/contracts/attachments";
 import { showToast } from "@tidy/ui/toast";
 import {
   attachmentParts,
@@ -26,6 +27,7 @@ export type PromptEditorHandle = {
   cursor(): number;
   atBoundary(direction: "up" | "down"): boolean;
   setSelectionRange(start: number, end: number): void;
+  insertAttachments(files: AttachedFile[], point?: { x: number; y: number }): void;
 };
 type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPaste"> & {
   ref?: Ref<PromptEditorHandle>;
@@ -34,6 +36,8 @@ type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPas
   files?: AttachedFile[];
   onAttachFiles?(files: File[]): AttachedFile[];
   onPasteMessage?(message: ClipboardMessage): AttachedFile[];
+  clipboardSource?: { projectId: string; machineId: string };
+  attachmentsReady?: boolean;
   onCursorChange?(cursor: number): void;
   disabled?: boolean;
   placeholder?: string;
@@ -106,6 +110,8 @@ export function PromptEditor({
   files = [],
   onAttachFiles,
   onPasteMessage,
+  clipboardSource,
+  attachmentsReady = true,
   onCursorChange,
   disabled,
   placeholder,
@@ -118,6 +124,7 @@ export function PromptEditor({
   const input = useRef<HTMLDivElement>(null);
   const lastValue = useRef(value);
   const composing = useRef(false);
+  const lastCursor = useRef(0);
   useImperativeHandle(
     ref,
     () => ({
@@ -145,8 +152,25 @@ export function PromptEditor({
       setSelectionRange: (start, end) => {
         if (input.current) select(input.current, start, end);
       },
+      insertAttachments: (attached, point) => {
+        const root = input.current;
+        if (!root || !attached.length) return;
+        root.focus();
+        const caret = point ? document.caretPositionFromPoint?.(point.x, point.y) : null;
+        if (caret && root.contains(caret.offsetNode)) {
+          const range = document.createRange();
+          range.setStart(caret.offsetNode, caret.offset);
+          range.collapse(true);
+          window.getSelection()?.removeAllRanges();
+          window.getSelection()?.addRange(range);
+        } else {
+          const cursor = Math.min(lastCursor.current, read(root).length);
+          select(root, cursor, cursor);
+        }
+        insert(attached.map(attachmentReference).join(" "), [...files, ...attached]);
+      },
     }),
-    [],
+    [files, maxLength, onChange, onCursorChange],
   );
   useLayoutEffect(() => {
     const root = input.current;
@@ -189,6 +213,7 @@ export function PromptEditor({
     lastValue.current = next;
     root.dataset.empty = String(!next);
     onChange(next);
+    lastCursor.current = offset(root);
     onCursorChange?.(offset(root));
   }
   function insert(text: string, attached = files) {
@@ -199,7 +224,10 @@ export function PromptEditor({
     const selected = selection?.rangeCount
       ? read(selection.getRangeAt(0).cloneContents()).length
       : 0;
-    if (read(root).length - selected + text.length > maxLength) return;
+    if (read(root).length - selected + text.length > maxLength) {
+      showToast(`Keep messages under ${maxLength.toLocaleString()} characters.`);
+      return;
+    }
     const container = document.createElement("div");
     container.append(fragment(text, attached));
     const after = document.createRange();
@@ -221,6 +249,31 @@ export function PromptEditor({
     if (!selection?.rangeCount || selection.isCollapsed) return false;
     event.preventDefault();
     const text = read(selection.getRangeAt(0).cloneContents());
+    const selectedIds = new Set(
+      attachmentParts(text, files).flatMap((part) =>
+        part.kind === "attachment" ? [part.file.id] : [],
+      ),
+    );
+    const attachments = text === value ? files : files.filter((file) => selectedIds.has(file.id));
+    if (attachments.length && (!attachmentsReady || attachments.some((file) => file.importState))) {
+      showToast("Wait for attachments to load, or remove failed attachments, before copying.");
+      return false;
+    }
+    if (clipboardSource && attachments.length) {
+      try {
+        const content = messageClipboardContent({
+          message: { text, attachments },
+          ...clipboardSource,
+        });
+        event.clipboardData.setData("text/plain", content.text);
+        event.clipboardData.setData("text/html", content.html);
+        event.clipboardData.setData(MESSAGE_CLIPBOARD_MIME, content.encoded);
+        return true;
+      } catch {
+        showToast("Could not copy these attachments. Please try again.");
+        return false;
+      }
+    }
     event.clipboardData.setData("text/plain", attachmentText(text, files));
     event.clipboardData.setData("application/x-tidy-message", text);
     return true;
@@ -258,7 +311,10 @@ export function PromptEditor({
         change();
       }}
       onSelect={() => {
-        if (input.current) onCursorChange?.(offset(input.current));
+        if (input.current) {
+          lastCursor.current = offset(input.current);
+          onCursorChange?.(lastCursor.current);
+        }
       }}
       onPaste={(event) => {
         event.preventDefault();
@@ -269,14 +325,8 @@ export function PromptEditor({
           const selectedLength = selected?.rangeCount
             ? read(selected.getRangeAt(0).cloneContents()).length
             : 0;
-          if (read(event.currentTarget).length - selectedLength + message.text.length > maxLength)
-            return;
-          if (
-            files.length + message.attachments.length > MAX_ATTACHMENTS ||
-            [...files, ...message.attachments].reduce((total, file) => total + file.size, 0) >
-              MAX_ATTACHMENT_TOTAL_BYTES
-          ) {
-            showToast("Keep each message under 10 attachments and 25 MB.");
+          if (read(event.currentTarget).length - selectedLength + message.text.length > maxLength) {
+            showToast(`Keep messages under ${maxLength.toLocaleString()} characters.`);
             return;
           }
           const attached = onPasteMessage?.(message) ?? [];

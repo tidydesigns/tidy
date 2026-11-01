@@ -750,3 +750,10 @@
     transform: none;
   }
 }
+
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
