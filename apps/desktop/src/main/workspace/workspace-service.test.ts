@@ -2961,3 +2961,64 @@ test("Stop during the handover checkpoint leaves a stopped thread without replay
   expect(after.messages[0].turn?.endedAt).toBeDefined();
   expect(runs).toHaveLength(1);
 });
+
+test.each([false, true])(
+  "failed handover preparation clears running state and preserves follow-ups (Stop: %s)",
+  async (stop) => {
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    const failure = new Error("The harness executable is unavailable.");
+    let failing = false;
+    const { service, store, project, runs } = await fixture(
+      undefined,
+      false,
+      undefined,
+      false,
+      undefined,
+      async () => {
+        if (failing) {
+          entered.resolve();
+          await release.promise;
+          throw failure;
+        }
+        return "/fixture/harness";
+      },
+    );
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Work",
+      designIds: [],
+    });
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: "A queued follow-up",
+      delivery: "queue",
+    });
+    const events: Thread[] = [];
+    const unsubscribe = service.subscribe((event) => {
+      if (event.type === "thread" && event.thread.id === thread.id) events.push(event.thread);
+    });
+    failing = true;
+    const change = service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" });
+    await entered.promise;
+    if (stop) await service.stopThread(project.id, thread.id);
+    release.resolve();
+    await expect(change).rejects.toBe(failure);
+    unsubscribe();
+    const after = await store.readThread(project.id, thread.id);
+    expect(after.status).toBe(stop ? "stopped" : "failed");
+    expect(after.activity).toBeUndefined();
+    if (!stop) expect(after.error).toBe(failure.message);
+    expect(after.messages).toHaveLength(1);
+    expect(after.messages[0].turn?.endedAt).toBeDefined();
+    expect(after.queuedMessages?.map((message) => message.text)).toEqual(["A queued follow-up"]);
+    expect(after.settings?.permissionMode).toBe("auto");
+    expect(events.at(-1)?.status).toBe(after.status);
+    expect(runs).toHaveLength(1);
+    failing = false;
+    await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Try again" });
+    expect(runs).toHaveLength(2);
+  },
+);

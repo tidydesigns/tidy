@@ -900,28 +900,54 @@ export class WorkspaceService {
         }
         if (canResume()) {
           if (automaticQueue) this.automaticQueues.add(threadId);
-          return await this.run(
-            thread,
-            [
-              "The user changed this thread's access settings. Continue only the unfinished part of the existing request with the updated permissions.",
-              "Do not repeat completed actions. Before retrying any interrupted action without a confirmed result, inspect the current files or external state to determine whether it already succeeded. Do not assume an interruption rolled back its effects.",
-              "Recent completed or interrupted steps (use the native conversation for their full results):",
-              JSON.stringify(
-                (thread.toolActivities ?? [])
-                  .slice(-20)
-                  .map(({ title, toolName, status, endedAt }) => ({
-                    title,
-                    toolName,
-                    status,
-                    endedAt,
-                  })),
-              ),
-            ].join("\n\n"),
-            [],
-            undefined,
-            undefined,
-            true,
-          );
+          try {
+            return await this.run(
+              thread,
+              [
+                "The user changed this thread's access settings. Continue only the unfinished part of the existing request with the updated permissions.",
+                "Do not repeat completed actions. Before retrying any interrupted action without a confirmed result, inspect the current files or external state to determine whether it already succeeded. Do not assume an interruption rolled back its effects.",
+                "Recent completed or interrupted steps (use the native conversation for their full results):",
+                JSON.stringify(
+                  (thread.toolActivities ?? [])
+                    .slice(-20)
+                    .map(({ title, toolName, status, endedAt }) => ({
+                      title,
+                      toolName,
+                      status,
+                      endedAt,
+                    })),
+                ),
+              ].join("\n\n"),
+              [],
+              undefined,
+              undefined,
+              true,
+            );
+          } catch (error) {
+            // Preparation can fail before runPrepared registers its replacement job.
+            // End the handover checkpoint rather than leaving an unowned running thread.
+            if (!this.jobs.has(threadId) && thread.status === "running") {
+              this.automaticQueues.delete(threadId);
+              thread.status = canResume() ? "failed" : "stopped";
+              thread.activity = undefined;
+              if (thread.status === "failed") {
+                thread.error =
+                  error instanceof Error ? error.message : "The harness could not resume.";
+                thread.errorKind = error instanceof HarnessFailureError ? error.kind : undefined;
+              }
+              thread.updatedAt = new Date().toISOString();
+              if (job?.turn && !job.turn.endedAt) job.turn.endedAt = thread.updatedAt;
+              thread.revision++;
+              try {
+                await this.store.writeThread(thread);
+              } catch {
+                thread.error = "Thread changes could not be written to disk.";
+                thread.errorKind = "storage";
+              }
+              this.emit({ type: "thread", thread });
+            }
+            throw error;
+          }
         }
         // Stop may arrive while the final checkpoint is being written.
         if (job && thread.status === "running") {
