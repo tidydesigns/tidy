@@ -170,6 +170,10 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
         `document.querySelector('.thread-design-canvas [data-thumbnail-node="landing"]')?.getBoundingClientRect().toJSON()`,
       );
       assert.ok(loading, "Reopening must not wait for the delayed editor download");
+      await evaluate(`fetch('/__fixtures/release-editor', {method: 'POST'}).then(response => {
+        if (!response.ok) throw Error('Could not release the editor download');
+        return true;
+      })`);
       await wait(
         `Boolean(document.querySelector('.thread-design-canvas [data-node-id="landing"]'))`,
       );

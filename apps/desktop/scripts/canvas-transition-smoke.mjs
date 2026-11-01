@@ -22,14 +22,26 @@ const mime = {
   ".avif": "image/avif",
   ".woff2": "font/woff2",
 };
-let delayEditor = false;
+let releaseEditor = () => {};
+let editorReady = Promise.resolve();
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
     const path = decodeURIComponent(url.pathname);
-    if (path === "/desktop-demo/") delayEditor = url.searchParams.has("cold");
-    if (delayEditor && /\/file-editor-.*\.js$/.test(path))
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (path === "/desktop-demo/") {
+      releaseEditor();
+      editorReady = url.searchParams.has("cold")
+        ? new Promise((resolve) => {
+            releaseEditor = resolve;
+          })
+        : Promise.resolve();
+    }
+    if (path === "/__fixtures/release-editor" && request.method === "POST") {
+      releaseEditor();
+      response.end("ok");
+      return;
+    }
+    if (/\/file-editor-.*\.js$/.test(path)) await editorReady;
     const demo = path.startsWith("/desktop-demo/");
     const root = resolve(desktop, demo ? "demo-dist" : "../site/public");
     const relative = demo ? path.slice("/desktop-demo/".length) : path.slice(1);
@@ -88,6 +100,7 @@ try {
     clearTimeout(escalation);
   }
 } finally {
+  releaseEditor();
   await new Promise((resolve) => server.close(resolve));
   await rm(temporary, { recursive: true, force: true });
 }
