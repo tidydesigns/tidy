@@ -1575,7 +1575,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         host.querySelector<HTMLButtonElement>("[aria-label='Close project setup']"),
         "Close button",
       );
-      check(close.disabled, "Import can be dismissed before its result is known");
+      await until(() => close.disabled, "Import blocks dismissal before its result is known");
       host.querySelector("dialog")?.dispatchEvent(new Event("cancel", { cancelable: true }));
       check(closes === 0, "Escape dismissed the import");
       render(false);
