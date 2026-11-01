@@ -5,7 +5,22 @@ import type {
 } from "@tidy/editor/components/files/document-preview";
 
 export type PreviewCamera = Pick<PreviewViewport, "x" | "y" | "zoom">;
-export type PreviewCameraMemory = { current?: PreviewCamera };
+export type PreviewCameraMemory = {
+  current?: PreviewCamera;
+  pageId?: string;
+  pages?: Map<string, PreviewCamera>;
+};
+
+export function selectPreviewPage(memory: PreviewCameraMemory, pageId: string) {
+  if (memory.pageId === pageId) return;
+  if (memory.pageId && memory.current) {
+    memory.pages ??= new Map();
+    memory.pages.set(memory.pageId, memory.current);
+  }
+  // Adopt legacy single-page memory on its first use.
+  if (memory.pageId) memory.current = memory.pages?.get(pageId);
+  memory.pageId = pageId;
+}
 export type PreviewSize = Pick<PreviewViewport, "width" | "height">;
 export type { PreviewBounds } from "@tidy/editor/components/files/document-preview";
 

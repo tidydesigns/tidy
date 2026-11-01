@@ -33,6 +33,8 @@ import { LocalCanvas } from "../local-canvas";
 import { preloadCanvasEditor } from "../load-canvas-editor";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import type { CanvasGeometry } from "./dock-state";
+import { documentPage } from "@tidy/editor/design/pages";
+import { compactViewportTransform } from "./transition-geometry";
 
 type Phase = "closed" | "opening" | "open" | "closing";
 const enterEasing = "cubic-bezier(0.32, 0.72, 0, 1)";
@@ -54,11 +56,51 @@ const minimiseIcon = (
   </svg>
 );
 
-function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, button: HTMLElement) {
+function compactCanvasTransform(
+  surface: HTMLElement,
+  canvas: HTMLElement,
+  button: HTMLElement,
+  editorMemory: CanvasViewportMemory,
+  previewMemory: PreviewCameraMemory,
+) {
   const rect = button.getBoundingClientRect();
   const transform = getComputedStyle(canvas).transform;
   const current = new DOMMatrix(transform === "none" ? undefined : transform);
   const contentBounds = canvas.getBoundingClientRect();
+  const editorViewport = canvas.querySelector<HTMLElement>('[aria-label="Design canvas"]');
+  const fallback = editorViewport
+    ? null
+    : canvas.querySelector<SVGSVGElement>("svg[data-preview-page]");
+  const viewport = editorViewport ?? fallback;
+  if (!editorMemory.current && fallback?.dataset.previewPage) {
+    const matrix = fallback.getScreenCTM();
+    const bounds = fallback.getBoundingClientRect();
+    if (matrix) {
+      // The lazy editor must take over the loading preview's camera without a second fit/jump.
+      editorMemory.current = {
+        pageId: fallback.dataset.previewPage,
+        view: {
+          zoom: matrix.a / current.a,
+          x: (matrix.e - bounds.left) / current.a,
+          y: (matrix.f - bounds.top) / current.d,
+        },
+      };
+    }
+  }
+  const editor = editorMemory.current;
+  if (viewport && editor && previewMemory.current && editor.pageId === previewMemory.pageId) {
+    const bounds = viewport.getBoundingClientRect();
+    const compact = compactViewportTransform(
+      previewMemory.current,
+      editor.view,
+      { x: rect.left, y: rect.top },
+      {
+        x: (bounds.left - contentBounds.left) / current.a,
+        y: (bounds.top - contentBounds.top) / current.d,
+      },
+    );
+    return `translate(${compact.x}px, ${compact.y}px) scale(${compact.scale})`;
+  }
   const roots = button.querySelectorAll<HTMLElement>("foreignObject > div > [data-thumbnail-node]");
   for (const root of roots) {
     const nodeId = root.dataset.thumbnailNode;
@@ -126,6 +168,16 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const [value, setValue] = useState<LocalDesign>();
   const [phase, setPhase] = useState<Phase>("closed");
   const [visited, setVisited] = useState(false);
+  const [selectedPage, setSelectedPage] = useState<{ id: string; background?: string }>();
+  const page =
+    value && documentPage(value.document, selectedPage?.id ?? viewportMemory.current?.pageId);
+  const background = selectedPage?.id === page?.id ? selectedPage?.background : page?.background;
+  const editorReady = selectedPage !== undefined;
+  const onPageChange = useCallback((id: string, background?: string) => {
+    setSelectedPage((previous) =>
+      previous?.id === id && previous.background === background ? previous : { id, background },
+    );
+  }, []);
   const layer = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -445,7 +497,11 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     if (!active || !floating) closeImmediately();
   }, [active, floating, closeImmediately]);
   useEffect(() => {
-    if (phase === "open")
+    if (
+      phase === "open" &&
+      (!dialog.current?.contains(document.activeElement) ||
+        document.activeElement === dialog.current)
+    )
       dialog.current
         ?.querySelector<HTMLButtonElement>("[data-canvas-back]")
         ?.focus({ preventScroll: true });
@@ -453,7 +509,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       restoreFocus.current = false;
       trigger.current?.focus({ preventScroll: true });
     }
-  }, [phase]);
+  }, [phase, editorReady]);
   useEffect(
     () => () => {
       generation.current++;
@@ -464,120 +520,137 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     [],
   );
 
-  const transition = useCallback((open: boolean) => {
-    const surface = dialog.current;
-    const button = trigger.current;
-    const content = canvas.current;
-    const edge = transitionEdge.current;
-    const compactSurface = frame.current;
-    if (!surface || !button || !content || !edge || !compactSurface) return;
-    flushSync(() => setVisited(true));
-    const epoch = ++generation.current;
-    const rect = compactSurface.getBoundingClientRect();
-    const corners = getComputedStyle(compactSurface).borderTopLeftRadius.split(" ");
-    const radius = (value: string, size: number) =>
-      parseFloat(value) * (value.endsWith("%") ? size / 100 : 1);
-    const cornerRadius = `${radius(corners[0], rect.width)}px / ${radius(corners[1] ?? corners[0], rect.height)}px`;
-    const compactClip = `inset(${rect.top}px ${surface.clientWidth - rect.right}px ${surface.clientHeight - rect.bottom}px ${rect.left}px round ${cornerRadius})`;
-    const fullClip = "inset(0px 0px 0px 0px round 0px)";
-    const compactEdge = {
-      left: `${rect.left}px`,
-      top: `${rect.top}px`,
-      width: `${rect.width}px`,
-      height: `${rect.height}px`,
-      borderRadius: cornerRadius,
-    };
-    const fullEdge = {
-      left: "0px",
-      top: "0px",
-      width: `${surface.clientWidth}px`,
-      height: `${surface.clientHeight}px`,
-      borderRadius: "0px",
-    };
-    const measuredEdge = getComputedStyle(edge);
-    const previousEdge = surface.open
-      ? {
-          left: measuredEdge.left,
-          top: measuredEdge.top,
-          width: measuredEdge.width,
-          height: measuredEdge.height,
-          borderRadius: measuredEdge.borderRadius,
-        }
-      : compactEdge;
-    const compactTransform = compactCanvasTransform(surface, content, button);
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const previousOpacity = surface.open ? getComputedStyle(surface).opacity : "0";
-    const measuredClip = getComputedStyle(surface).clipPath;
-    const previousClip = surface.open
-      ? measuredClip === "none"
-        ? fullClip
-        : measuredClip
-      : compactClip;
-    const previousTransform = surface.open ? getComputedStyle(content).transform : compactTransform;
-    const chrome = [
-      ...content.querySelectorAll<HTMLElement>("[data-canvas-control], .editor-panel"),
-    ];
-    const chromeOpacity = chrome.map((element) => getComputedStyle(element).opacity);
-    animations.current.forEach((motion) => motion.cancel());
-    surface.style.clipPath = reduced ? fullClip : previousClip;
-    content.style.transform = reduced ? "none" : previousTransform;
-    Object.assign(edge.style, reduced ? fullEdge : previousEdge);
-    const previewRim = compactSurface
-      .querySelector(".thread-design-rim")
-      ?.getAnimations({ subtree: true })[0];
-    const growingRim = edge.getAnimations({ subtree: true })[0];
-    if (previewRim && growingRim && previewRim.currentTime !== null)
-      growingRim.currentTime = previewRim.currentTime;
-    if (open && !surface.open) surface.showModal();
-    flushSync(() => setPhase(open ? "opening" : "closing"));
-    const duration = reduced ? 100 : open ? 280 : 220;
-    const timing = { duration, easing: open ? enterEasing : exitEasing, fill: "both" as const };
-    const aperture = surface.animate(
-      reduced
-        ? [{ opacity: previousOpacity }, { opacity: open ? 1 : 0 }]
-        : [{ clipPath: previousClip }, { clipPath: open ? fullClip : compactClip }],
-      timing,
-    );
-    const artwork = content.animate(
-      reduced
-        ? [{ transform: "none" }, { transform: "none" }]
-        : [{ transform: previousTransform }, { transform: open ? "none" : compactTransform }],
-      timing,
-    );
-    const outline = edge.animate(
-      reduced ? [fullEdge, fullEdge] : [previousEdge, open ? fullEdge : compactEdge],
-      timing,
-    );
-    const controls = chrome.map((element, index) =>
-      element.animate([{ opacity: open ? 0 : chromeOpacity[index] }, { opacity: open ? 1 : 0 }], {
-        duration: 70,
-        delay: open && !reduced ? duration - 70 : 0,
-        fill: "both",
-      }),
-    );
-    const motions = [aperture, artwork, outline, ...controls];
-    animations.current = motions;
-    void Promise.all([aperture.finished, artwork.finished, outline.finished]).then(
-      () => {
-        if (generation.current !== epoch) return;
-        surface.style.clipPath = open ? fullClip : compactClip;
-        content.style.transform = open ? "none" : compactTransform;
-        if (open) {
-          flushSync(() => setPhase("open"));
-        } else {
-          restoreFocus.current = true;
-          surface.close();
-          flushSync(() => setPhase("closed"));
-        }
-        motions.forEach((motion) => motion.cancel());
-        animations.current = [];
-        surface.style.clipPath = "";
-        content.style.transform = "";
-        edge.removeAttribute("style");
-      },
-      () => {},
-    );
-  }, []);
+  const transition = useCallback(
+    (open: boolean) => {
+      const surface = dialog.current;
+      const button = trigger.current;
+      const content = canvas.current;
+      const edge = transitionEdge.current;
+      const compactSurface = frame.current;
+      if (!surface || !button || !content || !edge || !compactSurface) return;
+      flushSync(() => setVisited(true));
+      const epoch = ++generation.current;
+      const rect = compactSurface.getBoundingClientRect();
+      const corners = getComputedStyle(compactSurface).borderTopLeftRadius.split(" ");
+      const radius = (value: string, size: number) =>
+        parseFloat(value) * (value.endsWith("%") ? size / 100 : 1);
+      const cornerRadius = `${radius(corners[0], rect.width)}px / ${radius(corners[1] ?? corners[0], rect.height)}px`;
+      const compactClip = `inset(${rect.top}px ${surface.clientWidth - rect.right}px ${surface.clientHeight - rect.bottom}px ${rect.left}px round ${cornerRadius})`;
+      const fullClip = "inset(0px 0px 0px 0px round 0px)";
+      const compactEdge = {
+        left: `${rect.left}px`,
+        top: `${rect.top}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        borderRadius: cornerRadius,
+      };
+      const fullEdge = {
+        left: "0px",
+        top: "0px",
+        width: `${surface.clientWidth}px`,
+        height: `${surface.clientHeight}px`,
+        borderRadius: "0px",
+      };
+      const measuredEdge = getComputedStyle(edge);
+      const previousEdge = surface.open
+        ? {
+            left: measuredEdge.left,
+            top: measuredEdge.top,
+            width: measuredEdge.width,
+            height: measuredEdge.height,
+            borderRadius: measuredEdge.borderRadius,
+          }
+        : compactEdge;
+      const compactTransform = compactCanvasTransform(
+        surface,
+        content,
+        button,
+        viewportMemory,
+        previewMemory,
+      );
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const previousOpacity = surface.open ? getComputedStyle(surface).opacity : "0";
+      const measuredClip = getComputedStyle(surface).clipPath;
+      const previousClip = surface.open
+        ? measuredClip === "none"
+          ? fullClip
+          : measuredClip
+        : compactClip;
+      const previousTransform = surface.open
+        ? getComputedStyle(content).transform
+        : compactTransform;
+      const chrome = [
+        ...content.querySelectorAll<HTMLElement>("[data-canvas-control], .editor-panel"),
+      ];
+      const chromeOpacity = chrome.map((element) => getComputedStyle(element).opacity);
+      animations.current.forEach((motion) => motion.cancel());
+      surface.style.clipPath = reduced ? fullClip : previousClip;
+      content.style.transform = reduced ? "none" : previousTransform;
+      Object.assign(edge.style, reduced ? fullEdge : previousEdge);
+      const previewRim = compactSurface
+        .querySelector(".thread-design-rim")
+        ?.getAnimations({ subtree: true })[0];
+      const growingRim = edge.getAnimations({ subtree: true })[0];
+      if (previewRim && growingRim && previewRim.currentTime !== null)
+        growingRim.currentTime = previewRim.currentTime;
+      flushSync(() => setPhase(open ? "opening" : "closing"));
+      if (open && !surface.open) {
+        surface.dataset.prepared = "true";
+        surface.showModal();
+      }
+      const duration = reduced ? 100 : open ? 280 : 220;
+      const timing = { duration, easing: open ? enterEasing : exitEasing, fill: "both" as const };
+      const aperture = surface.animate(
+        reduced
+          ? [{ opacity: previousOpacity }, { opacity: open ? 1 : 0 }]
+          : [{ clipPath: previousClip }, { clipPath: open ? fullClip : compactClip }],
+        timing,
+      );
+      const artwork = content.animate(
+        reduced
+          ? [{ transform: "none" }, { transform: "none" }]
+          : [{ transform: previousTransform }, { transform: open ? "none" : compactTransform }],
+        timing,
+      );
+      const outline = edge.animate(
+        reduced ? [fullEdge, fullEdge] : [previousEdge, open ? fullEdge : compactEdge],
+        timing,
+      );
+      const controls = chrome.map((element, index) =>
+        element.animate([{ opacity: open ? 0 : chromeOpacity[index] }, { opacity: open ? 1 : 0 }], {
+          duration: 70,
+          delay: open && !reduced ? duration - 70 : 0,
+          fill: "both",
+        }),
+      );
+      const motions = [aperture, artwork, outline, ...controls];
+      animations.current = motions;
+      void Promise.all([aperture.finished, artwork.finished, outline.finished]).then(
+        () => {
+          if (generation.current !== epoch) return;
+          surface.style.clipPath = open ? fullClip : compactClip;
+          content.style.transform = open ? "none" : compactTransform;
+          if (open) {
+            flushSync(() => setPhase("open"));
+          } else {
+            restoreFocus.current = true;
+            const artwork = content.querySelector<HTMLElement>("[data-canvas-artwork]");
+            if (artwork) artwork.style.contentVisibility = "hidden";
+            surface.close();
+            flushSync(() => setPhase("closed"));
+            if (artwork) artwork.style.contentVisibility = "";
+          }
+          motions.forEach((motion) => motion.cancel());
+          animations.current = [];
+          surface.style.clipPath = "";
+          content.style.transform = "";
+          edge.removeAttribute("style");
+        },
+        () => {},
+      );
+    },
+    [viewportMemory, previewMemory],
+  );
   const minimise = useCallback(() => transition(false), [transition]);
 
   return (
@@ -599,8 +672,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       style={
         {
           zIndex: stackOrder,
-          "--thread-design-canvas-background":
-            value?.document.pages?.[0]?.background ?? "var(--color-canvas)",
+          "--thread-design-canvas-background": background ?? "var(--color-canvas)",
         } as CSSProperties
       }
     >
@@ -651,8 +723,10 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           >
             <span className="thread-design-lens" aria-hidden="true" inert>
               <span className="thread-design-artwork">
-                {value && (
+                {value && page && (
                   <PreviewCamera
+                    key={page.id}
+                    pageId={page.id}
                     onError={onPreviewError}
                     value={value}
                     memory={previewMemory}
@@ -781,6 +855,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
               active={phase === "open"}
               initialPanelsOpen={false}
               viewportMemory={viewportMemory}
+              onPageChange={onPageChange}
               backLabel="Minimise canvas"
               backIcon={minimiseIcon}
               onBack={minimise}

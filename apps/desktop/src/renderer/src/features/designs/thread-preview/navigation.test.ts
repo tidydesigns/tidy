@@ -1,5 +1,28 @@
 import { expect, test } from "bun:test";
-import { fitPreview, wheelPreview, zoomPreview } from "./navigation";
+import {
+  fitPreview,
+  wheelPreview,
+  zoomPreview,
+  selectPreviewPage,
+  type PreviewCameraMemory,
+} from "./navigation";
+
+test("switching pages never reuses another page's camera and restores each page independently", () => {
+  const first = { x: 80, y: -20, zoom: 0.5 };
+  const second = { x: -400, y: 90, zoom: 2 };
+  const memory: PreviewCameraMemory = { current: first };
+  selectPreviewPage(memory, "first");
+  expect(memory.current).toBe(first);
+  selectPreviewPage(memory, "second");
+  expect(memory.current).toBeUndefined();
+  memory.current = second;
+  selectPreviewPage(memory, "first");
+  expect(memory.current).toBe(first);
+  selectPreviewPage(memory, "second");
+  expect(memory.current).toBe(second);
+  selectPreviewPage(memory, "second");
+  expect(memory.current).toBe(second);
+});
 
 test("fits offset artwork into an independently sized preview", () => {
   const camera = fitPreview(

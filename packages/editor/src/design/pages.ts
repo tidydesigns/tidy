@@ -10,6 +10,12 @@ export function documentPages(document: DesignDocument) {
   return document.pages ?? [{ id: DEFAULT_PAGE_ID, name: "Page 1" }];
 }
 
+/** Use the same fallback when a remembered page has been removed. */
+export function documentPage(document: DesignDocument, pageId?: string) {
+  const pages = documentPages(document);
+  return pages.find((page) => page.id === pageId) ?? pages[0];
+}
+
 export function pageNodes(document: DesignDocument, pageId: string) {
   return document.nodes.filter((node) => nodePageId(node) === pageId);
 }

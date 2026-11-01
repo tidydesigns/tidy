@@ -14,6 +14,7 @@ import {
   fitPreview,
   wheelPreview,
   zoomPreview,
+  selectPreviewPage,
   type PreviewBounds,
   type PreviewCameraMemory,
 } from "./navigation";
@@ -26,6 +27,7 @@ export const PreviewCamera = memo(function PreviewCamera({
   surface,
   suppressClick,
   enabled,
+  pageId,
 }: {
   value: LocalDesign;
   onError(error: unknown): void;
@@ -33,6 +35,7 @@ export const PreviewCamera = memo(function PreviewCamera({
   surface: RefObject<HTMLButtonElement | null>;
   suppressClick: RefObject<boolean>;
   enabled: boolean;
+  pageId: string;
 }) {
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1, width: 1, height: 1 });
   const bounds = useRef<PreviewBounds | undefined>(undefined);
@@ -69,7 +72,8 @@ export const PreviewCamera = memo(function PreviewCamera({
   const assetURL = useCallback((id: string) => value.assets[id] ?? "", [value.assets]);
   useLayoutEffect(() => {
     const element = surface.current;
-    if (!element || !enabled) return;
+    if (!element) return;
+    selectPreviewPage(memory, pageId);
     const measure = () => {
       size.current = { width: element.clientWidth, height: element.clientHeight };
       initialize();
@@ -78,7 +82,7 @@ export const PreviewCamera = memo(function PreviewCamera({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [surface, enabled, initialize]);
+  }, [surface, memory, pageId, initialize]);
   useEffect(() => {
     const element = surface.current;
     if (!element || !enabled) return;
@@ -222,6 +226,7 @@ export const PreviewCamera = memo(function PreviewCamera({
       assetUrl={assetURL}
       viewport={viewport}
       onBounds={onBounds}
+      pageId={pageId}
     />
   );
 });

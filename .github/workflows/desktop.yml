@@ -57,8 +57,10 @@ jobs:
         run: |
           xvfb-run --auto-servernum bun run --cwd apps/desktop test:security
           xvfb-run --auto-servernum bun apps/desktop/scripts/thread-loading-smoke.ts
+          xvfb-run --auto-servernum bun run --cwd apps/desktop test:canvas
       - if: runner.os == 'macOS'
         run: |
           bun run --cwd apps/desktop test:security
           bun apps/desktop/scripts/thread-loading-smoke.ts
+          bun run --cwd apps/desktop test:canvas
       - run: bun run package:desktop

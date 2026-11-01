@@ -353,6 +353,7 @@ export function FileEditor({
   active = true,
   initialPanelsOpen = false,
   viewportMemory,
+  onPageChange,
   initialToolbarPlacement = "left",
   user,
   githubReviews,
@@ -373,6 +374,7 @@ export function FileEditor({
   canEdit?: boolean;
   initialPanelsOpen?: boolean;
   viewportMemory?: CanvasViewportMemory;
+  onPageChange?: (pageId: string, background?: string) => void;
   initialToolbarPlacement?: EditorToolbarPlacement;
   user?: EditorUser;
   local?: boolean;
@@ -752,6 +754,10 @@ export function FileEditor({
   const visibleError = error === PENDING_NAVIGATION_MESSAGE && !room.hasPendingEdits() ? "" : error;
   const pages = useMemo(() => documentPages(snapshot.content), [snapshot.content]);
   const currentPageId = pages.some((page) => page.id === activePageId) ? activePageId : pages[0].id;
+  const currentPageBackground = pages.find((page) => page.id === currentPageId)?.background;
+  useLayoutEffect(() => {
+    onPageChange?.(currentPageId, currentPageBackground);
+  }, [currentPageId, currentPageBackground, onPageChange]);
   const selectionVersion = useRef(0);
   useLayoutEffect(() => {
     selectionVersion.current++;
@@ -4879,6 +4885,7 @@ export function FileEditor({
             </div>
           )}
           <div
+            data-canvas-artwork
             style={{
               transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
               transformOrigin: "top left",

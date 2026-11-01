@@ -1,20 +1,54 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import { equalJsonValues } from "@tidy/editor/design/json-value";
 import { lazyView } from "../../components/lazy-view";
 import { DocumentPreview } from "./preview-renderers";
 import { loadCanvasEditor } from "./load-canvas-editor";
-import { EditorHostProvider, type EditorLinkProps } from "@tidy/editor/host";
+import { EditorHostProvider, useEditorHost, type EditorLinkProps } from "@tidy/editor/host";
+import { minimisedFileBarClass } from "@tidy/editor/components/files/editor-chrome-styles";
+import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../../../shared/contracts/desktop";
 import { CanvasRefresh } from "./canvas-refresh";
 
+function LoadingCanvas({
+  content,
+  pageId,
+  assets,
+  name,
+}: {
+  content: DesignDocument;
+  pageId?: string;
+  assets?: Record<string, string>;
+  name: string;
+}) {
+  const { Link } = useEditorHost();
+  const assetUrl = useCallback((id: string) => assets?.[id] ?? "", [assets]);
+  return (
+    <div className="relative h-full w-full">
+      <DocumentPreview content={content} pageId={pageId} assetUrl={assetUrl} />
+      <div data-canvas-control className={minimisedFileBarClass}>
+        <Link
+          href="#"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-primary-grey/20"
+        >
+          <Icon name="back" />
+        </Link>
+        <span className="h-6 w-px shrink-0 bg-primary-grey/65" />
+        <h1 className="min-w-0 max-w-44 px-2 text-sm">{name}</h1>
+      </div>
+    </div>
+  );
+}
+
 const FileEditor = lazyView(async () => ({ default: (await loadCanvasEditor()).FileEditor }), {
   label: "canvas editor",
   fallback: (props) => (
-    <DocumentPreview
+    <LoadingCanvas
       content={props.initialDocument.content}
-      assetUrl={(id) => props.previewAssetUrls?.[id] ?? ""}
+      pageId={props.viewportMemory?.current?.pageId}
+      assets={props.previewAssetUrls}
+      name={props.fileName}
     />
   ),
 });
@@ -31,6 +65,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   backIcon,
   initialPanelsOpen = true,
   viewportMemory,
+  onPageChange,
   retryAssets,
 }: {
   api: DesktopAPI;
@@ -44,6 +79,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   backIcon?: ReactNode;
   initialPanelsOpen?: boolean;
   viewportMemory?: CanvasViewportMemory;
+  onPageChange?: (pageId: string, background?: string) => void;
   retryAssets?: string[];
 }) {
   useEffect(() => {
@@ -181,6 +217,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         initialDocument={{ revision: 0, content: initial.document }}
         initialPanelsOpen={initialPanelsOpen}
         viewportMemory={viewportMemory}
+        onPageChange={onPageChange}
         local
         archived={archived}
         canEdit={!archived}

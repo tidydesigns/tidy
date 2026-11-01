@@ -11,7 +11,7 @@ import { nodeStyle } from "@tidy/design-renderer/node-style";
 import { responsiveNode } from "@tidy/design-renderer/responsive-layout";
 import type { DesignDocument, DesignNode } from "@tidy/design/document";
 import { childrenByParent } from "@tidy/design/node-hierarchy";
-import { documentPages, pageNodes } from "../../design/pages";
+import { documentPage, pageNodes } from "../../design/pages";
 import { resolvedColorTokens, resolvedDocumentNodes } from "@tidy/design/design-tokens";
 import { useDocumentFonts } from "../../design/fonts/use-document-fonts";
 const hostedAssetUrl = (id: string) => `/api/assets/${id}`;
@@ -30,11 +30,13 @@ export function DocumentPreview({
   assetUrl = hostedAssetUrl,
   viewport,
   onBounds,
+  pageId,
 }: {
   content: DesignDocument;
   assetUrl?: (id: string) => string;
   viewport?: PreviewViewport;
   onBounds?: (bounds: PreviewBounds) => void;
+  pageId?: string;
 }) {
   const element = useRef<SVGSVGElement>(null);
   const [measured, setMeasured] = useState<Map<string, { width: number; height: number }>>(
@@ -49,8 +51,8 @@ export function DocumentPreview({
   );
   const colors = useMemo(() => resolvedColorTokens(content), [content]);
   const page = useMemo(
-    () => pageNodes(renderedContent, documentPages(renderedContent)[0].id),
-    [renderedContent],
+    () => pageNodes(renderedContent, documentPage(renderedContent, pageId).id),
+    [renderedContent, pageId],
   );
   useDocumentFonts(page);
   useLayoutEffect(() => {
@@ -211,6 +213,7 @@ export function DocumentPreview({
       <svg
         ref={element}
         aria-hidden="true"
+        data-preview-page={documentPage(renderedContent, pageId).id}
         className="h-full w-full"
         viewBox={
           viewport
