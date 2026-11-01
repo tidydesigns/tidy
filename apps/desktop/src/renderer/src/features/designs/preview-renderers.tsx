@@ -20,7 +20,7 @@ export const ThumbnailRenderer = lazyView(
   },
 );
 
-type ArtworkProps = ComponentProps<typeof DocumentPreview> & { onError(error: unknown): void };
+type ArtworkProps = ComponentProps<typeof DocumentPreview> & { onError?(error: unknown): void };
 
 export const PreviewArtwork = lazyView(
   async () => {
@@ -35,6 +35,6 @@ export const PreviewArtwork = lazyView(
     label: "design preview",
     fallback: () => <span className="text-xs text-muted-ink">Loading preview…</span>,
     errorFallback: <span className="text-xs text-muted-ink">Preview unavailable</span>,
-    onError: (props, error) => props.onError(error),
+    onError: (props, error) => props.onError?.(error),
   },
 );

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import type { CanvasViewportMemory } from "@tidy/editor";
 import { equalJsonValues } from "@tidy/editor/design/json-value";
 import { lazyView } from "../../components/lazy-view";
-import { DocumentPreview } from "./preview-renderers";
+import { PreviewArtwork } from "./preview-renderers";
 import { loadCanvasEditor } from "./load-canvas-editor";
 import { EditorHostProvider, useEditorHost, type EditorLinkProps } from "@tidy/editor/host";
 import { minimisedFileBarClass } from "@tidy/editor/components/files/editor-chrome-styles";
@@ -26,7 +26,7 @@ function LoadingCanvas({
   const assetUrl = useCallback((id: string) => assets?.[id] ?? "", [assets]);
   return (
     <div className="relative h-full w-full">
-      <DocumentPreview content={content} pageId={pageId} assetUrl={assetUrl} />
+      <PreviewArtwork content={content} pageId={pageId} assetUrl={assetUrl} />
       <div data-canvas-control className={minimisedFileBarClass}>
         <Link
           href="#"

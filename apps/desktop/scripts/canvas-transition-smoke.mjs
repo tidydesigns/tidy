@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 
+const timeout = Number(process.env.CANVAS_TRANSITION_TIMEOUT ?? 240_000);
+if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2_147_483_647)
+  throw Error(
+    "CANVAS_TRANSITION_TIMEOUT must be a positive integer of milliseconds within the timer limit",
+  );
+
 const desktop = fileURLToPath(new URL("..", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "tidy-canvas-transitions-"));
 const mime = {
@@ -56,18 +62,30 @@ try {
     [join(temporary, "runner.mjs"), `http://127.0.0.1:${port}`, join(temporary, "profile")],
     { env: environment, stdio: "inherit" },
   );
-  const deadline = setTimeout(() => child.kill("SIGKILL"), 120_000);
+  let escalation;
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    console.error(`Canvas transition regressions exceeded ${timeout} ms; sending SIGTERM`);
+    child.kill("SIGTERM");
+    escalation = setTimeout(() => child.kill("SIGKILL"), 5_000);
+  }, timeout);
   try {
     await new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("exit", (code, signal) =>
-        code === 0
+        code === 0 && !timedOut
           ? resolve()
-          : reject(Error(`Canvas transition regressions failed (${signal ?? code})`)),
+          : reject(
+              Error(
+                `Canvas transition regressions failed (${timedOut ? "timeout" : (signal ?? code)})`,
+              ),
+            ),
       );
     });
   } finally {
     clearTimeout(deadline);
+    clearTimeout(escalation);
   }
 } finally {
   await new Promise((resolve) => server.close(resolve));
