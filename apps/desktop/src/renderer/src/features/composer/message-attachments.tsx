@@ -17,9 +17,11 @@ export const attachmentReferenceClassName =
 export function AttachmentList({
   files,
   onRemove,
+  onRetry,
 }: {
   files: AttachedFile[];
   onRemove?: (id: string) => void;
+  onRetry?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (!files.length) return null;
@@ -68,11 +70,22 @@ export function AttachmentList({
                   {file.importState === "pending"
                     ? "Loading…"
                     : file.importState === "failed"
-                      ? "Could not load. Paste again to retry."
+                      ? "Could not load."
                       : attachmentSize(file.size)}
                 </small>
+                {file.importState === "failed" && file.clipboardId && onRetry && (
+                  <Button
+                    type="button"
+                    className="shrink-0 cursor-pointer rounded border-0 bg-transparent px-1 py-1 text-xs text-ink hover:bg-hover-surface"
+                    aria-label={`Retry ${file.name}`}
+                    onClick={() => onRetry(file.id)}
+                  >
+                    Retry
+                  </Button>
+                )}
               </span>
             )}
+
             {onRemove && (
               <Button
                 type="button"

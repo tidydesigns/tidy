@@ -13,6 +13,7 @@ import {
   messageClipboardContent,
   messageClipboardText,
   prepareMessagePaste,
+  attachmentRetryMessage,
 } from "./message-clipboard";
 
 const clientId = "aa6ea601-6dbb-4ea5-bb1a-218dd938d5ed";
@@ -520,6 +521,51 @@ test("failed imports retry in their existing slot while duplicate filenames stay
   expect(retry.imports).toHaveLength(2);
   expect(retry.mapped.every((item) => item.importState === "pending")).toBe(true);
   expect(retry.mapped[0].id).not.toBe(retry.mapped[1].id);
+});
+
+test("retry restores only the failed image from its original source and keeps its slot", () => {
+  const message = decodeMessageClipboard(content().encoded);
+  if (!message) throw new Error("Valid fixture rejected");
+  const destination = crypto.randomUUID();
+  const first = prepareMessagePaste({ message, current: [], projectId: destination });
+  const failed = { ...first.mapped[0], importState: "failed" as const };
+  const retryMessage = attachmentRetryMessage(failed);
+  if (!retryMessage) throw new Error("Failed attachment cannot retry");
+  expect(retryMessage.source).toEqual(message.source);
+  expect(retryMessage.text).toBe("");
+  expect(retryMessage.attachments).toEqual([file]);
+  const other = { ...file, id: crypto.randomUUID() };
+  const retry = prepareMessagePaste({
+    message: retryMessage,
+    current: [other, failed],
+    projectId: destination,
+  });
+  expect(retry.attachments).toHaveLength(2);
+  expect(retry.attachments[0]).toBe(other);
+  expect(retry.attachments[1].id).toBe(failed.id);
+  expect(retry.imports.map(({ file }) => file.id)).toEqual([file.id]);
+  expect(attachmentRetryMessage(retry.attachments[1])).toBeNull();
+});
+
+test("retry rejects unavailable, invalid, and oversized source metadata", () => {
+  const failed = { ...file, importState: "failed" as const };
+  expect(attachmentRetryMessage(failed)).toBeNull();
+  expect(attachmentRetryMessage({ ...failed, clipboardId: "invalid" })).toBeNull();
+  expect(
+    attachmentRetryMessage({
+      ...failed,
+      clipboardId: JSON.stringify([clientId, "local", projectId, "../file"]),
+    }),
+  ).toBeNull();
+  const clipboardId = JSON.stringify([clientId, "local", projectId, file.id]);
+  expect(attachmentRetryMessage({ ...failed, clipboardId, size: 10 * 1024 * 1024 + 1 })).toBeNull();
+  const retried = attachmentRetryMessage({
+    ...failed,
+    clipboardId,
+    previewUrl: "blob:temporary",
+    referenceId: crypto.randomUUID(),
+  });
+  expect(retried?.attachments).toEqual([file]);
 });
 
 test("a paste exceeding the byte budget leaves the existing attachments untouched", () => {

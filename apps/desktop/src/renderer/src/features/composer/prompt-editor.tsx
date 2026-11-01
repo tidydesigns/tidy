@@ -56,31 +56,48 @@ function read(node: Node): string {
   ).join("");
 }
 
-function offset(root: HTMLElement) {
+function offset(root: HTMLElement, boundary?: { node: Node; offset: number }) {
   const selection = window.getSelection();
-  if (!selection?.focusNode || !root.contains(selection.focusNode)) return read(root).length;
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  range.setEnd(selection.focusNode, selection.focusOffset);
-  return read(range.cloneContents()).length;
+  const focusedNode = boundary?.node ?? selection?.focusNode;
+  if (!focusedNode || !root.contains(focusedNode)) return read(root).length;
+  const focus = focusedNode;
+  const focusOffset = boundary?.offset ?? selection?.focusOffset ?? 0;
+  function position(node: Node): number {
+    if (node === focus && node.nodeType === Node.TEXT_NODE) return focusOffset;
+    let length = 0;
+    for (const [index, child] of Array.from(node.childNodes).entries()) {
+      if (node === focus && index === focusOffset) return length;
+      if (index && (child.nodeName === "DIV" || child.nodeName === "P")) length += 1;
+      if (child === focus || child.contains(focus)) return length + position(child);
+      length += read(child).length;
+    }
+    return length;
+  }
+  return position(root);
 }
 
 function select(root: HTMLElement, start: number, end: number) {
   const range = document.createRange();
-  function point(position: number): [Node, number] {
+  function point(parent: Node, position: number): [Node, number] {
     let remaining = position;
-    for (const node of root.childNodes) {
+    for (const [index, node] of Array.from(parent.childNodes).entries()) {
+      if (index && (node.nodeName === "DIV" || node.nodeName === "P")) {
+        if (!remaining) return [parent, index];
+        remaining -= 1;
+      }
       const size = read(node).length;
       if (remaining <= size) {
         if (node.nodeType === Node.TEXT_NODE) return [node, remaining];
-        return [root, Array.from(root.childNodes).indexOf(node) + (remaining > 0 ? 1 : 0)];
+        if (node.nodeName === "BR" || (node instanceof HTMLElement && node.dataset.attachmentId))
+          return [parent, index + (remaining > 0 ? 1 : 0)];
+        return point(node, remaining);
       }
       remaining -= size;
     }
-    return [root, root.childNodes.length];
+    return [parent, parent.childNodes.length];
   }
-  range.setStart(...point(start));
-  range.setEnd(...point(end));
+  range.setStart(...point(root, start));
+  range.setEnd(...point(root, end));
   window.getSelection()?.removeAllRanges();
   window.getSelection()?.addRange(range);
 }
@@ -155,6 +172,7 @@ export function PromptEditor({
       insertAttachments: (attached, point) => {
         const root = input.current;
         if (!root || !attached.length) return;
+        const cursor = Math.min(lastCursor.current, read(root).length);
         root.focus();
         const caret = point ? document.caretPositionFromPoint?.(point.x, point.y) : null;
         if (caret && root.contains(caret.offsetNode)) {
@@ -164,7 +182,6 @@ export function PromptEditor({
           window.getSelection()?.removeAllRanges();
           window.getSelection()?.addRange(range);
         } else {
-          const cursor = Math.min(lastCursor.current, read(root).length);
           select(root, cursor, cursor);
         }
         insert(attached.map(attachmentReference).join(" "), [...files, ...attached]);
@@ -221,27 +238,31 @@ export function PromptEditor({
     const root = input.current;
     if (!root) return;
     const selection = window.getSelection();
-    const selected = selection?.rangeCount
-      ? read(selection.getRangeAt(0).cloneContents()).length
-      : 0;
-    if (read(root).length - selected + text.length > maxLength) {
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const current = read(root);
+    const start = range
+      ? offset(root, { node: range.startContainer, offset: range.startOffset })
+      : current.length;
+    const end = range
+      ? offset(root, { node: range.endContainer, offset: range.endOffset })
+      : current.length;
+    const next = current.slice(0, start) + text + current.slice(end);
+    if (next.length > maxLength) {
       showToast(`Keep messages under ${maxLength.toLocaleString()} characters.`);
       return;
     }
     const container = document.createElement("div");
-    container.append(fragment(text, attached));
-    const after = document.createRange();
-    after.selectNodeContents(root);
-    if (selection?.rangeCount) {
-      const range = selection.getRangeAt(0);
-      after.setStart(range.endContainer, range.endOffset);
-    }
-    const trailingBreak = text.endsWith("\n") && !read(after.cloneContents()) ? "<br>" : "";
+    container.append(fragment(next, attached));
+    const replacement = document.createRange();
+    replacement.selectNodeContents(root);
+    selection?.removeAllRanges();
+    selection?.addRange(replacement);
     document.execCommand(
       "insertHTML",
       false,
-      container.innerHTML.replaceAll("\n", "<br>") + trailingBreak,
+      container.innerHTML.replaceAll("\n", "<br>") + (next.endsWith("\n") ? "<br>" : ""),
     );
+    select(root, start + text.length, start + text.length);
     change();
   }
   function copy(event: ClipboardEvent<HTMLDivElement>) {

@@ -255,6 +255,23 @@ export function decodeMessageClipboard(raw: string) {
   }
 }
 
+export function attachmentRetryMessage(file: AttachedFile): ClipboardMessage | null {
+  if (file.importState !== "failed" || !file.clipboardId) return null;
+  try {
+    const [clientId, machineId, projectId, id] = z
+      .tuple([z.string().uuid(), machineIdSchema, z.string().uuid(), z.string().uuid()])
+      .parse(JSON.parse(file.clipboardId));
+    return clipboardMessageSchema.parse({
+      version: 1,
+      source: { clientId, machineId, projectId },
+      text: "",
+      attachments: [{ ...attachmentSchema.parse(file), id }],
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function readMessageClipboard(
   data: Pick<DataTransfer, "getData">,
   storage = clipboardStorage(),

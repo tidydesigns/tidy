@@ -17,6 +17,7 @@ import {
 } from "../features/composer/draft-attachments";
 import {
   importMessageAttachment,
+  attachmentRetryMessage,
   prepareMessagePaste,
   type ClipboardMessage,
 } from "../features/threads/message-clipboard";
@@ -1352,7 +1353,7 @@ export function App({
           update({ ...placeholder, importState: "failed" });
           if (!importErrorShown) {
             importErrorShown = true;
-            showToast("Some attachments could not load. Paste again to retry.");
+            showToast("Some attachments could not load. Retry them in the attachment list.");
           }
         })
         .finally(() => {
@@ -2478,6 +2479,15 @@ export function App({
                       <AttachmentList
                         key={draftKey}
                         files={draft.attachments ?? []}
+                        onRetry={
+                          thread?.doneAt || busy
+                            ? undefined
+                            : (id) => {
+                                const file = draft.attachments?.find((item) => item.id === id);
+                                const message = file && attachmentRetryMessage(file);
+                                if (message) pasteMessage(message);
+                              }
+                        }
                         onRemove={
                           thread?.doneAt
                             ? undefined
