@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "../package.json";
-import { desktopAppName } from "../src/shared/app-name";
+import { desktopAppName, desktopMacIcon } from "../src/shared/app-name";
 
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 const repository = fileURLToPath(new URL("../../..", import.meta.url));
@@ -64,7 +64,7 @@ export async function packageDesktop() {
       executableName: "Tidy",
       icon:
         process.platform === "darwin"
-          ? join(appDirectory, "resources/icon.icns")
+          ? join(appDirectory, "resources", desktopMacIcon(manifest.version, "icns"))
           : process.platform === "win32"
             ? join(appDirectory, "resources/icon.ico")
             : undefined,

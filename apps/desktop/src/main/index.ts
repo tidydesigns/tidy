@@ -4,7 +4,7 @@ import { RemoteClient } from "./remote/client";
 import { MachineProfiles } from "./remote/profiles";
 import { discoverSshHosts } from "./remote/ssh";
 import { version } from "../../package.json";
-import { desktopAppName } from "../shared/app-name";
+import { desktopAppName, desktopMacIcon } from "../shared/app-name";
 import { DesktopAnalytics } from "./analytics";
 import {
   app,
@@ -78,7 +78,7 @@ const appIcon = app.isPackaged
   : join(
       import.meta.dirname,
       "../../resources",
-      process.platform === "darwin" ? "icon-macos.png" : "icon.png",
+      process.platform === "darwin" ? desktopMacIcon(version, "png") : "icon.png",
     );
 
 async function createWindow() {
@@ -181,10 +181,16 @@ const connectMachine = machineConnections(async (target) => {
 });
 
 // A display-name change must keep existing profiles, sessions and cloud credentials.
-const userData = join(app.getPath("appData"), "Tidy");
+// Preserve explicitly overridden paths used by isolated native smoke tests too.
+const currentUserData = app.getPath("userData");
+const userData =
+  currentUserData === join(app.getPath("appData"), app.getName())
+    ? join(app.getPath("appData"), "Tidy")
+    : currentUserData;
+const sessionData = app.getPath("sessionData");
 mkdirSync(userData, { recursive: true });
 app.setPath("userData", userData);
-app.setPath("sessionData", userData);
+if (sessionData === currentUserData) app.setPath("sessionData", userData);
 app.setName(appName);
 const profiles = new MachineProfiles(join(app.getPath("userData"), "remote-machines.json"));
 app.setAboutPanelOptions({ applicationName: appName, applicationVersion: version });

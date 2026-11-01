@@ -13,6 +13,7 @@ guard CommandLine.arguments.count == 3,
 }
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = context
+context.cgContext.clear(CGRect(x: 0, y: 0, width: 1024, height: 1024))
 context.imageInterpolation = .high
 image.draw(in: NSRect(x: 100, y: 100, width: 824, height: 824))
 NSGraphicsContext.restoreGraphicsState()

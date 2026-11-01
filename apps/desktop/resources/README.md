@@ -1,48 +1,66 @@
-# Desktop icon
+# Desktop icons
 
-`icon.png` is the 1024 × 1024 master rendered from the Tidy Co **Desktop icon — centered**
-design (revision 3), created through Tidy MCP from the original **icon** design.
-It preserves the white artboard, dark wordmark, font size and letter spacing.
-The visible lettering is centered horizontally and vertically, with measured
-139px left/right and 276px top/bottom margins at the 50% ink threshold.
-The editable text layer is at x=64.8828125, y=85.90625 on the 500px artboard.
-The render uses the
-repository's `packages/ui/fonts/InstrumentSerif-Regular.woff2` because the MCP
-preview could not embed that font.
+macOS release artwork is exported directly from the approved local Tidy design,
+**Tidy · Beta app icon explorations** (`f80d45f8-4f6d-4188-939e-5d0150114cab`):
 
-`icon-macos.png` applies Apple's rounded-square mask and places the result in an
-824px square centered on a transparent 1024px canvas. This is the legacy macOS
-icon geometry: supplying the full-bleed square as an ICNS makes macOS add a grey
-backplate around it. The wordmark remains centered within the white tile.
-`icon.icns` contains this macOS artwork at every size, including Retina resolutions.
-`icon.ico` contains Windows sizes from 16 to 256 pixels. Each PNG, including those
-inside the native containers, is losslessly compressed with Oxipng. All icon sizes
-and color profiles are retained; no quantization or resolution reduction is used.
-All PNGs retain 32bpp RGBA: Windows requires it for ICO compatibility, and
-macOS's legacy-icon shape detection adds a backplate to grayscale PNG entries
-even when their decoded transparency is identical. Export
-replacement masters as 8-bit RGBA PNGs; grayscale or RGB sources are rejected.
+| Release    | Design selection                                           | Master                 | Native icon      | Development Dock PNG  |
+| ---------- | ---------------------------------------------------------- | ---------------------- | ---------------- | --------------------- |
+| Beta       | 17, Violet glass, **production artwork without a badge**   | `macos/beta.png`       | `icon-beta.icns` | `icon-macos-beta.png` |
+| Production | 13, Spectrum glass, **production artwork without a badge** | `macos/production.png` | `icon.icns`      | `icon-macos.png`      |
 
-Packaged macOS and Windows apps use their embedded native icons, without a second
-PNG in the application archive. Only Linux packages include the PNG for their
-window icon. Development uses the platform PNG, including `icon-macos.png` for
-the Dock on macOS. Neither PNG is shipped in the macOS application archive.
+Beta builds display **Tidy (Beta)**. Stable versions display **Tidy**. The
+version in `apps/desktop/package.json` selects both name and artwork; there is no
+independent channel flag to drift out of sync. Both icons retain the full outlined
+wordmark in its production position. Colour and application name distinguish beta.
+Windows and Linux retain their existing white wordmark artwork (`icon.ico` and
+`icon.png`).
 
-After replacing the master PNG, regenerate both native formats on macOS from the
-repository root:
+## Export and regenerate
+
+The two 1024 × 1024 masters are real exports of the selected design subtrees,
+including their original cloud image fills, masks, radii and vector wordmark.
+`macos/source.json` records the source design/node IDs, option numbers and hashes
+of the selected scene, original image bytes and exported PNG. The export script
+reads local assets; it never fetches images or depends on a preview screenshot.
+Unsupported future styles fail instead of being silently omitted.
+
+From the repository root, with the editable local design and its sibling assets:
 
 ```sh
-bun apps/desktop/scripts/generate-icons.ts
+bun apps/desktop/scripts/export-macos-icons.ts /path/to/.tidy/designs/f80d45f8-4f6d-4188-939e-5d0150114cab.json
+bun apps/desktop/scripts/generate-macos-icons.ts
 ```
 
-Generation requires Xcode 26+ with Icon Composer, Swift/AppKit, the macOS `sips`
-and `iconutil` utilities, and
-[Oxipng](https://github.com/oxipng/oxipng) (tested with 10.2.1; install with
-`brew install oxipng`). Normal packaging uses the committed icons and does not
-require these utilities. Icon Composer is used only to render Apple's mask; its
-asset catalog and source document are not shipped. No image-processing dependency
-is shipped in the app.
+The export uses Sharp **only as a development tool**. It decodes the original
+cloud fills without another lossy encode and rasterizes the outlined lettering
+at 1024px. It preserves the actual source detail; the design's 1536 × 1024 cloud
+fills supply the full square crop. PNG masters and native renditions are 8-bit
+RGBA, with no palette quantization. Regeneration needs macOS Swift/AppKit, `sips`,
+`iconutil` and [Oxipng](https://github.com/oxipng/oxipng) (`brew install oxipng`).
+The approved exports already have their rounded mask, so Icon Composer is not
+applied a second time. Normal builds use committed assets and need none of these
+image-generation tools.
 
-The root `Package.swift` exposes only the padding helper as a buildable executable
-for CodeQL's Swift analysis. Run `swift build` from the repository root to check
-it independently; icon generation continues to run the helper directly.
+To regenerate the existing Windows ICO as well, run
+`bun apps/desktop/scripts/generate-icons.ts`.
+
+## Quality and runtime performance
+
+Each macOS icon retains the existing native geometry: 824px artwork centred on a
+transparent 1024px canvas, with a 100px inset on all sides. This avoids the extra
+backplate macOS can add to full-bleed legacy icons. The ICNS includes 16, 32, 128,
+256 and 512 point sizes at 1× and 2×, including the 1024px Retina rendition. Every
+smaller size is derived directly from the master; images are never enlarged.
+Embedded PNGs are losslessly optimized while keeping RGBA and colour profiles.
+Tests verify the padding, rendition sizes, encoding and pixel-identical 1024px
+ICNS/PNG artwork.
+
+Packaging embeds **only the selected channel's ICNS** in the native application.
+macOS reads that icon directly; packaged startup does not call `dock.setIcon`,
+decode a duplicate PNG, rasterize SVG, fetch cloud textures or load Sharp. Masters,
+provenance, development PNGs and the other channel's ICNS are excluded from the
+app archive. Development uses the matching padded PNG once for the Dock.
+The bundle ID, executable and application-data location remain unchanged.
+
+The root `Package.swift` exposes the padding helper for Swift/CodeQL validation.
+Run `swift build` from the repository root to check it independently.

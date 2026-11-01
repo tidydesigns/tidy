@@ -102,6 +102,8 @@ app.on("browser-window-created", (_event, window) => {
   page.once("did-finish-load", async () => {
     try {
       assert.equal(page.getURL(), "tidy://app/index.html");
+      assert.equal(await realpath(app.getPath("userData")), await realpath(data));
+      assert.equal(primary.getTitle(), app.getName());
       const preferences = page.getLastWebPreferences();
       assert.equal(preferences.nodeIntegration, false);
       assert.equal(preferences.contextIsolation, true);

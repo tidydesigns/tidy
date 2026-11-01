@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "size": 1024,
+  "exports": [
+    {
+      "channel": "beta",
+      "nodeId": "prism-v4-206",
+      "option": 17,
+      "designId": "f80d45f8-4f6d-4188-939e-5d0150114cab",
+      "nodesSha256": "2a88cc619d8e0f534778b0983c5d7968de9379cdd54c549d0ed3f8e9cdbb84eb",
+      "assetHashes": {
+        "63b0dd13-6317-4001-a074-b78a2143d8c5": "db64b04cdadaef3dbcf7703920c9c74184cce390ea8d8bf6d89223b6d831b168"
+      },
+      "pngSha256": "ed7a3e5027bfceda8bd9f50dd99c228ced6aa3fb8e1e3de5caf1a77b571b0d32"
+    },
+    {
+      "channel": "production",
+      "nodeId": "prism-v4-10",
+      "option": 13,
+      "designId": "f80d45f8-4f6d-4188-939e-5d0150114cab",
+      "nodesSha256": "345822107af1150ebf26ac57ba8b837c03f18009278dfbf92e9a32a036ac0d74",
+      "assetHashes": {
+        "1acccdb4-5482-45d2-90f0-dccd9537c01e": "f348fcb2c77b5bdc70410a23331c504f004af9e00d2d697355072ab919a5be98"
+      },
+      "pngSha256": "ac47db631548611125b34b568f0d35197dbab713b94f7a0b0f539442829e1d6b"
+    }
+  ]
+}
