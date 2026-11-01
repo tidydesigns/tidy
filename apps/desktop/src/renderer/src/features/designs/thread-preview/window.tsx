@@ -587,6 +587,15 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       data-working={working}
       data-floating={floating}
       hidden={!active}
+      onPointerDownCapture={(event) => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        const button =
+          event.target instanceof Element
+            ? event.target.closest<HTMLButtonElement>("[data-canvas-back]")
+            : null;
+        // Native pointer focus should replace an existing keyboard ring before closing.
+        if (button === document.activeElement && button?.matches(":focus-visible")) button.blur();
+      }}
       style={
         {
           zIndex: stackOrder,

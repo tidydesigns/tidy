@@ -118,7 +118,8 @@ export const PreviewCamera = memo(function PreviewCamera({
     };
     const down = (event: PointerEvent) => {
       if (event.button !== 0 || !event.isPrimary) return;
-      element.focus({ preventScroll: true });
+      // Let native pointer focus replace a keyboard ring, without interrupting Space panning.
+      if (!space && element.matches(":focus-visible")) element.blur();
       if (space) spaceUsedForNavigation = true;
       suppressClick.current = pointer.start(event.pointerId, event.clientX, event.clientY, space);
       element.setPointerCapture(event.pointerId);
