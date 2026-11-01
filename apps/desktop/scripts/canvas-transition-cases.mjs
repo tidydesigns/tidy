@@ -28,6 +28,11 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
         );
     }
     let target;
+    if (open)
+      await evaluate(`new Promise(resolve => {
+        document.querySelector('.thread-design-peek').scrollIntoView({block: 'nearest'});
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      })`);
     const source = await evaluate(
       `(() => {const n=document.querySelector('.thread-design-peek [data-thumbnail-node]');return n ? {id:n.dataset.thumbnailNode,rect:${open ? "n.getBoundingClientRect().toJSON()" : "null"}} : null})()`,
     );
@@ -122,9 +127,10 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
         false,
         "Cold fixture must delay the real editor module",
       );
-      await evaluate(
-        `new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
-      );
+      await evaluate(`new Promise(resolve => {
+        document.querySelector('.thread-design-peek').scrollIntoView({block: 'nearest'});
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      })`);
       const source = await evaluate(
         `document.querySelector('.thread-design-peek [data-thumbnail-node="landing"]').getBoundingClientRect().toJSON()`,
       );
