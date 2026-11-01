@@ -18,6 +18,7 @@ app.whenReady().then(async () => {
     },
   });
   const page = window.webContents;
+  page.debugger.attach("1.3");
   const evaluate = (expression) => page.executeJavaScript(expression);
   async function click(label) {
     console.info(`Canvas transitions: click ${label}`);
@@ -59,9 +60,16 @@ app.whenReady().then(async () => {
       {
         evaluate,
         click,
-        navigate: (url) => {
+        navigate: async (url) => {
           console.info(`Canvas transitions: navigate ${url}`);
-          return page.loadURL(url);
+          await page.loadURL(url);
+          console.info(
+            "Canvas transitions: host reduced motion",
+            await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches"),
+          );
+          await page.debugger.sendCommand("Emulation.setEmulatedMedia", {
+            features: [{ name: "prefers-reduced-motion", value: "no-preference" }],
+          });
         },
         fill: async (label, text) => {
           await click(label);
