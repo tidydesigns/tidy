@@ -22,13 +22,37 @@ app.whenReady().then(async () => {
   async function click(label) {
     console.info(`Canvas transitions: click ${label}`);
     page.focus();
-    const point = await evaluate(
-      `(() => {const b=Array.from(document.querySelectorAll('button,textarea,input,[contenteditable="true"]')).find(e=>(e.getAttribute('aria-label')||e.textContent.trim())===${JSON.stringify(label)} && e.getBoundingClientRect().width && getComputedStyle(e).visibility!=='hidden');if(!b)throw Error('Missing control: '+${JSON.stringify(label)});b.scrollIntoView({block:'nearest'});const r=b.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`,
-    );
+    const point = await evaluate(`(async () => {
+      const label = ${JSON.stringify(label)};
+      const deadline = Date.now() + 15_000;
+      let previous;
+      while (Date.now() < deadline) {
+        const button = Array.from(document.querySelectorAll('button,textarea,input,[contenteditable="true"]'))
+          .find(element => (element.getAttribute('aria-label') || element.textContent.trim()) === label && element.getBoundingClientRect().width && getComputedStyle(element).visibility !== 'hidden');
+        if (button) {
+          button.scrollIntoView({block: 'nearest'});
+          const rect = button.getBoundingClientRect();
+          const point = {x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2)};
+          if (previous && Math.abs(point.x - previous.x) < 1 && Math.abs(point.y - previous.y) < 1 && button.contains(document.elementFromPoint(point.x, point.y))) {
+            window.__canvasClick = new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(Error('Native click not received: ' + label)), 15_000);
+              button.addEventListener('click', () => {
+                clearTimeout(timeout);
+                requestAnimationFrame(() => requestAnimationFrame(resolve));
+              }, {once: true});
+            });
+            return point;
+          }
+          previous = point;
+        }
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+      throw Error('Control is not clickable: ' + label);
+    })()`);
     page.sendInputEvent({ type: "mouseMove", ...point });
     page.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
     page.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
-    await evaluate("new Promise(resolve=>requestAnimationFrame(resolve))");
+    await evaluate("window.__canvasClick");
   }
   try {
     const passed = await canvasTransitionCases(
@@ -44,7 +68,10 @@ app.whenReady().then(async () => {
           const modifiers = [process.platform === "darwin" ? "meta" : "control"];
           page.sendInputEvent({ type: "keyDown", keyCode: "A", modifiers });
           page.sendInputEvent({ type: "keyUp", keyCode: "A", modifiers });
+          page.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
+          page.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
           await page.insertText(text);
+          await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
         },
       },
       origin,
