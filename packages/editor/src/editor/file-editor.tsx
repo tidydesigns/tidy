@@ -1099,6 +1099,8 @@ export function FileEditor({
   );
 
   function togglePanels() {
+    // The panel/compact control that initiated the toggle is about to become inert.
+    viewport.current?.focus({ preventScroll: true });
     setMobileInspectorRequested(false);
     setInspectorDismissed(true);
     if (mobileLayout) setMobilePanelsOpen((open) => !open);

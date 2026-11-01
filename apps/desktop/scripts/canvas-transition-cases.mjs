@@ -29,7 +29,7 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
     }
     let target;
     const source = await evaluate(
-      `(() => {const n=document.querySelector('.thread-design-peek [data-thumbnail-node]');return n ? {id:n.dataset.thumbnailNode,rect:n.getBoundingClientRect().toJSON()} : null})()`,
+      `(() => {const n=document.querySelector('.thread-design-peek [data-thumbnail-node]');return n ? {id:n.dataset.thumbnailNode,rect:${open ? "n.getBoundingClientRect().toJSON()" : "null"}} : null})()`,
     );
     await evaluate(
       `(() => {const original=Element.prototype.animate,rect=Element.prototype.getBoundingClientRect;window.__canvasTransitionCheck={original,rect,reads:0,animations:[],nodes:Array.from(document.querySelectorAll('.thread-design-canvas [data-node-id]'))};Element.prototype.getBoundingClientRect=function(){if(this.matches('[data-node-id],[data-thumbnail-node]'))window.__canvasTransitionCheck.reads++;return rect.call(this)};Element.prototype.animate=function(...args){const a=original.apply(this,args);if(this.matches('.thread-design-dialog,.thread-design-canvas,.thread-design-transition-edge')){a.pause();a.currentTime=0;window.__canvasTransitionCheck.animations.push(a)}return a};return true})()`,
@@ -200,6 +200,13 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
     await colors("rgb(212, 212, 212)");
     await transition(true);
     await click("Expand editor panels");
+    assert.equal(
+      await evaluate(
+        `document.activeElement.matches('[aria-label="Design canvas"]') && !document.activeElement.closest('[inert],[aria-hidden="true"]')`,
+      ),
+      true,
+      "Panel toggles must move focus before hiding their triggering control",
+    );
     await click("Contrast");
     await wait(
       `document.querySelector('.thread-design-peek [data-thumbnail-node="second-landing"]')!==null`,
