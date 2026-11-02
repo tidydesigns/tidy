@@ -58,7 +58,12 @@ test.skipIf(process.platform !== "linux")(
         try {
           running = !(await readFile(`/proc/${pid}/stat`, "utf8")).split(") ")[1]?.startsWith("Z");
         } catch (error) {
-          if (error instanceof Error && "code" in error && error.code === "ENOENT") running = false;
+          if (
+            error instanceof Error &&
+            "code" in error &&
+            (error.code === "ENOENT" || error.code === "ESRCH")
+          )
+            running = false;
           else throw error;
         }
         if (running) await new Promise((resolve) => setTimeout(resolve, 25));
