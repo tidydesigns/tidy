@@ -28,7 +28,6 @@ import { CanvasService } from "../orchestration/canvas-service";
 import { CanvasRenderer } from "../orchestration/render-service";
 import { orchestrationTools } from "../orchestration/tools";
 import { AgentOperationError, type AgentScope } from "../orchestration/contracts";
-import { effectivePermissionMode } from "../../shared/contracts/permissions";
 import { threadTasksSchema, type ThreadTasksRequest } from "../../shared/contracts/thread-tasks";
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { ThreadPorts } from "../processes/thread-ports";

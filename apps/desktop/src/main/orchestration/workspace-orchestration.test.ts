@@ -128,11 +128,14 @@ test("renderer task views include queued assignments, durable turn links and pri
     (await f.service.readThread(f.project.id, String(first.child_thread_id))).parentThreadId,
   ).toBe(parent.id);
   const childEvents = events.filter(
-    (event) => event.type !== "designs" && event.thread.id === first.child_thread_id,
+    (event) =>
+      (event.type === "thread" || event.type === "thread-summary") &&
+      event.thread.id === first.child_thread_id,
   );
   expect(childEvents.length).toBeGreaterThan(0);
   for (const event of childEvents)
-    if (event.type !== "designs") expect(event.thread.parentThreadId).toBe(parent.id);
+    if (event.type === "thread" || event.type === "thread-summary")
+      expect(event.thread.parentThreadId).toBe(parent.id);
   await expect(
     f.service.setThreadWorkPermission(f.project.id, String(first.child_thread_id), true),
   ).rejects.toThrow("Subagents");

@@ -303,6 +303,12 @@ test("invalid operation batches are atomic and stale versions cannot overwrite h
 
 test("revocation while waiting for the document write queue fences the mutation", async () => {
   const f = await fixture();
+  const file = await f.store.updateDesign({
+    projectId: f.project.id,
+    designId: f.file.id,
+    expectedVersion: f.file.version,
+  });
+  f.edit.expected_version = file.version;
   let release = () => {};
   let entered = () => {};
   const blocked = new Promise<void>((resolve) => {
@@ -314,7 +320,7 @@ test("revocation while waiting for the document write queue fences the mutation"
   const holding = f.store.updateDesign({
     projectId: f.project.id,
     designId: f.file.id,
-    expectedVersion: f.file.version,
+    expectedVersion: file.version,
     beforeWrite: async () => {
       entered();
       await blocked;
@@ -334,7 +340,7 @@ test("revocation while waiting for the document write queue fences the mutation"
   await enqueued;
   f.controller.abort(new Error("Turn stopped."));
   release();
-  await holding;
+  expect((await holding).version).toBe(file.version);
   const failure = await mutation;
   expect(failure).toBeInstanceOf(Error);
   if (!(failure instanceof Error)) throw new Error("Expected revoked authorization.");

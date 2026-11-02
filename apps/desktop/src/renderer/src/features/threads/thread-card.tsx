@@ -265,10 +265,19 @@ export function ThreadCard({
         )}
         {status !== "idle" && (
           <Status
-            onClick={canOpenChildApproval ? () => { close(); onOpenChildApproval?.(); } : undefined}
+            onClick={
+              canOpenChildApproval
+                ? () => {
+                    close();
+                    onOpenChildApproval?.();
+                  }
+                : undefined
+            }
             className={`thread-card-status thread-state-${status} ${canOpenChildApproval ? "pointer-events-auto cursor-pointer border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2" : "pointer-events-none"} col-start-2 flex shrink-0 items-center justify-self-end gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
             role={canOpenChildApproval ? undefined : "status"}
-            aria-label={canOpenChildApproval ? `Open agent approval for ${thread.title}` : statusLabel}
+            aria-label={
+              canOpenChildApproval ? `Open agent approval for ${thread.title}` : statusLabel
+            }
             title={statusLabel}
           >
             <span className="thread-status-symbol" aria-hidden="true">
