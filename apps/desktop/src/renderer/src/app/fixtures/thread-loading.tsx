@@ -512,8 +512,8 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       container.style.width = "240px";
       await until(() => controls.dataset.compactCount === "3", "Narrow composer controls");
       check(
-        model.getBoundingClientRect().width >= 95 && model.getBoundingClientRect().width <= 97,
-        "Model became an icon without a readable label",
+        model.getBoundingClientRect().width >= 31 && model.getBoundingClientRect().width <= 33,
+        "Model did not compact to its icon width",
       );
       check(permissions.getBoundingClientRect().width <= 33, "Permission label did not compact");
       const label = required(
@@ -521,8 +521,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Model label",
       );
       check(
-        getComputedStyle(label).visibility === "visible" && label.clientWidth > 0,
-        "Model label disappeared",
+        getComputedStyle(label).visibility === "hidden" &&
+          model.title === model.getAttribute("aria-label") &&
+          model.title.includes("Model:"),
+        "Compact model lost its accessible label",
       );
       check(document.activeElement === focused, "Compaction lost menu focus");
       check(container.querySelector(".model-trigger") === model, "Compaction replaced its trigger");
@@ -534,6 +536,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       container.style.width = "600px";
       await until(() => controls.dataset.compactCount === "0", "Composer labels restored");
       check(document.activeElement === focused, "Expansion lost menu focus");
+      check(
+        getComputedStyle(label).visibility === "visible" && label.clientWidth > 0,
+        "Model label did not return after expansion",
+      );
       document.activeElement?.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
       );

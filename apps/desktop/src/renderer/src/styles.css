@@ -14,6 +14,7 @@
 @import "./app/workspace.css";
 @import "./features/threads/threads.css";
 @import "./app/layout.css";
+@import "./styles/scrollbars.css";
 @import "./features/workspace/project-files.css";
 @import "./features/threads/tool-activity.css";
 @import "./features/threads/approval-requests.css";

@@ -120,6 +120,26 @@ function compactCanvasTransform(
   return `translate(${rect.left + rect.width / 2 - (surface.clientWidth * scale) / 2}px, ${rect.top + rect.height / 2 - (surface.clientHeight * scale) / 2}px) scale(${scale})`;
 }
 
+function floatingGeometry(
+  geometry: PreviewWindowGeometry,
+  area: HTMLElement,
+  dockTarget: HTMLElement | null,
+): PreviewWindowGeometry {
+  const bounds = area.getBoundingClientRect();
+  const heading = area.closest(".thread-workspace")?.querySelector(".thread-heading");
+  const top = Math.max(
+    0,
+    (heading?.getBoundingClientRect().bottom ?? bounds.top) - bounds.top + 12,
+  );
+  const composer = dockTarget?.closest("form");
+  const bottom = composer?.getBoundingClientRect().top ?? bounds.bottom;
+  const next = constrainGeometry(
+    { ...geometry, y: geometry.y - top },
+    { width: area.clientWidth, height: Math.max(1, bottom - bounds.top - top - 12) },
+  );
+  return { ...next, y: next.y + top };
+}
+
 export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   api,
   projectId,
@@ -228,25 +248,26 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     return () => window.cancelIdleCallback(idle);
   }, [ready, active, warm, floating, visited]);
 
-  const applyGeometry = useCallback((geometry: PreviewWindowGeometry) => {
-    const surface = frame.current;
-    const area = layer.current;
-    if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
-    const next = constrainGeometry(geometry, {
-      width: area.clientWidth,
-      height: area.clientHeight,
-    });
-    offset.current = { x: next.x, y: next.y };
-    width.current = next.width;
-    height.current = next.height;
-    Object.assign(surface.style, {
-      left: "0px",
-      top: "0px",
-      width: `${next.width}px`,
-      height: `${next.height}px`,
-      transform: `translate(${next.x}px, ${next.y}px)`,
-    });
-  }, []);
+  const applyGeometry = useCallback(
+    (geometry: PreviewWindowGeometry) => {
+      const surface = frame.current;
+      const area = layer.current;
+      if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
+      const next = floatingGeometry(geometry, area, dockTarget.current);
+      offset.current = { x: next.x, y: next.y };
+      width.current = next.width;
+      height.current = next.height;
+      Object.assign(surface.style, {
+        left: "0px",
+        top: "0px",
+        width: `${next.width}px`,
+        height: `${next.height}px`,
+        visibility: next.height < 80 ? "hidden" : "",
+        transform: `translate(${next.x}px, ${next.y}px)`,
+      });
+    },
+    [dockTarget],
+  );
   const move = useCallback(
     (x: number, y: number) => {
       applyGeometry({ x, y, width: width.current, height: height.current });
@@ -302,9 +323,10 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           Math.min(offset.current.y, composer.top - bounds.top - height.current - 16),
         );
     }
-    const geometry = constrainGeometry(
+    const geometry = floatingGeometry(
       { ...offset.current, width: width.current, height: height.current },
-      { width: area.clientWidth, height: area.clientHeight },
+      area,
+      dockTarget.current,
     );
     offset.current = { x: geometry.x, y: geometry.y };
     width.current = geometry.width;
@@ -318,6 +340,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       top: "0px",
       width: `${target.width}px`,
       height: `${targetHeight}px`,
+      visibility: floating && targetHeight < 80 ? "hidden" : "",
       transform,
       borderRadius: frameRadius,
     });
@@ -377,8 +400,12 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
         applyGeometry({ ...offset.current, width: width.current, height: height.current });
     });
     observer.observe(layer.current);
+    const composer = dockTarget.current?.closest("form");
+    if (composer) observer.observe(composer);
+    const heading = layer.current.closest(".thread-workspace")?.querySelector(".thread-heading");
+    if (heading) observer.observe(heading);
     return () => observer.disconnect();
-  }, [active, floating, applyGeometry]);
+  }, [active, floating, applyGeometry, dockTarget]);
 
   const remember = () =>
     onGeometry(summary.id, { ...offset.current, width: width.current, height: height.current });

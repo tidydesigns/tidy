@@ -61,9 +61,7 @@ export function ComposerControls({ children }: { children: ReactNode }) {
         );
         return {
           natural,
-          compact: button.classList.contains("model-trigger")
-            ? Math.min(natural, 96)
-            : Math.max(32, (children[0]?.getBoundingClientRect().width ?? 16) + inset),
+          compact: Math.max(32, (children[0]?.getBoundingClientRect().width ?? 16) + inset),
           priority: settings.indexOf(button),
         };
       });

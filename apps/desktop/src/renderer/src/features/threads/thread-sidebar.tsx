@@ -143,7 +143,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
       role="region"
       aria-label="Threads"
     >
-      <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent]">
+      <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]">
         {query && !visibleDraft && active.length === 0 && done.length === 0 && (
           <p
             className="thread-search-empty mx-2.5 my-2 text-xs leading-[18px] text-muted-ink"
@@ -172,28 +172,28 @@ export const ThreadSidebar = memo(function ThreadSidebar({
             />
           ))}
         </div>
+        {done.length > 0 && (
+          <details
+            className="done-threads group/done mt-2 border-t border-border"
+            open={query ? true : undefined}
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-[9px] py-2.5 text-xs leading-[1.5] text-muted-ink [&::-webkit-details-marker]:hidden">
+              <span
+                aria-hidden="true"
+                className="inline-flex w-3.5 shrink-0 justify-center group-open/done:rotate-90"
+              >
+                ›
+              </span>
+              Done <span className="text-[11px] tabular-nums">{done.length}</span>
+            </summary>
+            <div className="done-thread-list pt-1">
+              {done.map((item) => (
+                <DoneThreadRow key={item.id} thread={item} renderThread={renderThread} />
+              ))}
+            </div>
+          </details>
+        )}
       </div>
-      {done.length > 0 && (
-        <details
-          className="done-threads group/done mt-2 flex max-h-[45%] min-h-0 shrink-0 flex-col border-t border-border"
-          open={query ? true : undefined}
-        >
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-[9px] py-2.5 text-xs leading-[1.5] text-muted-ink [&::-webkit-details-marker]:hidden">
-            <span
-              aria-hidden="true"
-              className="inline-flex w-3.5 shrink-0 justify-center group-open/done:rotate-90"
-            >
-              ›
-            </span>
-            Done <span className="text-[11px] tabular-nums">{done.length}</span>
-          </summary>
-          <div className="done-thread-list max-h-[min(30vh,240px)] overflow-y-auto overscroll-contain pt-1">
-            {done.map((item) => (
-              <DoneThreadRow key={item.id} thread={item} renderThread={renderThread} />
-            ))}
-          </div>
-        </details>
-      )}
     </div>
   );
 });

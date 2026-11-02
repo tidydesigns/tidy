@@ -94,7 +94,15 @@ export function useThreadDrag({ ids, setOrder }: { ids: string[]; setOrder(ids: 
             : active.clientY > bounds.bottom - edge
               ? Math.min(1, (active.clientY - bounds.bottom + edge) / edge)
               : 0;
-        scroll.scrollTop += speed * Math.min(time - (previousTime || time), 32) * 0.6;
+        const listBottom = container.getBoundingClientRect().bottom - bounds.top + scroll.scrollTop;
+        const maximum = Math.max(0, listBottom - scroll.clientHeight);
+        scroll.scrollTop = Math.max(
+          0,
+          Math.min(
+            maximum,
+            scroll.scrollTop + speed * Math.min(time - (previousTime || time), 32) * 0.6,
+          ),
+        );
       }
       previousTime = time;
       const top = position(active);

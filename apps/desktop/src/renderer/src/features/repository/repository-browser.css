@@ -493,7 +493,7 @@
   }
 }
 .repository-code[data-split="true"] .repository-code-pane {
-  overflow-x: scroll;
+  overflow-x: auto;
 }
 .repository-code-row[data-kind="empty"] .repository-line-number {
   background: var(--color-panel);

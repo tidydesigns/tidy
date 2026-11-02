@@ -21,6 +21,7 @@
   font-size: 12px;
 }
 .approval-request strong {
+  overflow-wrap: anywhere;
   flex-shrink: 0;
   font-weight: 500;
   color: var(--color-ink);

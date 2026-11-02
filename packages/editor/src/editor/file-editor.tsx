@@ -5363,11 +5363,13 @@ export function FileEditor({
             />
           )}
           <CanvasAlignment guides={snapGuides} spacing={spacingCues} view={view} />
-          {!prototypeMode && (!serverReady || preview || local || !viewPreferences.comments) && (
-            <div data-canvas-control className="absolute right-4 top-20 z-30 md:top-4">
-              {canvasControls}
-            </div>
-          )}
+          {!prototypeMode &&
+            !(mobileLayout && mobilePanelsOpen) &&
+            (!serverReady || preview || local || !viewPreferences.comments) && (
+              <div data-canvas-control className="absolute right-4 top-20 z-30 md:top-4">
+                {canvasControls}
+              </div>
+            )}
           {marquee && (
             <div
               aria-hidden="true"

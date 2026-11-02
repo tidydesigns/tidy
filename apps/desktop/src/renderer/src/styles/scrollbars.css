@@ -1,0 +1,57 @@
+@media (forced-colors: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: light-dark(rgb(0 0 0 / 18%), rgb(255 255 255 / 16%)) transparent;
+  }
+  @supports selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: auto;
+      scrollbar-color: auto;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+      background: transparent;
+    }
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      border: 0;
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      min-height: 24px;
+      border-radius: 999px;
+      background: light-dark(rgb(0 0 0 / 18%), rgb(255 255 255 / 16%));
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: light-dark(rgb(0 0 0 / 32%), rgb(255 255 255 / 28%));
+    }
+    ::-webkit-scrollbar-button {
+      display: none;
+    }
+  }
+  :is(
+    .sidebar-scroll,
+    .design-folder-list,
+    .settings-sections,
+    .terminal-tabs,
+    .workspace-surface-tabs,
+    .browser-tabs,
+    .composer-controls,
+    .composer-lip .composer-context
+  ) {
+    scrollbar-width: none;
+  }
+  :is(
+    .sidebar-scroll,
+    .design-folder-list,
+    .settings-sections,
+    .terminal-tabs,
+    .workspace-surface-tabs,
+    .browser-tabs,
+    .composer-controls,
+    .composer-lip .composer-context
+  )::-webkit-scrollbar {
+    display: none;
+  }
+}

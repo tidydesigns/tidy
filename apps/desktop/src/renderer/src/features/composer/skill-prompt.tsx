@@ -117,6 +117,7 @@ export function SkillPrompt({
                 role="option"
                 aria-selected={index === selectedIndex}
                 className="skill-option"
+                title={skill.description ? `${skill.name} — ${skill.description}` : skill.name}
                 onPointerMove={() => setActive(index)}
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={() => choose(skill)}

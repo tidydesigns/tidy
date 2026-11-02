@@ -302,9 +302,6 @@ summary:focus-visible {
 .project-workspace.surfaces-workspace[data-panel-open="true"] .content-heading {
   gap: 8px;
 }
-.project-workspace.surfaces-workspace[data-panel-open="true"] .thread-workspace {
-  container: repository-conversation / inline-size;
-}
 @container repository-conversation (max-width: 380px) {
   .composer-context {
     flex-wrap: wrap;
@@ -345,5 +342,79 @@ summary:focus-visible {
   .workspace-surface-tab:not(:hover, :focus-within):not(:has([aria-selected="true"]))
     > .workspace-icon-button {
     opacity: 0;
+  }
+}
+
+.thread-workspace {
+  container: repository-conversation / inline-size;
+}
+.composer .prompt-editor {
+  max-height: min(208px, 30dvh);
+  overscroll-behavior: contain;
+  scroll-padding-block: 8px;
+}
+@container repository-conversation (max-width: 560px) {
+  .composer,
+  .transcript,
+  .approval-requests {
+    --chat-gutter: 16px;
+  }
+  .composer {
+    margin-bottom: 16px;
+  }
+  .composer .prompt-editor {
+    max-height: min(160px, 28dvh);
+  }
+  .thread-heading {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-inline: 12px;
+  }
+  .desktop-sidebar-hidden .thread-heading,
+  :root[data-titlebar="hidden"] .desktop-sidebar-hidden .thread-heading,
+  :root[data-titlebar="hidden"][data-window-fullscreen] .desktop-sidebar-hidden .thread-heading {
+    padding-left: 12px;
+  }
+  .thread-heading .content-heading {
+    flex-basis: 0;
+  }
+  .desktop-sidebar-hidden .thread-heading .content-heading {
+    margin-inline-start: 36px;
+  }
+  :root[data-titlebar="hidden"] .desktop-sidebar-hidden .thread-heading .content-heading {
+    margin-inline-start: 116px;
+  }
+  :root[data-titlebar="hidden"][data-window-fullscreen]
+    .desktop-sidebar-hidden
+    .thread-heading
+    .content-heading {
+    margin-inline-start: 36px;
+  }
+  .thread-heading .thread-context {
+    order: 1;
+    flex: 1 1 100%;
+    max-width: 100%;
+    margin-inline: 0;
+  }
+  .thread-context .composer-context {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  .thread-context .composer-context > * {
+    max-width: 100%;
+  }
+}
+@container repository-conversation (max-width: 380px) {
+  .composer,
+  .transcript,
+  .approval-requests {
+    --chat-gutter: 12px;
+  }
+  .composer-body {
+    padding: 10px;
+  }
+  .composer-actions {
+    gap: 4px;
   }
 }
