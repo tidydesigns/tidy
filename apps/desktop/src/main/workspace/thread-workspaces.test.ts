@@ -9,13 +9,14 @@ import { WorkspaceService } from "./workspace-service";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
 import type { Thread } from "../../shared/contracts/desktop";
 import type { startHarness } from "../harnesses/harnesses";
+import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture(commit = true) {
+async function fixture(commit = true, skills?: HarnessSkills) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "tidy-thread-workspaces-")));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const root = join(directory, "project");
@@ -50,6 +51,7 @@ async function fixture(commit = true) {
       },
       async () => "/fixture/harness",
       async () => {},
+      skills,
     );
     cleanups.push(() => service.close());
     return service;
@@ -300,4 +302,104 @@ test("worktree creation skips checkout hooks and rejects uncommitted project sub
       designIds: [],
     }),
   ).rejects.toThrow("no committed files");
+});
+
+for (const operation of ["repository-directory", "repository-file"] as const) {
+  test(`${operation} publishes cloud-owned worktree changes to the execution project's panel`, async () => {
+    const f = await fixture();
+    const cloudPath = join(f.directory, "cloud-observer");
+    await mkdir(cloudPath);
+    const cloud = (await f.store.open(cloudPath, "Workspace")).project;
+    f.service.authorizeCloudProject = async () => {};
+    const thread = await f.service.startThread({
+      projectId: cloud.id,
+      executionProjectId: f.project.id,
+      harness: "codex",
+      prompt: "Build",
+      designIds: [],
+    });
+    const changed = Promise.withResolvers<string>();
+    const unsubscribe = f.service.subscribe((event) => {
+      if (event.type === "repository-change") changed.resolve(event.projectId);
+    });
+    const timer = setTimeout(
+      () => changed.reject(new Error("Repository notification was not delivered.")),
+      2000,
+    );
+    try {
+      await f.handlers.invoke(
+        operation,
+        {
+          projectId: cloud.id,
+          threadId: thread.id,
+          path: operation === "repository-directory" ? "app" : "app/file.txt",
+        },
+        undefined,
+      );
+      await writeFile(join(thread.worktree!.path, "app", "file.txt"), "Updated by the agent");
+      expect(await changed.promise).toBe(f.project.id);
+    } finally {
+      clearTimeout(timer);
+      unsubscribe();
+    }
+  });
+}
+
+test("repeated repository browsing reuses an authorized summary instead of parsing the transcript", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  await f.finish(thread);
+  expect(await f.service.repositoryPath(f.project.id, thread.id)).toBe(thread.worktree!.path);
+  const original = f.store.readThread;
+  f.store.readThread = async () => {
+    throw new Error("Repository browsing must not decode a transcript.");
+  };
+  try {
+    expect(await f.service.repositoryPath(f.project.id, thread.id)).toBe(thread.worktree!.path);
+    expect(await f.service.repositoryPath(f.project.id, thread.id)).toBe(thread.worktree!.path);
+  } finally {
+    f.store.readThread = original;
+  }
+});
+
+test("repository scopes reject a live thread belonging to another project", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  const otherPath = join(f.directory, "other");
+  await mkdir(otherPath);
+  const other = (await f.store.open(otherPath)).project;
+  await expect(f.service.repositoryPath(other.id, thread.id)).rejects.toThrow("another project");
+});
+
+test("a skill selected before worktree creation keeps its authorized project catalog identity", async () => {
+  const adapter: SkillAdapter = {
+    discover: async ({ cwd }) => [
+      {
+        kind: "file",
+        name: "review",
+        description: "Review a change",
+        path: join(cwd, "review-skill.md"),
+      },
+    ],
+  };
+  const skills = new HarnessSkills(async () => "/fixture/harness", {
+    codex: adapter,
+    claude: adapter,
+    opencode: adapter,
+  });
+  const f = await fixture(true, skills);
+  await writeFile(join(f.root, "review-skill.md"), "Review the requested change.");
+  const catalog = await skills.list({ harness: "codex", cwd: f.root });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "$review this change",
+    skillId: catalog.skills[0].id,
+    designIds: [],
+  });
+  expect(f.runs[0].input.cwd).toBe(thread.worktree!.path);
+  expect(f.runs[0].input.skill?.invocation).toMatchObject({
+    kind: "file",
+    path: join(f.root, "review-skill.md"),
+  });
 });

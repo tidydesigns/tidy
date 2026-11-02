@@ -122,6 +122,7 @@ export async function copyDraft({
       designIds: imported?.designIds ?? [],
       cloudFileIds: undefined,
       executionProjectId: undefined,
+      threadMode: undefined,
       skill: undefined,
     },
   };

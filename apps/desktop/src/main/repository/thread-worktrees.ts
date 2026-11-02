@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
 import type { ThreadWorktree } from "../../shared/contracts/thread-workspace";
@@ -7,7 +7,10 @@ import { git, repositoryRoot } from "./repository-context";
 /** Worktrees stay outside the checkout and survive completion, shutdown and failed turns. */
 export class ThreadWorktrees {
   private validations = new Map<string, Promise<void>>();
-  constructor(private directory: string) {}
+  constructor(
+    private directory: string,
+    private creationTimeoutMs = 120_000,
+  ) {}
 
   async create(projectPath: string, threadId: string): Promise<ThreadWorktree> {
     z.uuid().parse(threadId);
@@ -32,19 +35,29 @@ export class ThreadWorktrees {
     const parent = await realpath(this.directory);
     const root = join(parent, threadId);
     const branch = `feat/tidy-${threadId}`;
+    // Reserve the destination exclusively so rollback can never remove an existing worktree.
+    await mkdir(root, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      throw new Error(
+        error.code === "EEXIST"
+          ? "This thread's worktree directory already exists. Start a new thread."
+          : "Could not create this thread's worktree directory.",
+      );
+    });
+    const mutate = (args: string[], timeout = 10_000) =>
+      git(projectPath, ["-c", "core.hooksPath=/dev/null", ...args], timeout);
+    let createdBranch = false;
     try {
+      await mutate(["branch", branch, baseCommit]);
+      createdBranch = true;
       // Skip hooks and leave the original checkout and its ignored environment files intact.
-      await git(projectPath, [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "worktree",
-        "add",
-        "-b",
-        branch,
-        root,
-        baseCommit,
-      ]);
+      await mutate(["worktree", "add", root, branch], this.creationTimeoutMs);
     } catch {
+      if (createdBranch) {
+        await mutate(["worktree", "remove", "--force", root]).catch(() => {});
+        // Never delete a branch that gained commits while checkout was in progress.
+        await mutate(["update-ref", "-d", `refs/heads/${branch}`, baseCommit]).catch(() => {});
+      }
+      await rm(root, { recursive: true, force: true }).catch(() => {});
       throw new Error("Could not create this thread's worktree. Retry or choose Current folder.");
     }
     return { root, path: join(root, relative(repository, projectPath)), branch, baseCommit };
@@ -75,12 +88,16 @@ export class ThreadWorktrees {
       (await realpath(worktree.path)) !== worktree.path
     )
       throw new Error("This thread's worktree moved. Restore it before continuing.");
-    const [original, actual, root] = await Promise.all([
+    const [original, actual] = await Promise.all([
       git(projectPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-      git(worktree.path, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-      repositoryRoot(worktree.path),
+      git(worktree.path, [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+        "--show-toplevel",
+      ]),
     ]);
-    if (original !== actual || root !== worktree.root)
+    if (actual !== `${original}\n${worktree.root}`)
       throw new Error("This thread's worktree no longer belongs to its project.");
   }
 }

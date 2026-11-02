@@ -203,3 +203,26 @@ test("draft imports require current project access before staging", async () => 
     ),
   ).rejects.toThrow("Open this cloud workspace");
 });
+
+test("copying a draft adopts the destination project's thread mode without changing the source", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const destination = await target.store.setThreadMode(target.project.id, "worktree");
+  const draft = {
+    text: "Continue this task",
+    harness: "codex" as const,
+    designIds: [],
+    threadMode: "local" as const,
+    executionProjectId: source.project.id,
+  };
+  const result = await copyDraft({
+    api: {},
+    source: { project: source.project, contextProjectId: source.project.id, draft },
+    target: {},
+    projectId: destination.id,
+  });
+  expect(result.draft.threadMode ?? destination.threadMode).toBe("worktree");
+  expect(result.draft.executionProjectId).toBeUndefined();
+  expect(result.draft.text).toBe(draft.text);
+  expect(draft.threadMode).toBe("local");
+});

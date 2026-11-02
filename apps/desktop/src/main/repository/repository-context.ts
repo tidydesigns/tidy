@@ -10,14 +10,14 @@ import {
 
 const execute = promisify(execFile);
 
-export async function git(cwd: string, args: string[]) {
+export async function git(cwd: string, args: string[], timeout = 10_000) {
   // Terminal Git overrides must not redirect operations away from the selected project.
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !name.toUpperCase().startsWith("GIT_")),
   );
   const { stdout } = await execute("git", args, {
     cwd,
-    timeout: 10_000,
+    timeout,
     maxBuffer: 2 * 1024 * 1024,
     env: { ...environment, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
   });

@@ -131,10 +131,9 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     if (threadId) {
       const ownerId = threadProjectId ?? projectId;
-      const thread = await this.readThread(ownerId, threadId);
-      if ((thread.executionProjectId ?? thread.projectId) !== projectId)
-        throw new Error("This terminal belongs to another project.");
-      return this.repositoryPath(ownerId, threadId);
+      const project = await this.repositoryProject(ownerId, threadId);
+      if (project.id !== projectId) throw new Error("This terminal belongs to another project.");
+      return project.path;
     }
     const project = this.store.project(projectId);
     if (project.cloud) throw new Error("Choose a local code project for the terminal.");
@@ -329,20 +328,26 @@ export class WorkspaceService {
   );
   /** Resolve only registered projects and privately bound thread paths. */
   async repositoryPath(projectId: string, threadId?: string) {
+    return (await this.repositoryProject(projectId, threadId)).path;
+  }
+
+  async repositoryProject(projectId: string, threadId?: string) {
     await this.assertProjectAccess(projectId);
     if (!threadId) {
       const project = this.store.project(projectId);
       if (project.cloud) throw new Error("Choose a local code project.");
-      return project.path;
+      return project;
     }
-    const thread = await this.readThread(projectId, threadId);
+    const thread =
+      this.jobs.get(threadId)?.thread ?? (await this.store.readThreadSummary(projectId, threadId));
+    if (thread.projectId !== projectId) throw new Error("This thread belongs to another project.");
     await this.store.assertThreadExecution(thread);
     const project = this.executionProject(thread);
     await this.assertProjectAccess(project.id);
     if (project.cloud) throw new Error("Choose a local code project.");
     if (thread.worktree)
       await this.store.worktrees.validate(this.store.project(project.id).path, thread.worktree);
-    return project.path;
+    return project;
   }
 
   private checkoutRuns = new Map<string, string>();
@@ -1518,7 +1523,8 @@ export class WorkspaceService {
     const skill = skillId
       ? await this.skills.resolve({
           harness: thread.harness,
-          cwd: project.path,
+          // The composer selects from the registered project's catalog, before a worktree exists.
+          cwd: this.store.project(project.id).path,
           id: skillId,
           prompt,
         })

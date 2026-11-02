@@ -294,9 +294,11 @@ export function createWorkspaceRequests<Context>(
     "repository-directory",
     z.object({ ...repositoryScope, path: repositoryPathSchema }).strict(),
     async (value) => {
-      const root = await service.repositoryPath(value.projectId, value.threadId);
-      const result = await readRepositoryDirectory(root, value.path);
-      await service.repositoryObservers.observe(value.projectId, root, value.path).catch(() => {});
+      const project = await service.repositoryProject(value.projectId, value.threadId);
+      const result = await readRepositoryDirectory(project.path, value.path);
+      await service.repositoryObservers
+        .observe(project.id, project.path, value.path)
+        .catch(() => {});
       return result;
     },
   );
@@ -323,12 +325,17 @@ export function createWorkspaceRequests<Context>(
       })
       .strict(),
     async (value) => {
-      const root = await service.repositoryPath(value.projectId, value.threadId);
-      const result = await readRepositoryFile(root, value.path, value.previousPath, value.view);
+      const project = await service.repositoryProject(value.projectId, value.threadId);
+      const result = await readRepositoryFile(
+        project.path,
+        value.path,
+        value.previousPath,
+        value.view,
+      );
       const parent = value.path.includes("/")
         ? value.path.slice(0, value.path.lastIndexOf("/"))
         : "";
-      await service.repositoryObservers.observe(value.projectId, root, parent).catch(() => {});
+      await service.repositoryObservers.observe(project.id, project.path, parent).catch(() => {});
       return result;
     },
   );
