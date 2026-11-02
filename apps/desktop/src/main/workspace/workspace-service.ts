@@ -22,7 +22,7 @@ import {
 import { promptThreadTitle, threadPromptText } from "../../shared/models/thread-naming";
 import { CloudCompute } from "../cloud/cloud-compute";
 import { AgentMcpBridge } from "../orchestration/mcp-bridge";
-import { TaskStore } from "../orchestration/task-store";
+import { TaskStore, type TaskRecord } from "../orchestration/task-store";
 import { TaskService, type TaskHost } from "../orchestration/task-service";
 import { CanvasService } from "../orchestration/canvas-service";
 import { CanvasRenderer } from "../orchestration/render-service";
@@ -159,6 +159,11 @@ export class WorkspaceService {
   readonly tasks: TaskService;
   readonly canvas: CanvasService;
   readonly agentMcp: AgentMcpBridge;
+  private readonly taskAuthorities = new Map<
+    string,
+    { task: TaskRecord; controller: AbortController }
+  >();
+  private readonly permissionChanges = new Set<string>();
   private readonly canvasCompute = new CloudCompute(8);
   private readonly canvasRenderer = new CanvasRenderer();
 
@@ -412,7 +417,12 @@ export class WorkspaceService {
     const host = {
       assertProjectAccess: (projectId: string) => this.assertProjectAccess(projectId),
       assertCanStartTask: async (projectId: string, threadId: string) => {
-        if (this.closing || this.jobs.get(threadId)?.stopped || this.cancelledStarts.has(threadId))
+        if (
+          this.closing ||
+          this.jobs.get(threadId)?.stopped ||
+          this.permissionChanges.has(threadId) ||
+          this.cancelledStarts.has(threadId)
+        )
           throw new AgentOperationError(
             "FORBIDDEN",
             "The parent stopped before this assignment could start.",
@@ -420,6 +430,7 @@ export class WorkspaceService {
         const parent = await this.readThread(projectId, threadId, { includeSources: false });
         if (
           this.jobs.get(threadId)?.stopped ||
+          this.permissionChanges.has(threadId) ||
           parent.doneAt ||
           parent.status === "stopped" ||
           parent.status === "interrupted"
@@ -474,6 +485,17 @@ export class WorkspaceService {
     });
   }
 
+  private taskAuthority(job: Job) {
+    return [...this.taskAuthorities.values()].find(
+      ({ task }) =>
+        task.projectId === job.thread.projectId &&
+        task.childThreadId === job.thread.id &&
+        (task.kind === undefined ||
+          task.kind === "initial" ||
+          task.id === job.submission.messageId),
+    );
+  }
+
   private async authorizeAgent(scope: Omit<AgentScope, "signal">) {
     if (this.closing) throw new AgentOperationError("FORBIDDEN", "Application access expired.");
     const job = this.jobs.get(scope.threadId);
@@ -489,11 +511,16 @@ export class WorkspaceService {
     )
       throw new AgentOperationError("FORBIDDEN", "Application access expired.");
     job.toolsController.signal.throwIfAborted();
+    const taskAuthority = this.taskAuthority(job);
+    taskAuthority?.controller.signal.throwIfAborted();
     await this.assertProjectAccess(scope.projectId);
     job.toolsController.signal.throwIfAborted();
+    taskAuthority?.controller.signal.throwIfAborted();
     if (this.jobs.get(scope.threadId) !== job)
       throw new AgentOperationError("FORBIDDEN", "Application access expired.");
-    return job.toolsController.signal;
+    return taskAuthority
+      ? AbortSignal.any([job.toolsController.signal, taskAuthority.controller.signal])
+      : job.toolsController.signal;
   }
 
   async initializeOrchestration() {
@@ -501,7 +528,11 @@ export class WorkspaceService {
     void this.tasks.deliver().catch(() => {});
   }
 
-  private async publishTaskChange(task: import("../orchestration/task-store").TaskRecord) {
+  private async publishTaskChange(task: TaskRecord) {
+    if (task.state === "running" || task.state === "cancel_requested") {
+      if (!this.taskAuthorities.has(task.id))
+        this.taskAuthorities.set(task.id, { task, controller: new AbortController() });
+    } else this.taskAuthorities.delete(task.id);
     if (this.closing || !this.canAccessProject(task.projectId)) return;
     const parent = this.jobs.get(task.parentThreadId)?.thread;
     const summary = parent
@@ -603,7 +634,7 @@ export class WorkspaceService {
       identity: JSON.stringify([
         thread.projectId,
         thread.id,
-        mode,
+        scope.writable,
         thread.executionProjectId,
         [...designIds].sort(),
       ]),
@@ -1243,13 +1274,16 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     this.starting.set(threadId, projectId);
     const stopVersion = this.stopVersions.get(threadId) ?? 0;
+    let permissionJob: Job | undefined;
     try {
       const thread = await this.mutableThread(projectId, threadId);
       if (this.closing) throw new Error("Tidy is closing.");
       await this.assertProjectAccess(projectId);
-      const permissionsChanged =
-        effectivePermissionMode(thread.harness, thread.settings?.permissionMode) !==
-        effectivePermissionMode(thread.harness, settings.permissionMode);
+      const previousMode = effectivePermissionMode(thread.harness, thread.settings?.permissionMode);
+      const nextMode = effectivePermissionMode(thread.harness, settings.permissionMode);
+      const permissionsChanged = previousMode !== nextMode;
+      const toolScopeChanged =
+        ["read-only", "plan"].includes(previousMode) !== ["read-only", "plan"].includes(nextMode);
       if (!permissionsChanged && !this.jobs.has(threadId))
         this.sessions.assertSettingsCanChange(threadId, settings);
       await this.configure(thread.harness, this.executionProject(thread).path, settings);
@@ -1257,6 +1291,15 @@ export class WorkspaceService {
       if (this.closing) throw new Error("Tidy is closing.");
       if (!permissionsChanged && !this.jobs.has(threadId))
         this.sessions.assertSettingsCanChange(threadId, settings);
+      if (permissionsChanged) {
+        this.permissionChanges.add(threadId);
+        permissionJob = this.jobs.get(threadId);
+        permissionJob?.toolsController.abort(new Error("The conversation permissions changed."));
+        for (const { task, controller } of this.taskAuthorities.values())
+          if (task.projectId === projectId && task.parentThreadId === threadId)
+            controller.abort(new Error("The parent conversation permissions changed."));
+        await this.tasks.cancelParent(projectId, threadId);
+      }
       const previous = thread.settings;
       thread.settings = settings;
       thread.revision++;
@@ -1272,6 +1315,7 @@ export class WorkspaceService {
         const active = this.jobs.get(threadId);
         try {
           if (
+            !toolScopeChanged &&
             !active?.stopped &&
             (await this.sessions.updatePermissions(threadId, projectId, settings))
           ) {
@@ -1383,6 +1427,9 @@ export class WorkspaceService {
       } else this.emit({ type: "thread", thread });
       return structuredClone(thread);
     } finally {
+      if (permissionJob && this.jobs.get(threadId) === permissionJob && !permissionJob.stopped)
+        permissionJob.toolsController = new AbortController();
+      this.permissionChanges.delete(threadId);
       this.starting.delete(threadId);
       this.cancelledStarts.delete(threadId);
     }
@@ -2072,8 +2119,10 @@ export class WorkspaceService {
         onUpdate: (update: HarnessUpdate) => this.update(job, update),
         superviseParent: this.superviseHarnessParent,
       };
+      const registration = this.launch ? await launchInput.processRegistration() : undefined;
+      this.taskAuthority(job)?.controller.signal.throwIfAborted();
       job.process = this.launch
-        ? this.launch({ ...launchInput, ...(await launchInput.processRegistration()) })
+        ? this.launch({ ...launchInput, ...registration })
         : this.sessions.start(thread.id, launchInput);
       job.analytics?.({ name: "harness_turn_started", harness: thread.harness });
       if (job.stopped) job.process.stop();

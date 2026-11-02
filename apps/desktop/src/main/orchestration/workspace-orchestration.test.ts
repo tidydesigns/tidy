@@ -80,6 +80,258 @@ async function call(connection: AgentMcpConnection, name: string, args: unknown)
   if (result.isError) throw new Error(result.content[0]?.text ?? "Tool failed");
   return result.structuredContent ?? {};
 }
+
+for (const nativeUpdate of [false, true])
+  test(`parent permission changes revoke active and queued workers during ${nativeUpdate ? "native updates" : "session handover"}`, async () => {
+    const f = await fixture();
+    const file = await f.store.createDesign(f.project.id);
+    const parent = await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      settings: { permissionMode: "auto" },
+      prompt: "Coordinate the attached design",
+      designIds: [file.id],
+    });
+    const tools = await f.runs[0].input.agentTools!.open();
+    cleanups.push(async () => tools.close());
+    const tasks: Awaited<ReturnType<typeof call>>[] = [];
+    for (let index = 0; index < 3; index++)
+      tasks.push(
+        await call(tools, "task_delegate", {
+          request_id: randomUUID(),
+          prompt: `Inspect section ${index}`,
+        }),
+      );
+    await until(async () => f.runs.length === 3);
+    const workerTools = await f.runs[1].input.agentTools!.open();
+    cleanups.push(async () => workerTools.close());
+    expect((await call(workerTools, "tidy_context", {})).writable).toBe(true);
+    const update = spyOn(f.service["sessions"], "updatePermissions").mockResolvedValue(
+      nativeUpdate,
+    );
+    cleanups.push(async () => update.mockRestore());
+    const permissionMode = nativeUpdate ? "default" : "read-only";
+    await f.service.setThreadSettings(f.project.id, parent.id, { permissionMode });
+    await until(async () => {
+      const records = await Promise.all(
+        tasks.map((task) => f.service.tasks.store.get(String(task.task_id))),
+      );
+      return records.every((task) => task?.state === "cancelled");
+    });
+    await expect(
+      call(workerTools, "canvas_edit", {
+        design_id: file.id,
+        expected_version: file.version,
+        request_id: randomUUID(),
+        operations: [
+          { kind: "update", node_ids: [file.document.nodes[0].id], changes: { name: "Denied" } },
+        ],
+      }),
+    ).rejects.toThrow();
+    expect((await f.store.readDesign(f.project.id, file.id, false)).version).toBe(file.version);
+    expect((await f.service.readThread(f.project.id, parent.id)).settings?.permissionMode).toBe(
+      permissionMode,
+    );
+    expect(update).toHaveBeenCalledTimes(nativeUpdate ? 1 : 0);
+  });
+
+test("parent permission revocation fences an authorized canvas commit before cancellation settles", async () => {
+  const f = await fixture();
+  const file = await f.store.createDesign(f.project.id);
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "auto" },
+    prompt: "Coordinate the attached design",
+    designIds: [file.id],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const task = await call(tools, "task_delegate", {
+    request_id: randomUUID(),
+    prompt: "Inspect the design",
+  });
+  await until(async () => f.runs.length === 2);
+  const workerTools = await f.runs[1].input.agentTools!.open();
+  cleanups.push(async () => workerTools.close());
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const settled = Promise.withResolvers<void>();
+  const updateDesign = f.store.updateDesign.bind(f.store);
+  const write = spyOn(f.store, "updateDesign").mockImplementation(async (input, options) => {
+    try {
+      return await updateDesign(
+        {
+          ...input,
+          beforeWrite: async () => {
+            await input.beforeWrite?.();
+            entered.resolve();
+            await release.promise;
+          },
+        },
+        options,
+      );
+    } finally {
+      settled.resolve();
+    }
+  });
+  const cancelling = Promise.withResolvers<void>();
+  const cancelRelease = Promise.withResolvers<void>();
+  const cancelParent = f.service.tasks.cancelParent.bind(f.service.tasks);
+  const cancellation = spyOn(f.service.tasks, "cancelParent").mockImplementation(
+    async (...args) => {
+      cancelling.resolve();
+      await cancelRelease.promise;
+      return cancelParent(...args);
+    },
+  );
+  cleanups.push(async () => {
+    release.resolve();
+    cancelRelease.resolve();
+    write.mockRestore();
+    cancellation.mockRestore();
+  });
+  const mutation = call(workerTools, "canvas_edit", {
+    design_id: file.id,
+    expected_version: file.version,
+    request_id: randomUUID(),
+    operations: [
+      { kind: "update", node_ids: [file.document.nodes[0].id], changes: { name: "Denied" } },
+    ],
+  }).catch((error: unknown) => error);
+  await entered.promise;
+  const settings = f.service.setThreadSettings(f.project.id, parent.id, {
+    permissionMode: "read-only",
+  });
+  await cancelling.promise;
+  expect(await mutation).toBeInstanceOf(Error);
+  await expect(
+    call(tools, "task_delegate", { request_id: randomUUID(), prompt: "Late work" }),
+  ).rejects.toThrow();
+  expect((await f.service.readThread(f.project.id, String(task.child_thread_id))).status).toBe(
+    "running",
+  );
+  release.resolve();
+  await settled.promise;
+  expect((await f.store.readDesign(f.project.id, file.id, false)).version).toBe(file.version);
+  cancelRelease.resolve();
+  await settings;
+});
+
+test("live permission updates retain compatible tool authority and refresh a changed write scope", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "default" },
+    prompt: "Inspect the project",
+    designIds: [],
+  });
+  const originalIdentity = f.runs[0].input.agentTools?.identity;
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const update = spyOn(f.service["sessions"], "updatePermissions").mockResolvedValue(true);
+  cleanups.push(async () => update.mockRestore());
+  await f.service.setThreadSettings(f.project.id, parent.id, {
+    permissionMode: "provider-auto",
+  });
+  expect((await call(tools, "tidy_context", {})).writable).toBe(true);
+  f.runs[0].complete();
+  await until(
+    async () => (await f.service.readThread(f.project.id, parent.id)).status === "completed",
+  );
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: parent.id,
+    text: "Continue the inspection",
+  });
+  expect(f.runs[1].input.agentTools?.identity).toBe(originalIdentity);
+  update.mockResolvedValue(false);
+  await f.service.setThreadSettings(f.project.id, parent.id, { permissionMode: "read-only" });
+  expect(f.runs[2].input.agentTools?.identity).not.toBe(originalIdentity);
+  const narrowedTools = await f.runs[2].input.agentTools!.open();
+  cleanups.push(async () => narrowedTools.close());
+  expect((await call(narrowedTools, "tidy_context", {})).writable).toBe(false);
+});
+
+test("a read-only to writable change immediately rebinds application tools through handover", async () => {
+  const f = await fixture();
+  const file = await f.store.createDesign(f.project.id);
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Inspect the attached design",
+    designIds: [file.id],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const update = spyOn(f.service["sessions"], "updatePermissions").mockResolvedValue(true);
+  cleanups.push(async () => update.mockRestore());
+  await f.service.setThreadSettings(f.project.id, parent.id, { permissionMode: "auto" });
+  expect(update).not.toHaveBeenCalled();
+  expect(f.runs).toHaveLength(2);
+  const writableTools = await f.runs[1].input.agentTools!.open();
+  cleanups.push(async () => writableTools.close());
+  expect(writableTools.token).not.toBe(tools.token);
+  expect((await call(tools, "tidy_context", {})).writable).toBe(false);
+  expect((await call(writableTools, "tidy_context", {})).writable).toBe(true);
+  const edit = {
+    design_id: file.id,
+    expected_version: file.version,
+    request_id: randomUUID(),
+    operations: [
+      { kind: "update", node_ids: [file.document.nodes[0].id], changes: { name: "Allowed" } },
+    ],
+  };
+  await expect(call(tools, "canvas_edit", edit)).rejects.toThrow();
+  await call(writableTools, "canvas_edit", edit);
+  expect((await f.store.readDesign(f.project.id, file.id, false)).document.nodes[0].name).toBe(
+    "Allowed",
+  );
+});
+
+test("permission revocation prevents a prepared worker from starting native inference", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "auto" },
+    prompt: "Coordinate an inspection",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const register = f.service["ports"].register.bind(f.service["ports"]);
+  const registration = spyOn(f.service["ports"], "register").mockImplementation(async (input) => {
+    const result = await register(input);
+    if (input.threadId !== parent.id) {
+      entered.resolve();
+      await release.promise;
+    }
+    return result;
+  });
+  const update = spyOn(f.service["sessions"], "updatePermissions").mockResolvedValue(true);
+  cleanups.push(async () => {
+    release.resolve();
+    registration.mockRestore();
+    update.mockRestore();
+  });
+  const task = await call(tools, "task_delegate", {
+    request_id: randomUUID(),
+    prompt: "Inspect the project",
+  });
+  await entered.promise;
+  await f.service.setThreadSettings(f.project.id, parent.id, { permissionMode: "default" });
+  release.resolve();
+  await until(
+    async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "cancelled",
+  );
+  expect(f.runs).toHaveLength(1);
+});
+
 test("renderer task views include queued assignments, durable turn links and private parent lineage", async () => {
   const f = await fixture();
   const parent = await f.service.startThread({
@@ -653,6 +905,49 @@ async function independentThreads() {
   cleanups.push(async () => tools.close());
   return { ...f, parent, recipient, tools };
 }
+
+test("parent permission changes cancel queued incoming work without stopping the recipient's user turn", async () => {
+  const f = await independentThreads();
+  await f.service.setThreadWorkPermission(f.project.id, f.recipient.id, true);
+  const task = await call(f.tools, "thread_send", {
+    thread_id: f.recipient.id,
+    request_id: randomUUID(),
+    message: "Review after the user finishes",
+  });
+  await f.service.setThreadSettings(f.project.id, f.parent.id, { permissionMode: "auto" });
+  expect((await f.service.tasks.store.get(String(task.task_id)))?.state).toBe("cancelled");
+  const recipient = await f.service.readThread(f.project.id, f.recipient.id);
+  expect(recipient.status).toBe("running");
+  expect(recipient.messages.at(-1)?.id).toBe(f.recipient.messages.at(-1)?.id);
+  expect(recipient.messages.some((message) => message.id === task.task_id)).toBe(false);
+});
+
+test("parent permission changes stop only the accepted incoming assignment", async () => {
+  const f = await independentThreads();
+  await f.service.setThreadWorkPermission(f.project.id, f.recipient.id, true);
+  const task = await call(f.tools, "thread_send", {
+    thread_id: f.recipient.id,
+    request_id: randomUUID(),
+    message: "Review the current plan",
+  });
+  f.runs[1].complete();
+  await until(async () => f.runs.length === 3);
+  const recipientTools = await f.runs[2].input.agentTools!.open();
+  cleanups.push(async () => recipientTools.close());
+  expect((await call(recipientTools, "tidy_context", {})).thread_id).toBe(f.recipient.id);
+  await f.service.setThreadSettings(f.project.id, f.parent.id, { permissionMode: "auto" });
+  await until(
+    async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "cancelled",
+  );
+  await expect(call(recipientTools, "tidy_context", {})).rejects.toThrow();
+  const user = await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: f.recipient.id,
+    text: "Continue my independent work",
+  });
+  expect(user.status).toBe("running");
+  expect(user.messages.at(-1)?.id).not.toBe(task.task_id);
+});
 
 test("ordinary work waits for user turns, stays independent, and cancels only the requested assignment", async () => {
   const f = await independentThreads();
