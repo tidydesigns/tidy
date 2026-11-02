@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import type { CodeRow } from "./file-rows";
 import {
   offsetIndex,
+  reviewCanvasLimit,
+  reviewHeightBudgets,
   reviewOffsets,
   reviewRange,
   reviewRowOffsets,
@@ -75,4 +77,18 @@ test("extreme wrapped previews stay within scroll limits without forcing horizon
   const unwrapped = reviewRowLayout(rows, 320, true, false, new Map());
   expect(unwrapped.limited).toBe(false);
   expect(unwrapped.offsets.length).toBe(20001);
+});
+
+test("combined wrapped previews leave every file reachable within the browser canvas", () => {
+  const heights = [240, ...Array.from({ length: 6 }, () => 7968000)];
+  const fixed = 20000 * 120 + heights.length * 56;
+  const budgets = reviewHeightBudgets(heights, fixed);
+  expect(budgets[0]).toBe(240);
+  expect(budgets.slice(1).every((height) => height > 96000)).toBe(true);
+  const offsets = reviewOffsets([fixed, ...budgets]);
+  expect(offsets[offsets.length - 1]).toBeLessThanOrEqual(reviewCanvasLimit);
+  expect(reviewRange(offsets, offsets[offsets.length - 1] - 600, 600, 0).end).toBe(
+    offsets.length - 1,
+  );
+  expect(reviewHeightBudgets([24, 48, 72], 120)).toEqual([24, 48, 72]);
 });

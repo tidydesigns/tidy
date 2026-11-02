@@ -76,3 +76,19 @@ export function reviewRowLayout(
     limited,
   };
 }
+
+export const reviewCanvasLimit = 16000000;
+
+export function reviewHeightBudgets(heights: readonly number[], fixedHeight: number) {
+  let remaining = Math.max(0, reviewCanvasLimit - fixedHeight);
+  const budgets = [...heights];
+  const ordered = heights
+    .map((height, index) => ({ height, index }))
+    .sort((a, b) => a.height - b.height);
+  ordered.forEach(({ height, index }, position) => {
+    const budget = Math.min(height, Math.floor(remaining / (ordered.length - position)));
+    budgets[index] = budget;
+    remaining -= budget;
+  });
+  return budgets;
+}

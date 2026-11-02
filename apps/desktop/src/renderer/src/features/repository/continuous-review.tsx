@@ -12,6 +12,7 @@ import {
   offsetIndex,
   reviewBodyOffset,
   reviewHeaderHeight,
+  reviewHeightBudgets,
   reviewOffsets,
   reviewPlaceholderHeight,
   reviewRange,
@@ -134,6 +135,25 @@ export function ContinuousReview({
       const bodyOffset = reviewHeaderHeight + (notice ? 24 : 0);
       const height = bodyOffset + Math.max(24, rows[rows.length - 1]) + (effectiveWrap ? 0 : 16);
       return { change, entry, rows, height, bodyOffset, notice, wrap: effectiveWrap };
+    });
+    const previews = layouts.filter((item) => item.rows !== undefined);
+    const fixedHeight = layouts.reduce(
+      (sum, item) =>
+        sum + (item.rows ? reviewHeaderHeight + 24 + (item.wrap ? 0 : 16) : item.height),
+      0,
+    );
+    const budgets = reviewHeightBudgets(
+      previews.map((item) => Math.max(24, item.rows?.[item.rows.length - 1] ?? 0)),
+      fixedHeight,
+    );
+    previews.forEach((item, index) => {
+      if (!item.rows || item.rows[item.rows.length - 1] <= budgets[index]) return;
+      item.rows = item.rows.slice(0, offsetIndex(item.rows, budgets[index]) + 1);
+      item.notice =
+        "Wrapped preview limited. Widen the panel or turn off line wrapping to see more.";
+      item.bodyOffset = reviewHeaderHeight + 24;
+      item.height =
+        item.bodyOffset + Math.max(24, item.rows[item.rows.length - 1]) + (item.wrap ? 0 : 16);
     });
     const width = layouts.reduce(
       (maximum, item) =>

@@ -781,3 +781,31 @@ test("rejects special Git metadata without waiting for a pipe writer", async () 
   await execute("mkfifo", [join(root, ".git/info/attributes")]);
   await expect(readRepositoryChanges(root)).rejects.toThrow("Git metadata");
 });
+
+test("rejects Git results when the selected root is replaced during status", async () => {
+  const { root } = await fixture();
+  const bin = await realpath(await mkdtemp(join(tmpdir(), "tidy-repository-root-")));
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "tidy-repository-outside-")));
+  scratch.push(bin, outside);
+  const held = join(bin, "held-project");
+  const executable = Bun.which("git");
+  if (!executable) throw new Error("Git is required for repository tests.");
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(join(outside, "outside-name.txt"), "outside\n");
+  await symlink(join(held, ".git"), join(outside, ".git"));
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh\nfor arg in "$@"; do\nif [ "$arg" = status ]; then\nmv ${quote(root)} ${quote(held)}\nln -s ${quote(outside)} ${quote(root)}\nbreak\nfi\ndone\nexec ${quote(executable)} "$@"\n`,
+    { mode: 0o700 },
+  );
+  const previous = process.env.PATH;
+  process.env.PATH = `${bin}:${previous ?? ""}`;
+  try {
+    await expect(readRepositoryChanges(root)).rejects.toThrow("project directory");
+  } finally {
+    if (previous === undefined) delete process.env.PATH;
+    else process.env.PATH = previous;
+    await rm(root, { force: true });
+    await rename(held, root);
+  }
+});

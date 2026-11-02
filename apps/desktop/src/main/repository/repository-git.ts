@@ -40,83 +40,105 @@ export async function git(
   pathspecs: "literal" | "attributes" = "literal",
 ) {
   const directory = await openRepositoryPath(cwd, "", true);
+  let workTree: Awaited<ReturnType<typeof openRepositoryPath>> | undefined;
   try {
-    return await new Promise<{ code: number; text: string; utf8: boolean }>((resolve, reject) => {
-      const environment = Object.fromEntries(
-        Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
-      );
-      const child = spawn(
-        "git",
-        [
-          "--no-pager",
-          "--no-lazy-fetch",
-          ...(view ? [`--git-dir=${view.directory}`, `--work-tree=${view.workTree}`] : []),
-          ...(args[0] === "check-ignore" || pathspecs === "attributes"
-            ? []
-            : ["--literal-pathspecs"]),
-          "-c",
-          "core.fsmonitor=false",
-          "-c",
-          "core.untrackedCache=false",
-          ...args,
-        ],
-        {
-          cwd:
-            process.platform === "linux"
-              ? `/proc/${process.pid}/fd/${directory.file.fd}`
-              : directory.descriptor,
-          env: {
-            ...environment,
-            LC_ALL: "C",
-            GIT_TERMINAL_PROMPT: "0",
-            GIT_OPTIONAL_LOCKS: "0",
-            GIT_NO_LAZY_FETCH: "1",
+    if (view) workTree = await openRepositoryPath(view.workTree, "", true);
+    const result = await new Promise<{ code: number; text: string; utf8: boolean }>(
+      (resolve, reject) => {
+        const environment = Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
+        );
+        const child = spawn(
+          "git",
+          [
+            "--no-pager",
+            "--no-lazy-fetch",
             ...(view
-              ? {
-                  GIT_INDEX_FILE: view.index,
-                  GIT_OBJECT_DIRECTORY: view.objects,
-                  GIT_CONFIG_NOSYSTEM: "1",
-                  GIT_CONFIG_GLOBAL: "/dev/null",
-                }
-              : {}),
+              ? [
+                  `--git-dir=${view.directory}`,
+                  `--work-tree=${process.platform === "linux" ? "/proc/self/fd/3" : "/dev/fd/3"}`,
+                ]
+              : []),
+            ...(args[0] === "check-ignore" || pathspecs === "attributes"
+              ? []
+              : ["--literal-pathspecs"]),
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.untrackedCache=false",
+            ...args,
+          ],
+          {
+            cwd:
+              process.platform === "linux"
+                ? `/proc/${process.pid}/fd/${directory.file.fd}`
+                : directory.descriptor,
+            env: {
+              ...environment,
+              LC_ALL: "C",
+              GIT_TERMINAL_PROMPT: "0",
+              GIT_OPTIONAL_LOCKS: "0",
+              GIT_NO_LAZY_FETCH: "1",
+              ...(view
+                ? {
+                    GIT_INDEX_FILE: view.index,
+                    GIT_OBJECT_DIRECTORY: view.objects,
+                    GIT_CONFIG_NOSYSTEM: "1",
+                    GIT_CONFIG_GLOBAL: "/dev/null",
+                  }
+                : {}),
+            },
+            stdio: ["pipe", "pipe", "pipe", workTree ? workTree.file.fd : "ignore"],
           },
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      );
-      const chunks: Buffer[] = [];
-      let size = 0;
-      let failure: Error | undefined;
-      const timer = setTimeout(() => {
-        failure = new Error("Git took too long. Try refreshing this repository.");
-        child.kill("SIGKILL");
-      }, 10000);
-      child.stdout.on("data", (chunk: Buffer) => {
-        size += chunk.length;
-        if (size > limit) {
-          failure = new OutputLimitError();
+        );
+        const { stdout, stderr, stdin } = child;
+        if (!stdout || !stderr || !stdin) {
           child.kill("SIGKILL");
-        } else chunks.push(chunk);
-      });
-      child.stderr.resume();
-      child.stdin.on("error", () => {});
-      child.on("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (failure) reject(failure);
-        else if (code === 129)
-          reject(new Error("Could not run safe Git inspection. Update Git and retry."));
-        else {
-          const output = Buffer.concat(chunks);
-          resolve({ code: code ?? -1, text: output.toString("utf8"), utf8: isUtf8(output) });
+          reject(new Error("Could not open Git inspection streams."));
+          return;
         }
-      });
-      child.stdin.end(input);
-    });
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let failure: Error | undefined;
+        const timer = setTimeout(() => {
+          failure = new Error("Git took too long. Try refreshing this repository.");
+          child.kill("SIGKILL");
+        }, 10000);
+        stdout.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > limit) {
+            failure = new OutputLimitError();
+            child.kill("SIGKILL");
+          } else chunks.push(chunk);
+        });
+        stderr.resume();
+        stdin.on("error", () => {});
+        child.on("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (failure) reject(failure);
+          else if (code === 129)
+            reject(new Error("Could not run safe Git inspection. Update Git and retry."));
+          else {
+            const output = Buffer.concat(chunks);
+            resolve({ code: code ?? -1, text: output.toString("utf8"), utf8: isUtf8(output) });
+          }
+        });
+        stdin.end(input);
+      },
+    );
+    for (const opened of [directory, workTree]) {
+      if (!opened) continue;
+      const current = await stat(opened.target);
+      if (current.dev !== opened.info.dev || current.ino !== opened.info.ino)
+        throw new Error("The project directory moved. Open it again.");
+    }
+    return result;
   } finally {
-    await directory.file.close();
+    await Promise.all([directory.file.close(), workTree?.file.close()]);
   }
 }
 
