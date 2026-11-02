@@ -3908,7 +3908,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           expand.focus();
           expand.click();
         });
-        const preview = required(document.querySelector("dialog[open]"), "Pasted image preview");
+        const preview = required(
+          document.querySelector('dialog[open][aria-label="Image preview: image.png"]'),
+          "Pasted image preview",
+        );
         check(preview.matches(":modal"), "Image preview did not open as a modal");
         const temporarySource = required(expand.querySelector("img"), "Temporary thumbnail").src;
         check(temporarySource.startsWith("blob:"), "Upload did not start with a temporary source");
@@ -3994,7 +3997,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           sentThumbnail.click();
         });
         const sentPreview = required(
-          document.querySelector<HTMLDialogElement>("dialog[open]"),
+          document.querySelector<HTMLDialogElement>(
+            'dialog[open][aria-label="Image preview: image.png"]',
+          ),
           "Sent image preview",
         );
         check(

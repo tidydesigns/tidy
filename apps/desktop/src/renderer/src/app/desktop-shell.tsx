@@ -27,7 +27,7 @@ export function SidebarNavigation({ className, hidden, ...props }: ComponentProp
         event.preventDefault();
         toggle();
       }}
-      className={`${className ?? ""} [&]:m-0 [&]:max-h-none [&]:max-w-none [&]:rounded-none [&]:border-y-0 [&]:border-l-0 [&:not([open])]:hidden ${compact ? "[&]:fixed [&]:bottom-0 [&]:top-(--desktop-titlebar-height) [&]:left-0 [&]:right-auto [&]:h-[calc(100dvh-var(--desktop-titlebar-height,0px))] [&]:w-[min(88vw,264px)]" : "[&]:relative [&]:inset-auto [&]:h-auto [&]:w-auto [&]:shadow-none"}`}
+      className={`${className ?? ""} [&]:m-0 [&]:overflow-visible [&]:max-h-none [&]:max-w-none [&]:rounded-none [&]:border-y-0 [&]:border-l-0 [&:not([open])]:hidden ${compact ? "[&]:fixed [&]:bottom-0 [&]:top-(--desktop-titlebar-height) [&]:left-0 [&]:right-auto [&]:h-[calc(100dvh-var(--desktop-titlebar-height,0px))] [&]:w-[min(88vw,264px)]" : "[&]:relative [&]:inset-auto [&]:h-auto [&]:w-auto [&]:shadow-none"}`}
     />
   );
 }
