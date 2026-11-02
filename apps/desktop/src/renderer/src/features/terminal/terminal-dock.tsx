@@ -1,8 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { z } from "zod";
 import { terminalFont } from "./terminal-font";
 import { createPortal } from "react-dom";
-import { Button } from "@tidy/ui/button";
+import { TerminalButton } from "./terminal-button";
+import { terminalShortcutLabels } from "./terminal-shortcut-labels";
+import {
+  currentTerminalFontSize,
+  subscribeTerminalFontSize,
+  selectTerminalFontSize,
+} from "./terminal-preferences";
 import { showToast } from "@tidy/ui/toast";
 import type { Project, DesktopAPI } from "../../../../shared/contracts/desktop";
 import type { TerminalShortcut } from "../../../../shared/contracts/terminal";
@@ -76,11 +81,7 @@ export function TerminalDock({
   onFullscreenChange(value: boolean): void;
 }) {
   const theme = useSyncExternalStore(subscribeTerminalTheme, currentTerminalTheme);
-  const [fontSize, setFontSize] = useSessionState(
-    "terminal-font-size",
-    z.number().int().min(terminalFont.min).max(terminalFont.max),
-    terminalFont.default,
-  );
+  const fontSize = useSyncExternalStore(subscribeTerminalFontSize, currentTerminalFontSize);
   const [state, setState] = useSessionState<TerminalState>("terminals", terminalStateSchema, {});
   const latestState = useRef(state);
   const dispatch = (action: TerminalAction) => {
@@ -99,7 +100,7 @@ export function TerminalDock({
   const open = valid && current.open && active;
   const tabs = Object.values(state).flatMap((value) => value.tabs);
   const mac = navigator.platform.includes("Mac");
-  const mod = mac ? "⌘" : "Ctrl+";
+  const keys = terminalShortcutLabels(mac);
   useEffect(() => {
     if (!ready) return;
     dispatch({
@@ -184,14 +185,18 @@ export function TerminalDock({
     }
     if (!open) return;
     if (action.startsWith("zoom-")) {
-      setFontSize((size) =>
-        action === "zoom-reset"
-          ? terminalFont.default
-          : Math.max(
-              terminalFont.min,
-              Math.min(terminalFont.max, size + (action === "zoom-in" ? 1 : -1)),
-            ),
-      );
+      const size = currentTerminalFontSize();
+      if (
+        !selectTerminalFontSize(
+          action === "zoom-reset"
+            ? terminalFont.default
+            : Math.max(
+                terminalFont.min,
+                Math.min(terminalFont.max, size + (action === "zoom-in" ? 1 : -1)),
+              ),
+        )
+      )
+        showToast("Text size changed for this session, but could not be remembered.");
       return;
     }
     if (action === "close") {
@@ -269,17 +274,18 @@ export function TerminalDock({
       {home &&
         valid &&
         createPortal(
-          <Button
+          <TerminalButton
             ref={launcher}
             className="terminal-launcher terminal-icon-button"
-            title="Terminal (Ctrl+`)"
+            tooltip="Toggle terminal"
+            shortcut={keys.toggle}
             aria-label="Toggle terminal"
             aria-expanded={open}
             aria-controls="workspace-terminal"
             onClick={toggle}
           >
             <Glyph kind="terminal" />
-          </Button>,
+          </TerminalButton>,
           home,
         )}
       <div
@@ -354,61 +360,66 @@ export function TerminalDock({
               if (current.tabs[index]) select(current.tabs[index].id, true);
             }}
           >
-            {current.tabs.map((tab) => (
+            {current.tabs.map((tab, index) => (
               <div
                 key={tab.id}
                 className={`terminal-tab-item ${current.selected === tab.id ? "terminal-tab-selected" : ""}`}
               >
-                <Button
+                <TerminalButton
                   role="tab"
                   id={`terminal-tab-${tab.id}`}
                   className="terminal-tab"
                   aria-selected={current.selected === tab.id}
                   aria-controls={`terminal-panel-${tab.id}`}
                   tabIndex={current.selected === tab.id ? 0 : -1}
-                  title={tab.title}
+                  tooltip={tab.title}
+                  shortcut={keys.tab(index)}
                   onClick={() => select(tab.id)}
                 >
                   <span>{tab.title}</span>
-                </Button>
-                <Button
+                </TerminalButton>
+                <TerminalButton
                   className="terminal-tab-close terminal-icon-button"
                   aria-label={`Close ${tab.title}`}
-                  title={`Close tab (${mod}W)`}
+                  tooltip={`Close ${tab.title}`}
+                  shortcut={keys.close}
                   tabIndex={current.selected === tab.id ? 0 : -1}
                   onClick={() => close(tab)}
                 >
                   <Glyph kind="close" />
-                </Button>
+                </TerminalButton>
               </div>
             ))}
           </div>
-          <Button
+          <TerminalButton
             className="terminal-icon-button"
             aria-label="New terminal tab"
-            title={`New terminal tab (${mod}T)`}
+            tooltip="New terminal tab"
+            shortcut={`${keys.new} / ${keys.newGlobal}`}
             onClick={create}
           >
             <Glyph kind="plus" />
-          </Button>
+          </TerminalButton>
           <div className="terminal-toolbar-spacer" />
-          <Button
+          <TerminalButton
             className="terminal-icon-button"
             aria-label={fullscreen ? "Restore terminal" : "Full screen terminal"}
             aria-pressed={fullscreen}
-            title={`${fullscreen ? "Restore" : "Full screen"} terminal (${mod}Enter)`}
+            tooltip={`${fullscreen ? "Restore" : "Full screen"} terminal`}
+            shortcut={keys.maximize}
             onClick={() => onFullscreenChange(!fullscreen)}
           >
             <Glyph kind={fullscreen ? "restore" : "maximize"} />
-          </Button>
-          <Button
+          </TerminalButton>
+          <TerminalButton
             className="terminal-icon-button"
             aria-label="Hide terminal"
-            title="Hide terminal (Ctrl+`)"
+            tooltip="Hide terminal"
+            shortcut={keys.toggle}
             onClick={hide}
           >
             <Glyph kind="close" />
-          </Button>
+          </TerminalButton>
         </div>
         <div className="terminal-sessions">
           {api.terminal &&

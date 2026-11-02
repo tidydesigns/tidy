@@ -4,7 +4,7 @@ import { Ghostty, Terminal, FitAddon, type ITheme } from "ghostty-web";
 import wasmURL from "ghostty-web/ghostty-vt.wasm?url";
 
 let runtime: Promise<Ghostty> | undefined;
-export async function createTerminal(theme: ITheme) {
+export async function createTerminal(theme: ITheme, size?: { cols: number; rows: number }) {
   runtime ??= Ghostty.load(wasmURL).catch((error: unknown) => {
     runtime = undefined;
     throw error;
@@ -12,6 +12,8 @@ export async function createTerminal(theme: ITheme) {
   const ghostty = await runtime;
   const terminal = new Terminal({
     ghostty,
+    cols: size?.cols,
+    rows: size?.rows,
     fontSize: terminalFont.default,
     fontFamily:
       '"SF Mono", "Cascadia Code", "DejaVu Sans Mono", Menlo, Consolas, "Symbols Nerd Font Mono", "Symbols Nerd Font", "JetBrainsMono Nerd Font", monospace',

@@ -8,11 +8,13 @@ import type { CloudConnection } from "../cloud/use-cloud";
 import { RemoteMachines } from "./remote-machines";
 import { PrivacySettings } from "./privacy-settings";
 import { AppearanceSettings } from "./appearance-settings";
+import { TerminalSettings } from "./terminal-settings";
 
 const sectionLabels = {
   account: "Account",
   appearance: "Appearance",
   threads: "Threads",
+  terminal: "Terminal",
   privacy: "Privacy",
   remote: "Remote machines",
 };
@@ -58,7 +60,7 @@ export function Settings({
         </div>
         <nav className="settings-sections" aria-label="Settings sections">
           <span className="settings-label">Settings</span>
-          {(["account", "appearance", "threads", "privacy"] as const).map((item) => (
+          {(["account", "appearance", "threads", "terminal", "privacy"] as const).map((item) => (
             <Button
               key={item}
               className="settings-section"
@@ -152,6 +154,9 @@ export function Settings({
             <AccessSettings />
             <ThreadNamingSettings />
             <ThreadCompletionSettings />
+          </div>
+          <div id="settings-terminal-panel" hidden={page !== "terminal"}>
+            <TerminalSettings />
           </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
             <PrivacySettings active={active} />

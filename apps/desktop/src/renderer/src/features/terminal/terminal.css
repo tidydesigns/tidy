@@ -165,6 +165,43 @@
   z-index: 1;
   pointer-events: none;
 }
+.terminal-renderer {
+  position: absolute;
+  inset: 6px 12px;
+  overflow: hidden;
+  outline: none;
+}
+.terminal-tooltip {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 6px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  box-shadow: 0 2px 8px #00000014;
+  font-size: 12px;
+  line-height: 1.4;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+.terminal-tooltip[data-below="true"] {
+  transform: translateX(-50%);
+}
+.terminal-tooltip > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.terminal-tooltip kbd {
+  flex-shrink: 0;
+  color: var(--color-muted-ink);
+  font-family: inherit;
+}
 .terminal-status > span {
   flex: 1;
   min-width: 0;

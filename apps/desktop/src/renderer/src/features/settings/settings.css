@@ -277,6 +277,62 @@
   font-size: 12px;
   line-height: 1.6;
 }
+.terminal-settings-note {
+  margin: 12px 0 32px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.terminal-settings h2 {
+  margin: 0 0 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.terminal-shortcuts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.terminal-shortcuts + .terminal-shortcuts {
+  margin-top: 24px;
+}
+.terminal-shortcuts caption {
+  padding-bottom: 8px;
+  text-align: left;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.terminal-shortcuts th,
+.terminal-shortcuts td {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.terminal-shortcuts th {
+  font-weight: 400;
+  text-align: left;
+}
+.terminal-shortcuts td {
+  text-align: right;
+}
+.terminal-shortcuts td > span {
+  display: inline-block;
+  margin: 2px 0;
+}
+.terminal-shortcuts kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.terminal-shortcut-or {
+  margin: 0 8px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
 .thread-naming-instructions {
   display: block;
   margin: 24px 0 8px;
