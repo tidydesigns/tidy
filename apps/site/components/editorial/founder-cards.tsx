@@ -8,14 +8,21 @@ export function FounderCards() {
     <div className={styles.founders}>
       {founders.map((founder) => (
         <article key={founder.id} id={founder.id} className={styles.founder}>
-          <Image
-            src={founder.image}
-            width={640}
-            height={640}
-            alt={founder.name}
-            unoptimized
-            className={styles.portrait}
-          />
+          <picture>
+            <source
+              srcSet={`${founder.imageSmall} 560w, ${founder.image} 1120w`}
+              sizes="(max-width: 640px) calc(100vw - 40px), (max-width: 1184px) calc((100vw - 96px) / 2), 544px"
+              type="image/webp"
+            />
+            <Image
+              src={founder.image}
+              width={1120}
+              height={1120}
+              alt={founder.name}
+              unoptimized
+              className={styles.portrait}
+            />
+          </picture>
           <div className={styles.founderInfo}>
             <h3>{founder.name}</h3>
             <div className={styles.socials}>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getPosts } from "../../lib/blog";
 import { CloudArtwork } from "./cloud-artwork";
 import { CloudAtmosphere } from "./cloud-atmosphere";
 import { BrandIcon } from "./brand-icon";
@@ -6,13 +7,14 @@ import { documentationUrl } from "../../lib/site-links";
 import { AnimatedWordmark } from "./animated-wordmark";
 import styles from "./cloud-footer.module.css";
 
-export function CloudFooter({
+export async function CloudFooter({
   appUrl,
   repositoryUrl = "https://github.com/tidydesigns/tidy",
 }: {
   appUrl: string;
   repositoryUrl?: string;
 }) {
+  const showBlog = (await getPosts()).length > 0;
   return (
     <footer id="cloud-footer" className={styles.footer}>
       <CloudAtmosphere />
@@ -44,7 +46,7 @@ export function CloudFooter({
           </a>
           <a href={documentationUrl}>Documentation</a>
           <Link href="/changelog">Changelog</Link>
-          <Link href="/blog">Blog</Link>
+          {showBlog && <Link href="/blog">Blog</Link>}
           <Link href="/about">About</Link>
           <Link href="/privacy">Privacy</Link>
         </nav>

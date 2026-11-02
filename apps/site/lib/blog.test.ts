@@ -21,6 +21,19 @@ afterEach(async () => {
 });
 
 describe("blog publication", () => {
+  test("keeps empty and draft-only blogs unpublished", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "tidy-blog-"));
+    directories.push(directory);
+    assert.deepEqual(await getPosts(directory), []);
+    await writeFile(path.join(directory, "first-post.md"), source("draft: true\n"));
+    assert.deepEqual(await getPosts(directory), []);
+    await writeFile(path.join(directory, "first-post.md"), source());
+    assert.deepEqual(
+      (await getPosts(directory)).map((post) => post.slug),
+      ["first-post"],
+    );
+  });
+
   test("excludes drafts and orders publication dates without using filesystem modification times", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "tidy-blog-"));
     directories.push(directory);

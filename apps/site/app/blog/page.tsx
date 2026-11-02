@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { CloudFooter } from "../../components/brand/cloud-footer";
 import { PostList } from "../../components/editorial/post-list";
 import { StructuredData } from "../../components/structured-data";
@@ -15,6 +16,7 @@ export const metadata = pageMetadata(
 
 export default async function BlogPage() {
   const posts = await getPosts();
+  if (!posts.length) notFound();
   return (
     <>
       <StructuredData

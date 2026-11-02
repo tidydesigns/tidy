@@ -53,6 +53,13 @@ Search Console to monitor discovery and indexing.
 
 ## Writing a blog post
 
+Publish only articles written by the team; do not add AI-generated starter posts.
+Until the first non-draft post is published, the blog index returns 404, its links
+and homepage section stay hidden, and no blog URLs appear in the sitemap. Adding
+the first published article enables these automatically on the next site build.
+The build removes unpublished blog HTML and navigation data from the static
+export so static hosting returns a real 404 for these URLs.
+
 Add a Markdown file to `content/blog/`. Its kebab-case filename becomes the URL:
 `design-to-code-workflow.md` is `/blog/design-to-code-workflow`.
 
@@ -93,14 +100,16 @@ root-relative links for other site pages and full HTTPS URLs for external source
 The index, individual article HTML, metadata, related links and sitemap entries
 are generated automatically. A rebuild is required after edits. Run
 `bun run build:site` and inspect `apps/site/out/blog/` before publishing. Review
-starter article copy and publication dates before the first deployment.
+article copy and publication dates before deployment.
 
 ## Founder profiles
 
 `founders.ts` holds the verified GitHub and LinkedIn links. The WebP portraits in
-`public/founders/` are copies of each founder’s GitHub avatar, retrieved on
-2026-10-29 (`seandowdall` and `tadhgdowdall`). Refresh these local files when needed;
-site visitors do not make requests to GitHub for the portraits.
+`public/founders/` use the portraits supplied by Sean on 2026-11-02. They are
+center-cropped squares, exported at 560 and 1120 pixels with WebP quality 88;
+the browser selects a size for the card width and screen density. Refresh both
+sizes together when needed. Original files stay outside `public/`; visitors make
+no external requests for the portraits.
 
 ## Changing blog images
 

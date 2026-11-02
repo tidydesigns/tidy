@@ -4,6 +4,7 @@ import { CloudArtwork } from "../../components/brand/cloud-artwork";
 import { FounderCards } from "../../components/editorial/founder-cards";
 import { StructuredData } from "../../components/structured-data";
 import { founders } from "../../content/founders";
+import { getPosts } from "../../lib/blog";
 import { pageMetadata } from "../../lib/page-metadata";
 import { appUrl, repositoryUrl } from "../../lib/site-links";
 import { siteUrl } from "../../lib/site-url";
@@ -15,7 +16,8 @@ export const metadata = pageMetadata(
   "Sean and Tadhg Dowdall are building Tidy, an open-source design canvas and Mac app for working with designs, code and coding agents.",
 );
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const showBlog = (await getPosts()).length > 0;
   return (
     <>
       <StructuredData
@@ -77,13 +79,15 @@ export default function AboutPage() {
           </div>
           <FounderCards />
         </section>
-        <aside className={styles.nextRead}>
-          <p>How we use Tidy for design and development.</p>
-          <Link className={styles.textLink} href="/blog">
-            <span>Read the blog</span>
-            <span aria-hidden="true">→</span>
-          </Link>
-        </aside>
+        {showBlog && (
+          <aside className={styles.nextRead}>
+            <p>How we use Tidy for design and development.</p>
+            <Link className={styles.textLink} href="/blog">
+              <span>Read the blog</span>
+              <span aria-hidden="true">→</span>
+            </Link>
+          </aside>
+        )}
       </main>
       <CloudFooter appUrl={appUrl} repositoryUrl={repositoryUrl} />
     </>

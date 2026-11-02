@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { SiteHeader } from "../components/site-header";
+import { getPosts } from "../lib/blog";
 import { siteUrl } from "../lib/site-url";
 import { pageMetadata } from "../lib/page-metadata";
 import "./globals.css";
@@ -28,7 +29,8 @@ export const metadata: Metadata = {
   ),
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const showBlog = (await getPosts()).length > 0;
   return (
     <html
       lang="en"
@@ -46,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
-        <SiteHeader />
+        <SiteHeader showBlog={showBlog} />
         {children}
       </body>
     </html>

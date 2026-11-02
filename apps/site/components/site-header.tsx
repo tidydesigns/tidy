@@ -18,7 +18,15 @@ function mobileSnapshot() {
   return window.matchMedia(mobileNavigationQuery).matches;
 }
 
-function HeaderLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function HeaderLinks({
+  pathname,
+  showBlog,
+  onNavigate,
+}: {
+  pathname: string;
+  showBlog: boolean;
+  onNavigate?: () => void;
+}) {
   return (
     <nav className="header-nav" aria-label="Main navigation">
       <Link
@@ -37,16 +45,18 @@ function HeaderLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: 
       >
         Changelog
       </Link>
-      <Link
-        className="header-link"
-        href="/blog"
-        aria-current={
-          pathname === "/blog" ? "page" : pathname.startsWith("/blog/") ? "location" : undefined
-        }
-        onClick={onNavigate}
-      >
-        Blog
-      </Link>
+      {showBlog && (
+        <Link
+          className="header-link"
+          href="/blog"
+          aria-current={
+            pathname === "/blog" ? "page" : pathname.startsWith("/blog/") ? "location" : undefined
+          }
+          onClick={onNavigate}
+        >
+          Blog
+        </Link>
+      )}
       <Link
         className="header-link"
         href="/about"
@@ -77,7 +87,7 @@ function HeaderActions({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function SiteHeader() {
+export function SiteHeader({ showBlog }: { showBlog: boolean }) {
   const pathname = usePathname();
   const shell = useRef<HTMLDivElement>(null);
   const mobile = useSyncExternalStore(subscribeViewport, mobileSnapshot, () => false);
@@ -146,7 +156,7 @@ export function SiteHeader() {
           Tidy
         </Link>
         <div className="header-desktop">
-          <HeaderLinks pathname={pathname} />
+          <HeaderLinks pathname={pathname} showBlog={showBlog} />
           <HeaderActions />
         </div>
         <SelectMenu
@@ -169,7 +179,7 @@ export function SiteHeader() {
           }
           menuContent={(close) => (
             <>
-              <HeaderLinks pathname={pathname} onNavigate={close} />
+              <HeaderLinks pathname={pathname} showBlog={showBlog} onNavigate={close} />
               <HeaderActions onNavigate={close} />
             </>
           )}

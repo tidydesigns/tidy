@@ -17,7 +17,10 @@ type Props = { params: Promise<{ slug: string }> };
 export const dynamicParams = false;
 
 export async function generateStaticParams() {
-  return (await getPosts()).map(({ slug }) => ({ slug }));
+  const posts = await getPosts();
+  // Static export requires at least one param. This invalid article slug renders
+  // not-found; finalize-blog-export removes the unpublished output after build.
+  return posts.length ? posts.map(({ slug }) => ({ slug })) : [{ slug: "_unpublished" }];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
