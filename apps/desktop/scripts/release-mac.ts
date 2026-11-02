@@ -118,7 +118,7 @@ try {
     // Reuse only a matching, previously notarized app. Never silently skip signing.
     for (const [key, expected] of [
       ["CFBundleDisplayName", "Tidy"],
-      ["CFBundleName", "Tidy"],
+      ["CFBundleName", appName],
       ["CFBundleShortVersionString", manifest.version.split("-")[0]],
       ["CFBundleVersion", manifest.desktopBuildNumber],
     ]) {
