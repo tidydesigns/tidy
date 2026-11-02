@@ -121,7 +121,8 @@ export const ThreadSidebar = memo(function ThreadSidebar({
     }
   }, [projectId, order, drag.draggingId, complete]);
   const query = search.trim().toLocaleLowerCase();
-  const matches = (item: ThreadSummary) => item.title.toLocaleLowerCase().includes(query);
+  const matches = (item: ThreadSummary) =>
+    (item.title.trim() || "New thread").toLocaleLowerCase().includes(query);
   const visibleDraft = Boolean(
     draft?.text.trim() && draft.text.toLocaleLowerCase().includes(query),
   );

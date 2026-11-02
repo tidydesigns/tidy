@@ -416,7 +416,9 @@ export function App({
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
   const activeDraftKey = project && mode === "code" && !settingsOpen ? draftKey : null;
   const activeDraftKeyRef = useRef(activeDraftKey);
-  activeDraftKeyRef.current = activeDraftKey;
+  useLayoutEffect(() => {
+    activeDraftKeyRef.current = activeDraftKey;
+  }, [activeDraftKey]);
   const activeNewDraftKey = !selectedThreadId ? activeDraftKey : null;
   const [previousNewDraftKey, setPreviousNewDraftKey] = useState(activeNewDraftKey);
   if (previousNewDraftKey !== activeNewDraftKey) {

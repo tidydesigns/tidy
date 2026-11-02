@@ -410,8 +410,6 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     }
   }
 
-  await runDraftNavigationTests(run, { host, nativeAPI });
-
   await run(
     "workspace sidebar adapts to narrow screens and preserves explicit toggles",
     async (root) => {
@@ -1107,6 +1105,45 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       if (!expectedHeight) expectedHeight = height;
       check(height === expectedHeight, "Empty stored title collapsed its row");
       check(thread.title === title, "Rendering changed the stored title");
+    }
+  });
+
+  await run("sidebar search matches fallback thread titles", async (root) => {
+    const threads = ["Workspace review", "", "  \n  ", "NEW THREAD notes"].map((title) => ({
+      ...summarizeThread(makeThread()),
+      title,
+    }));
+    for (const search of ["  nEw ThReAd  ", "workspace"]) {
+      flushSync(() =>
+        root.render(
+          <ThreadSidebar
+            projectId={projectId}
+            threads={threads}
+            search={search}
+            renderThread={(thread) => (
+              <ThreadCard
+                thread={thread}
+                selected={false}
+                loaded={false}
+                pending={false}
+                now={Date.now()}
+                onSelect={() => {}}
+                onDone={() => {}}
+              />
+            )}
+          />,
+        ),
+      );
+      const titles = [...host.querySelectorAll(".thread-title")].map((node) => node.textContent);
+      check(
+        JSON.stringify(titles) ===
+          JSON.stringify(
+            search === "workspace"
+              ? ["Workspace review"]
+              : ["New thread", "New thread", "NEW THREAD notes"],
+          ),
+        "Search results differ from displayed titles",
+      );
     }
   });
 
@@ -5951,6 +5988,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       }
     },
   );
+  await runDraftNavigationTests(run, { host, nativeAPI });
 
   return passed;
 }
