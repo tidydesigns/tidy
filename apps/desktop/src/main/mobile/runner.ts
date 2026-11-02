@@ -26,6 +26,7 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
   const { root, target, device, serial, signal, output, stage, running, failed } = options;
   const cwd = await targetDirectory(root, target);
   const children = new Set<MobileProcess>();
+  let stopped = false;
   let reload: (() => Promise<void>) | undefined;
   let terminate: (() => Promise<unknown>) | undefined;
   const start = (bin: string, args: string[], env?: NodeJS.ProcessEnv) => {
@@ -40,6 +41,16 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
     children.add(child);
     void child.done.finally(() => children.delete(child)).catch(() => {});
     return child;
+  };
+  const watch = (child: MobileProcess, message: string) => {
+    void child.done.then(
+      () => {
+        if (!signal.aborted && !stopped) failed(new Error(message));
+      },
+      (error: unknown) => {
+        if (!signal.aborted && !stopped) failed(error);
+      },
+    );
   };
   const run = async (bin: string, args: string[], env?: NodeJS.ProcessEnv) => {
     await start(bin, args, env).done;
@@ -78,12 +89,19 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
         );
       const child = start(flutter, ["run", "--device-id", serial]);
       reload = async () => {
-        child.process.stdin.write("r");
+        if (
+          child.process.exitCode !== null ||
+          child.process.signalCode !== null ||
+          !child.process.stdin.writable ||
+          child.process.stdin.destroyed
+        )
+          throw new Error("Flutter stopped. Run the app again.");
+        await new Promise<void>((resolve, reject) => {
+          child.process.stdin.write("r", (error) => (error ? reject(error) : resolve()));
+        });
       };
       // Flutter remains attached to the app, supplying hot reload and logs.
-      void child.done.catch((error: unknown) => {
-        if (!signal.aborted) failed(error);
-      });
+      watch(child, "Flutter stopped. Run the app again.");
       let ready = false;
       child.process.stdout.on("data", (chunk: Buffer) => {
         if (
@@ -119,9 +137,7 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
         // Metro must watch files for Fast Refresh. Piped stdio already prevents CLI prompts.
         { CI: "false", BROWSER: "none" },
       );
-      void bundler.done.catch((error: unknown) => {
-        if (!signal.aborted) failed(error);
-      });
+      watch(bundler, "The development server stopped. Run the app again.");
       for (let retry = 0; retry < 120; retry++) {
         signal.throwIfAborted();
         if (bundler.process.exitCode !== null) {
@@ -281,7 +297,6 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
       running();
     }
     signal.throwIfAborted();
-    let stopped = false;
     return {
       async stop() {
         if (stopped) return;

@@ -65,6 +65,13 @@ export function mobileProcess(
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
     };
+    // A child may close stdin before a write completes (for example Flutter or pbcopy).
+    // Handle stream errors independently of the process's exit/error events.
+    child.stdin.on("error", (error) => {
+      cleanup();
+      stop();
+      reject(error);
+    });
     child.once("error", (error) => {
       cleanup();
       reject(error);

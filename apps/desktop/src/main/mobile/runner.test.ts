@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runMobileApp, reloadMetro } from "./runner";
@@ -104,3 +104,58 @@ test("Expo keeps Metro watching, reuses its port for the native build, and reloa
     await rm(root, { recursive: true, force: true });
   }
 }, 15_000);
+
+test.skipIf(process.platform === "win32")(
+  "Flutter clean exit ends the run and Reload rejects the closed pipe",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "tidy-flutter-exit-"));
+    const previousPath = process.env.PATH;
+    const controller = new AbortController();
+    let app: Awaited<ReturnType<typeof runMobileApp>> | undefined;
+    try {
+      const bin = join(root, "bin");
+      await mkdir(bin);
+      const flutter = join(bin, "flutter");
+      await writeFile(
+        flutter,
+        "#!/usr/bin/env node\nconsole.log('Flutter run key commands'); setTimeout(() => process.exit(0), 50);\n",
+      );
+      await chmod(flutter, 0o755);
+      process.env.PATH = `${bin}${process.platform === "win32" ? ";" : ":"}${previousPath ?? ""}`;
+      const failed = Promise.withResolvers<unknown>();
+      app = await runMobileApp({
+        root,
+        target: {
+          id: "flutter:.",
+          name: "Flutter",
+          directory: ".",
+          kind: "flutter",
+          platforms: ["ios", "android"],
+        },
+        device: {
+          id: "simulator",
+          name: "iPhone",
+          platform: "ios",
+          runtime: "iOS",
+          state: "running",
+        },
+        serial: "test-simulator",
+        signal: controller.signal,
+        output() {},
+        stage() {},
+        running() {},
+        failed: failed.resolve,
+      });
+      expect(await failed.promise).toMatchObject({
+        message: "Flutter stopped. Run the app again.",
+      });
+      await expect(app.reload()).rejects.toThrow("Flutter stopped");
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await app?.stop();
+      controller.abort();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
