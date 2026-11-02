@@ -70,6 +70,8 @@ test("creation detection accepts native shell and structured tools, excluding ex
     { input: "cat <<'EOF'\ngh pr create\nEOF\n" },
     { input: "cat <<'EOF'\ngh pr create" },
     { input: "# gh pr create" },
+    { input: `if false; then\ngh pr create\nfi\nprintf '%s\\n' '${url}'` },
+    { input: `for item in ''; do\ngh pr create\ndone\nprintf '%s\\n' '${url}'` },
     { input: "echo example \\\ngh pr create" },
     { output: `already exists: ${url}` },
     { output: "https://example.com/owner/repo/pull/42" },

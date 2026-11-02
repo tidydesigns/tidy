@@ -117,6 +117,12 @@ function shellCommands(input: string): string[][] | null {
   if (quote || documents.length) return null;
   finishWord();
   if (words.length) commands.push(words);
+  if (
+    commands.some((words) =>
+      /^(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|function)$/.test(words[0]),
+    )
+  )
+    return null;
   return commands;
 }
 
