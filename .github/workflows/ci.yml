@@ -77,7 +77,7 @@ jobs:
       - name: PostgreSQL fixture tools
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          sudo curl --fail --silent --show-error --retry 5 --retry-all-errors --connect-timeout 15 --max-time 60 https://www.postgresql.org/media/keys/ACCC4CF8.asc --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install --yes postgresql-17
