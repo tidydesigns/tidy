@@ -91,9 +91,11 @@ try {
             throw new Error("The previous backend is still shutting down. Retry shortly.");
         } else if (response.status === 409) {
           const refusal = z
-            .object({ error: z.string().min(1).max(1024) })
-            .parse(await response.json());
-          updateWarning = refusal.error;
+            .object({ error: z.string().trim().min(1).max(1024) })
+            .safeParse(await response.json().catch(() => undefined));
+          updateWarning = refusal.success
+            ? refusal.data.error
+            : "The existing backend declined the update. Try again later.";
         } else throw new Error("The existing backend needs a manual restart before updating.");
       }
       if (!runtime) {

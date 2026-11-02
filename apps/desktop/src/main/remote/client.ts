@@ -62,7 +62,7 @@ export class RemoteClient {
     }
   >();
   private retryTimer?: ReturnType<typeof setTimeout>;
-  private failedUpgrade?: Extract<NonNullable<PreparedHost["backendUpdate"]>, { kind: "failed" }>;
+  private upgradeOutcome?: Exclude<NonNullable<PreparedHost["backendUpdate"]>, { kind: "ready" }>;
   private heartbeat?: ReturnType<typeof setInterval>;
   private controller?: AbortController;
   private ssh?: SshSession;
@@ -603,21 +603,31 @@ export class RemoteClient {
   }
   start(update = false) {
     if (this.closed || this.controller) return;
-    if (update) this.failedUpgrade = undefined;
+    if (update) this.upgradeOutcome = undefined;
     clearTimeout(this.retryTimer);
     const controller = new AbortController();
     this.controller = controller;
     this.phase("checking");
     void this.connect(controller, update).catch((error: unknown) => {
       if (this.closed || this.controller !== controller) return;
-      const failure = remoteFailure(error);
-      if (update && (failure.kind === "setup" || failure.kind === "unavailable"))
-        this.failedUpgrade = { kind: "failed", message: failure.message.slice(0, 2048) };
-      this.fail(controller, failure);
+      this.fail(controller, remoteFailure(error));
     });
   }
   private async connect(controller: AbortController, update = false) {
-    const connection = await this.prepare(controller.signal, update);
+    let connection: RemoteConnection;
+    try {
+      connection = await this.prepare(controller.signal, update);
+    } catch (error) {
+      const failure = remoteFailure(error);
+      if (
+        update &&
+        this.controller === controller &&
+        !controller.signal.aborted &&
+        (failure.kind === "setup" || failure.kind === "unavailable")
+      )
+        this.upgradeOutcome = { kind: "failed", message: failure.message.slice(0, 2048) };
+      throw error;
+    }
     if (controller.signal.aborted) {
       connection.close();
       return;
@@ -631,8 +641,8 @@ export class RemoteClient {
     }
     const backendUpdate =
       connection.host.backendUpdate ??
-      (connection.host.updatePending ? this.failedUpgrade : undefined);
-    this.failedUpgrade = backendUpdate?.kind === "failed" ? backendUpdate : undefined;
+      (connection.host.updatePending ? this.upgradeOutcome : undefined);
+    this.upgradeOutcome = backendUpdate?.kind === "ready" ? undefined : backendUpdate;
     try {
       await this.options.connected(connection.host.hostId);
     } catch (error) {
