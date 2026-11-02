@@ -8,6 +8,7 @@ import { sshFailure } from "./errors";
 import { bootstrapScript, prepareHost, reconnectScript } from "./bootstrap";
 import { type SshSession, shellQuote } from "./ssh";
 import { installHostScript } from "./install-host";
+import { ptyPackages } from "../terminal/pty-packages";
 
 const roots: string[] = [];
 const releaseOwners: (() => Promise<void>)[] = [];
@@ -52,8 +53,45 @@ async function fixture() {
     await writeFile(join(directory, "complete"), digest(value) + "\n");
     return directory;
   }
+  // Exercise staging and verification with local archives; installer tests never use the network.
+  const archives: Record<string, { path: string; checksum: string }> = {};
+  for (const [name, contents] of [
+    [
+      "node-pty",
+      "module.exports = require('@lydell/node-pty-' + process.platform + '-' + process.arch);",
+    ],
+    [`node-pty-${target}`, "module.exports = { fixture: true };"],
+  ]) {
+    const directory = join(home, name!, "package");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "index.js"), contents!);
+    const archive = join(home, name! + ".tgz");
+    execFileSync("tar", ["-czf", archive, "-C", join(home, name!), "package"]);
+    archives[name!] = { path: archive, checksum: digest(await readFile(archive)) };
+  }
+  const prepareScript = (script: string) => {
+    for (const [name, archive] of Object.entries(archives))
+      script = script.replaceAll(
+        ptyPackages[name as keyof typeof ptyPackages].sha256,
+        archive.checksum,
+      );
+    return script;
+  };
+  const ptyDownload = `
+for argument do
+  case "$argument" in
+    https://registry.npmjs.org/@lydell/node-pty/-/*) archive=${shellQuote(archives["node-pty"]!.path)};;
+    https://registry.npmjs.org/@lydell/node-pty-${target}/-/*) archive=${shellQuote(archives[`node-pty-${target}`]!.path)};;
+  esac
+  destination="$argument"
+done
+if [ -n "\${archive:-}" ]; then cp "$archive" "$destination"; exit; fi
+`;
+  const bin = join(home, ".local/bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(bin, "curl"), "#!/bin/sh\n" + ptyDownload + "exit 1\n", { mode: 0o700 });
   const run = (script: string, input?: Buffer) =>
-    spawnSync("/bin/sh", ["-c", script], {
+    spawnSync("/bin/sh", ["-c", prepareScript(script)], {
       input,
       env: environment,
       encoding: "utf8",
@@ -131,6 +169,9 @@ async function fixture() {
     sharedName,
     checksum,
     ownHost,
+    prepareScript,
+    ptyDownload,
+    archives,
   };
 }
 
@@ -722,7 +763,7 @@ test("an interrupted installer releases its OS lock for a waiting retry", async 
   });
   const child = spawn(
     "/bin/sh",
-    ["-c", bootstrapScript({ bundle, clientId, directories: f.directories })],
+    ["-c", f.prepareScript(bootstrapScript({ bundle, clientId, directories: f.directories }))],
     { env: f.environment, stdio: "pipe" },
   );
   let output = "";
@@ -762,6 +803,28 @@ test("archive checksum failures leave no published runtime or abandoned staging 
   expect(await readdir(f.runtime)).toEqual([]);
 });
 
+test("PTY package and native binary checksum failures leave the shared runtime intact", async () => {
+  for (const binary of [false, true]) {
+    const f = await fixture();
+    const shared = await f.sharedNode();
+    const broken = join(f.home, "broken.tgz");
+    await writeFile(broken, "corrupt archive");
+    const name = binary ? `node-pty-${process.platform}-${process.arch}` : "node-pty";
+    await writeFile(
+      join(f.home, ".local/bin/curl"),
+      "#!/bin/sh\n" + f.ptyDownload.replace(shellQuote(f.archives[name]!.path), shellQuote(broken)),
+      { mode: 0o700 },
+    );
+    const result = f.run(bootstrapScript({ bundle, clientId, directories: f.directories }), bundle);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      binary ? "PTY binary checksum mismatch" : "PTY package checksum mismatch",
+    );
+    expect(await readdir(f.runtime)).toEqual([f.sharedName]);
+    expect(await readFile(join(shared, "complete"), "utf8")).toBe(f.checksum + "\n");
+  }
+});
+
 test("a cold verified archive publishes a reusable shared runtime without temporary disk access", async () => {
   const f = await fixture();
   const archiveRoot = join(f.home, f.sharedName);
@@ -779,7 +842,7 @@ test("a cold verified archive publishes a reusable shared runtime without tempor
   await mkdir(bin, { recursive: true });
   await writeFile(
     join(bin, "curl"),
-    `#!/bin/sh\nwhile [ "$#" -gt 1 ]; do shift; done\ncp ${shellQuote(archive)} "$1"\nprintf download >> ${shellQuote(join(f.home, "downloads"))}\n`,
+    `#!/bin/sh\n${f.ptyDownload}\nwhile [ "$#" -gt 1 ]; do shift; done\ncp ${shellQuote(archive)} "$1"\nprintf download >> ${shellQuote(join(f.home, "downloads"))}\n`,
     { mode: 0o700 },
   );
   for (const value of [bundle, Buffer.concat([bundle, Buffer.from("\n;")])]) {
@@ -790,6 +853,14 @@ test("a cold verified archive publishes a reusable shared runtime without tempor
     const result = f.run(script, value);
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout).buildId).toBe(digest(value));
+    const installedPty = join(f.runtime, digest(value), "node_modules/@lydell/node-pty");
+    expect(
+      execFileSync(
+        node,
+        ["-e", "process.stdout.write(String(require(process.argv[1]).fixture))", installedPty],
+        { encoding: "utf8" },
+      ),
+    ).toBe("true");
     expect(await readFile(join(f.runtime, f.sharedName, "complete"), "utf8")).toBe(checksum + "\n");
     expect(result.stderr).toContain("TIDY_PHASE:installing\n");
   }

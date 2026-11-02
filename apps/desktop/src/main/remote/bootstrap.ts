@@ -131,22 +131,22 @@ if [ ! -f "$node_runtime/complete" ] || [ "$(cat "$node_runtime/complete")" != "
   printf '%s\\n' "$checksum" > "$node_stage/complete"
   node="$node_stage/bin/node"
 fi
-  download() {
-    if command -v curl >/dev/null 2>&1; then curl -fLsS --connect-timeout 30 --max-time 120 "$1" -o "$2"
-    else wget -q --timeout=30 --tries=1 "$1" -O "$2"; fi
-  }
-  case "$platform-$arch" in
+download() {
+  if command -v curl >/dev/null 2>&1; then curl -fLsS --connect-timeout 30 --max-time 120 "$1" -o "$2"
+  else wget -q --timeout=30 --tries=1 "$1" -O "$2"; fi
+}
+case "$platform-$arch" in
 ${ptyCases}
-  esac
-  download '${ptyPackages["node-pty"].url}' "$stage/pty.tgz"
-  [ "$(hash_file "$stage/pty.tgz")" = '${ptyPackages["node-pty"].sha256}' ] || { echo 'PTY package checksum mismatch.' >&2; exit 1; }
-  mkdir -p "$stage/node_modules/@lydell/node-pty"
-  tar -xzf "$stage/pty.tgz" -C "$stage/node_modules/@lydell/node-pty" --strip-components=1
-  download "$pty_url" "$stage/pty-platform.tgz"
-  [ "$(hash_file "$stage/pty-platform.tgz")" = "$pty_checksum" ] || { echo 'PTY binary checksum mismatch.' >&2; exit 1; }
-  mkdir -p "$stage/node_modules/@lydell/node-pty-$platform-$arch"
-  tar -xzf "$stage/pty-platform.tgz" -C "$stage/node_modules/@lydell/node-pty-$platform-$arch" --strip-components=1
-  rm "$stage/pty.tgz" "$stage/pty-platform.tgz"
+esac
+download '${ptyPackages["node-pty"].url}' "$stage/pty.tgz"
+[ "$(hash_file "$stage/pty.tgz")" = '${ptyPackages["node-pty"].sha256}' ] || { echo 'PTY package checksum mismatch.' >&2; exit 1; }
+mkdir -p "$stage/node_modules/@lydell/node-pty"
+tar -xzf "$stage/pty.tgz" -C "$stage/node_modules/@lydell/node-pty" --strip-components=1
+download "$pty_url" "$stage/pty-platform.tgz"
+[ "$(hash_file "$stage/pty-platform.tgz")" = "$pty_checksum" ] || { echo 'PTY binary checksum mismatch.' >&2; exit 1; }
+mkdir -p "$stage/node_modules/@lydell/node-pty-$platform-$arch"
+tar -xzf "$stage/pty-platform.tgz" -C "$stage/node_modules/@lydell/node-pty-$platform-$arch" --strip-components=1
+rm "$stage/pty.tgz" "$stage/pty-platform.tgz"
 "$node" -e 'require(process.argv[1])' "$stage/node_modules/@lydell/node-pty"
 "$node" -e ${shellQuote(installHostScript)} "$root" "$stage" "$node_stage" "$node_runtime" "$checksum" '${hash}' "$TIDY_HOST_STATE"
 trap - EXIT HUP INT TERM
