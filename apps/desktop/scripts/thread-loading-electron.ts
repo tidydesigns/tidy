@@ -29,11 +29,27 @@ void app.whenReady().then(async () => {
       deviceScaleFactor: 1,
       scale: 1,
     });
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", {
+      enabled: true,
+    });
     const result: unknown = await window.webContents.executeJavaScript(
       "window.runThreadLoadingTests()",
     );
     const cases = z.array(z.string()).min(1).parse(result);
     for (const name of cases) console.info(`PASS: ${name}`);
+    await window.webContents.debugger.sendCommand("Emulation.setTouchEmulationEnabled", {
+      enabled: true,
+      maxTouchPoints: 5,
+    });
+    const touch: unknown = await window.webContents.executeJavaScript(`
+      if (!matchMedia("(hover: none), (pointer: coarse)").matches)
+        throw new Error("Touch input emulation is unavailable.");
+      window.runThreadLoadingTests("touch sidebar");
+    `);
+    for (const name of z.array(z.string()).min(1).parse(touch))
+      console.info(`PASS (touch): ${name}`);
+    await window.webContents.debugger.sendCommand("Emulation.setTouchEmulationEnabled", { enabled: false });
     for (const width of [900, 390, 320]) {
       window.setContentSize(width, 800);
       for (const filter of [
