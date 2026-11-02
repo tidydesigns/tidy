@@ -376,6 +376,7 @@ export const Conversation = memo(function Conversation({
   summaries,
   onOpenThread,
   connected,
+  orchestrationSupported,
 }: {
   thread?: Thread;
   identity: string;
@@ -385,6 +386,7 @@ export const Conversation = memo(function Conversation({
   summaries?: ThreadSummary[];
   onOpenThread?: (projectId: string, threadId: string) => void;
   connected?: boolean;
+  orchestrationSupported?: boolean;
 }) {
   const assignments = useThreadTasks({
     api,
@@ -392,6 +394,7 @@ export const Conversation = memo(function Conversation({
     threadId: thread?.id,
     active,
     connected,
+    supported: orchestrationSupported,
   });
   const childSummaries = useMemo(
     () => new Map(summaries?.map((summary) => [summary.id, summary])),

@@ -49,6 +49,7 @@ export class RemoteClient {
   private supportsThreadNaming = false;
   private supportsRepositoryFiles = false;
   private supportsRepositorySearch = false;
+  private capabilities: string[] = [];
   private connection?: RemoteConnection;
   private pending = new Map<
     string,
@@ -515,6 +516,15 @@ export class RemoteClient {
           ),
         );
     }
+    if (
+      ["thread-tasks", "set-thread-work-permission", "cancel-thread-task"].includes(name) &&
+      !this.capabilities.includes("agent-orchestration")
+    )
+      return Promise.reject(
+        new Error(
+          "Agent orchestration needs a backend update. Finish active runs and reconnect this machine.",
+        ),
+      );
     const socket = this.socket;
     const id = randomUUID();
     const frame = JSON.stringify({ id, name, input, ...context });
@@ -689,6 +699,7 @@ export class RemoteClient {
           this.supportsRepositoryFiles = frame.capabilities?.includes("repository-files") ?? false;
           this.supportsRepositorySearch =
             frame.capabilities?.includes("repository-search") ?? false;
+          this.capabilities = frame.capabilities ?? [];
           greeted = true;
           clearTimeout(this.establishmentTimer);
           this.phase("syncing");
@@ -728,6 +739,7 @@ export class RemoteClient {
                 kind: "connected",
                 target: this.options.machine.target,
                 updatePending: connection.host.updatePending,
+                capabilities: this.capabilities,
                 ...(this.recoveryWarning ? { warning: this.recoveryWarning } : {}),
               });
             })
@@ -761,6 +773,7 @@ export class RemoteClient {
     this.supportsThreadNaming = false;
     this.supportsRepositoryFiles = false;
     this.supportsRepositorySearch = false;
+    this.capabilities = [];
     clearTimeout(this.establishmentTimer);
     clearTimeout(this.synchronizationTimer);
     clearTimeout(this.probeState?.timer);

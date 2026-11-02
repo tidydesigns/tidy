@@ -170,6 +170,19 @@ export function App({
   cloud: CloudConnection;
 }) {
   const api = machine ? workspaceAPI : window.tidy;
+  const remoteOrchestrationSupport =
+    machine?.current.status?.kind === "connected"
+      ? machine.current.status.capabilities?.includes("agent-orchestration") === true
+      : undefined;
+  const [lastOrchestrationSupport, setLastOrchestrationSupport] = useState(false);
+  useEffect(() => {
+    if (remoteOrchestrationSupport !== undefined)
+      setLastOrchestrationSupport(remoteOrchestrationSupport);
+  }, [remoteOrchestrationSupport]);
+  const orchestrationSupported =
+    !machine ||
+    machine.current.id === "local" ||
+    (remoteOrchestrationSupport ?? lastOrchestrationSupport);
   const cloudLibrary = useMemo(
     () => ({ state: cloud.state, account: cloud.account }),
     [cloud.state, cloud.account],
@@ -2439,13 +2452,16 @@ export function App({
                           New thread
                         </h1>
                       )}
-                      {api && selectedSummary && !selectedSummary.parentThreadId && (
-                        <ThreadWorkPermission
-                          key={selectedSummary.id}
-                          api={api}
-                          thread={selectedSummary}
-                        />
-                      )}
+                      {orchestrationSupported &&
+                        api &&
+                        selectedSummary &&
+                        !selectedSummary.parentThreadId && (
+                          <ThreadWorkPermission
+                            key={selectedSummary.id}
+                            api={api}
+                            thread={selectedSummary}
+                          />
+                        )}
                       {thread?.doneAt && (
                         <Button
                           className="quiet-button thread-heading-action shrink-0"
@@ -2510,6 +2526,7 @@ export function App({
                       summaries={snapshot?.threads}
                       onOpenThread={selectThread}
                       connected={machine ? machine.connected : true}
+                      orchestrationSupported={orchestrationSupported}
                     />
                   </BrowserNavigationContext>
                   {thread?.pendingApprovals?.length && api ? (

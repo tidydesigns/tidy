@@ -336,6 +336,81 @@ test("terminal streams authenticate, preserve input order, avoid durable receipt
   );
 });
 
+test("orchestration capabilities gate legacy hosts and refresh after reconnect", async () => {
+  const f = await fixture();
+  let supported = false;
+  const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+  const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+    const frame = parse(...args);
+    return !supported && frame.type === "hello"
+      ? {
+          ...frame,
+          capabilities: frame.capabilities?.filter((item) => item !== "agent-orchestration"),
+        }
+      : frame;
+  });
+  const read = spyOn(f.service, "readThreadTasks");
+  const permission = spyOn(f.service, "setThreadWorkPermission");
+  const cancel = spyOn(f.service, "cancelThreadTask");
+  try {
+    const { client, statuses } = f.client();
+    await until(() => client.status.kind === "connected");
+    expect(
+      client.status.kind === "connected" &&
+        client.status.capabilities?.includes("agent-orchestration"),
+    ).toBe(false);
+    const thread = await client.operation("start-thread", {
+      projectId: f.project.id,
+      harness: "codex",
+      prompt: "Keep ordinary conversations working",
+      designIds: [],
+    });
+    const target = { projectId: f.project.id, threadId: thread.id };
+    await expect(client.operation("thread-tasks", target)).rejects.toThrow("backend update");
+    await expect(
+      client.operation("set-thread-work-permission", { ...target, enabled: true }),
+    ).rejects.toThrow("backend update");
+    await expect(
+      client.operation("cancel-thread-task", { ...target, taskId: randomUUID() }),
+    ).rejects.toThrow("backend update");
+    expect(read).not.toHaveBeenCalled();
+    expect(permission).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect((await client.operation("read-thread", target)).id).toBe(thread.id);
+
+    supported = true;
+    const connected = statuses.filter((status) => status.kind === "connected").length;
+    await f.restart();
+    await until(() => statuses.filter((status) => status.kind === "connected").length > connected);
+    expect(
+      client.status.kind === "connected" &&
+        client.status.capabilities?.includes("agent-orchestration"),
+    ).toBe(true);
+    expect((await client.operation("thread-tasks", target)).tasks).toEqual([]);
+    expect(
+      (await client.operation("set-thread-work-permission", { ...target, enabled: true }))
+        .acceptsThreadWork,
+    ).toBe(true);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(permission).toHaveBeenCalledTimes(1);
+    supported = false;
+    const upgraded = statuses.filter((status) => status.kind === "connected").length;
+    await f.restart();
+    await until(() => statuses.filter((status) => status.kind === "connected").length > upgraded);
+    expect(
+      client.status.kind === "connected" &&
+        client.status.capabilities?.includes("agent-orchestration"),
+    ).toBe(false);
+    await expect(client.operation("thread-tasks", target)).rejects.toThrow("backend update");
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    frames.mockRestore();
+    read.mockRestore();
+    permission.mockRestore();
+    cancel.mockRestore();
+  }
+});
+
 test("authenticated WebSocket serves validated requests and remote directory selection", async () => {
   const f = await fixture();
   const { client } = f.client();

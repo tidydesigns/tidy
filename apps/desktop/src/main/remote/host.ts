@@ -27,6 +27,7 @@ const hostCapabilities = [
   "terminal-v1",
   "terminal-tabs-v1",
   "repository-search",
+  "agent-orchestration",
 ];
 export function createRemoteHost({
   service,

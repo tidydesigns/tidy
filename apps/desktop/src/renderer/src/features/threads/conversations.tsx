@@ -25,6 +25,7 @@ export const Conversations = memo(function Conversations({
   summaries,
   onOpenThread,
   connected,
+  orchestrationSupported,
 }: {
   projectId: string;
   selected: string | null;
@@ -35,6 +36,7 @@ export const Conversations = memo(function Conversations({
   summaries?: ThreadSummary[];
   onOpenThread?(projectId: string, threadId: string): void;
   connected?: boolean;
+  orchestrationSupported?: boolean;
 }) {
   const [visited, setVisited] = useState(active);
   if (active && !visited) setVisited(true);
@@ -64,6 +66,7 @@ export const Conversations = memo(function Conversations({
         summaries={summaries}
         onOpenThread={onOpenThread}
         connected={connected}
+        orchestrationSupported={orchestrationSupported}
       />
     </Activity>
   ));

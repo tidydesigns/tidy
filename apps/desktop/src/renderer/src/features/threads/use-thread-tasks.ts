@@ -19,12 +19,14 @@ export function useThreadTasks({
   threadId,
   active,
   connected,
+  supported = true,
 }: {
   api: DesktopAPI;
   projectId?: string;
   threadId?: string;
   active: boolean;
   connected?: boolean;
+  supported?: boolean;
 }) {
   const [value, setValue] = useState<ThreadTasks>({ parent: null, tasks: [], nextCursor: null });
   const [error, setError] = useState("");
@@ -39,7 +41,15 @@ export function useThreadTasks({
     value: ThreadTasks;
   } | null>(null);
   useEffect(() => {
-    if (!active || connected === false || !projectId || !threadId || !api.readThreadTasks) return;
+    if (
+      !supported ||
+      !active ||
+      connected === false ||
+      !projectId ||
+      !threadId ||
+      !api.readThreadTasks
+    )
+      return;
     let mounted = true;
     let running = false;
     let dirty = false;
@@ -136,11 +146,11 @@ export function useThreadTasks({
       window.removeEventListener("focus", update);
       window.removeEventListener("online", update);
     };
-  }, [api, projectId, threadId, active, connected]);
+  }, [api, projectId, threadId, active, connected, supported]);
   return {
-    ...value,
-    error,
-    loading,
+    ...(supported ? value : { parent: null, tasks: [], nextCursor: null }),
+    error: supported ? error : "",
+    loading: supported && loading,
     retry: () => reload.current(),
     loadMore: () => more.current(),
   };
