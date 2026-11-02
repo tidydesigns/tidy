@@ -559,7 +559,7 @@ test("backend installation streams bytes into home storage and shares Node acros
     expect(await readFile(join(f.runtime, digest(value), "tidy-host.mjs"))).toEqual(value);
   }
   expect((await readdir(f.runtime)).filter((name) => name.startsWith("node-"))).toEqual([
-    "node-v24.22.1-linux-x64",
+    f.sharedName,
   ]);
   expect((await readdir(f.runtime)).some((name) => name.startsWith("."))).toBe(false);
 });
