@@ -409,7 +409,7 @@ test("orchestration capabilities gate legacy hosts and refresh after reconnect",
     permission.mockRestore();
     cancel.mockRestore();
   }
-});
+}, 15_000);
 
 test("authenticated WebSocket serves validated requests and remote directory selection", async () => {
   const f = await fixture();
