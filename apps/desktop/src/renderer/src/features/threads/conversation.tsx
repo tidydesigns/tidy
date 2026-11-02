@@ -346,6 +346,7 @@ export const Conversation = memo(function Conversation({
   const following = useRef(positions.get(identity)?.following ?? true);
   const scrollTarget = useRef<number | undefined>(undefined);
   const initialized = useRef(false);
+  const restorePosition = useRef(true);
   const visible = useRef(active);
   visible.current = active;
   const lastUser = useRef<string | undefined>(undefined);
@@ -473,6 +474,7 @@ export const Conversation = memo(function Conversation({
 
   useLayoutEffect(
     () => () => {
+      restorePosition.current = true;
       setPreview(null);
       cancelJump();
     },
@@ -482,17 +484,15 @@ export const Conversation = memo(function Conversation({
   useLayoutEffect(() => {
     if (!active || !thread || !viewport.current) return;
     const user = turns.at(-1)?.id;
-    if (!initialized.current) {
+    if (initialized.current && user !== lastUser.current) following.current = true;
+    // Restore on mount/reveal, never while updates race the browser's scroll event.
+    if (restorePosition.current) {
       const saved = positions.get(identity);
-      if (saved) scrollTo(saved.top);
-      else latest();
+      if (saved && !following.current) scrollTo(saved.top);
+      restorePosition.current = false;
       initialized.current = true;
-    } else if (user !== lastUser.current) {
-      following.current = true;
     }
     lastUser.current = user;
-    const saved = positions.get(identity);
-    if (saved && !following.current) scrollTo(saved.top);
     if (following.current) scrollTo(viewport.current.scrollHeight);
     measure();
   }, [active, thread?.messages, thread?.toolActivities, thread?.status]);
@@ -610,15 +610,20 @@ export const Conversation = memo(function Conversation({
         onScroll={(event) => {
           if (!visible.current || !event.currentTarget.clientHeight) return;
           const element = event.currentTarget;
-          const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
+          const previousTop = positions.get(identity)?.top ?? element.scrollTop;
+          const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+          const atEnd = distance <= 40;
           const programmatic =
             scrollTarget.current !== undefined &&
             Math.abs(element.scrollTop - scrollTarget.current) < 1;
           if (!programmatic) {
             cancelJump();
             scrollTarget.current = undefined;
+            // Upward movement pauses even near the bottom. A resize that clamps the
+            // offset to the bottom preserves the existing follow state.
+            if (element.scrollTop < previousTop && distance > 1) following.current = false;
+            else if (element.scrollTop > previousTop && atEnd) following.current = true;
           }
-          if (!programmatic || atEnd) following.current = atEnd;
           rememberPosition(element);
           cancelAnimationFrame(frame.current);
           frame.current = requestAnimationFrame(() => measureRef.current());

@@ -2141,6 +2141,79 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     check(document.activeElement === end, "End did not focus the last marker");
   });
 
+  for (const input of ["wheel", "keyboard", "touch"] as const) {
+    await run(`${input} scrolling survives updates before the scroll event`, async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      render({ selected: a.id });
+      await settle();
+      const viewport = visibleTranscript();
+      viewport.dispatchEvent(
+        input === "wheel"
+          ? new WheelEvent("wheel", { bubbles: true, deltaY: -100 })
+          : input === "keyboard"
+            ? new KeyboardEvent("keydown", { bubbles: true, key: "PageUp" })
+            : new Event("touchmove", { bubbles: true }),
+      );
+      // Scrolling changes the offset before the browser delivers its scroll event.
+      viewport.scrollTop -= 100;
+      const top = viewport.scrollTop;
+      threads[a.id] = { ...a, revision: 2, toolActivities: [] };
+      render({ selected: a.id });
+      check(Math.abs(viewport.scrollTop - top) < 2, "An update restored a stale offset");
+      await settle();
+      check(Math.abs(viewport.scrollTop - top) < 2, "A pending measurement undid scrolling");
+    });
+  }
+
+  await run("small upward scrolls pause following through updates and resizing", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    render({ selected: a.id });
+    await settle();
+    const viewport = visibleTranscript();
+    viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -10 }));
+    viewport.scrollTop -= 10;
+    viewport.dispatchEvent(new Event("scroll"));
+    const top = viewport.scrollTop;
+    threads[a.id] = { ...a, revision: 2, messages: [...a.messages] };
+    render({ selected: a.id });
+    const content = required(viewport.querySelector(".conversation-content"), "Content");
+    const delayed = document.createElement("div");
+    delayed.style.height = "200px";
+    content.append(delayed);
+    await settle();
+    check(Math.abs(viewport.scrollTop - top) < 2, "Following resumed during an upward scroll");
+
+    viewport.scrollTop = viewport.scrollHeight;
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    delayed.style.height = "400px";
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2,
+      "Scrolling back down resumes following",
+    );
+    viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -10 }));
+    viewport.scrollTop -= 10;
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    // A larger scroll exposes the Latest action after a small scroll pauses following.
+    viewport.scrollTop -= 50;
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    required(host.querySelector<HTMLButtonElement>(".latest-message"), "Latest action").click();
+    delayed.style.height = "600px";
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2,
+      "Latest action resumes following",
+    );
+    delayed.style.height = "200px";
+    await settle();
+    delayed.style.height = "400px";
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2,
+      "Following survives content shrinking and growing again",
+    );
+  });
+
   await run("a cold thread fills its existing selected view when data arrives", async (root) => {
     const { a, threads, render } = conversationFixture(root);
     delete threads[a.id];
