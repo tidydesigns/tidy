@@ -2,14 +2,15 @@ import { terminalFont } from "./terminal-font";
 import { fitTerminal } from "./terminal-fit";
 import { Ghostty, Terminal, FitAddon, type ITheme } from "ghostty-web";
 import wasmURL from "ghostty-web/ghostty-vt.wasm?url";
+import { terminalWasm } from "./terminal-wasm";
 
-let runtime: Promise<Ghostty> | undefined;
+const loadRuntime = terminalWasm(async () => {
+  const response = await fetch(wasmURL);
+  if (!response.ok) throw new Error("Could not load the terminal runtime.");
+  return response.arrayBuffer();
+});
 export async function createTerminal(theme: ITheme, size?: { cols: number; rows: number }) {
-  runtime ??= Ghostty.load(wasmURL).catch((error: unknown) => {
-    runtime = undefined;
-    throw error;
-  });
-  const ghostty = await runtime;
+  const ghostty = new Ghostty(await loadRuntime());
   const terminal = new Terminal({
     ghostty,
     cols: size?.cols,
