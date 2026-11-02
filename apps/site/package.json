@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && bun scripts/dev.mjs",
-    "build": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && next build && bun scripts/finalize-blog-export.ts",
+    "dev": "node scripts/copy-desktop-demo.mjs && bun scripts/dev.mjs",
+    "build": "node scripts/copy-desktop-demo.mjs && next build && bun scripts/finalize-blog-export.ts",
+    "demo:update": "node scripts/update-desktop-demo.mjs",
     "deploy": "bun scripts/deploy.mjs",
     "preview": "wrangler preview",
     "lint": "eslint",
     "typecheck": "next typegen && tsrs --noEmit",
     "typecheck:tsc": "next typegen && tsc --noEmit",
-    "test": "bun test lib/blog.test.ts scripts/build-blog-image.test.mjs"
+    "test": "bun test lib/blog.test.ts scripts/build-blog-image.test.mjs scripts/copy-desktop-demo.test.mjs"
   },
   "dependencies": {
     "@tidy/ui": "workspace:*",

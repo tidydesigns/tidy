@@ -11,8 +11,10 @@ process is included. Unsupported host-only actions explain that they require the
 installed app. Font selection uses the same allowlisted Google Fonts endpoints as
 the desktop app; the initial sample uses bundled Instrument Sans.
 
-From the repository root, `bun run dev:site` builds and copies the renderer before
-starting Next. `bun run build:site` builds it through the explicit Turbo dependency.
+The website serves a reviewed snapshot of this renderer. `bun run dev:site` and
+`bun run build:site` stage that pin without rebuilding the desktop app. Desktop
+and shared editor changes reach the website only through an explicit demo update;
+see [`apps/site/README.md`](../../../site/README.md#pinned-desktop-demo).
 The iframe starts from the initial website HTML, without waiting for hydration or
 scrolling. A lightweight entry defers the app on mobile until the viewport widens;
 after starting, the iframe stays mounted to preserve edits across resizing. The
@@ -20,17 +22,16 @@ sample workspace, first conversation and preview renderer are prepared before
 React mounts. The website shows its product capture until that first commit, and
 the iframe receives same-origin theme messages.
 With the website’s `scroll=website` option, ordinary vertical wheel gestures over
-the thread preview scroll the website. Opening a canvas or app overlay restores
+the thread preview scroll the website. Opening a canvas or a modal/popover restores
 all native desktop scrolling, pan, zoom and panel behavior. Minimising the canvas
 returns scrolling to the website. Pinch/modified wheel gestures remain native.
 This relay only runs when embedded; the standalone renderer is unchanged. Its
 canvas dialog stays inside the sample macOS window; the decorative traffic lights
 sit above the iframe just as native window controls sit above Electron's renderer.
 
-Generated `demo-dist` and `public/desktop-demo` directories are ignored. Re-run
-`bunx turbo run build:demo --filter=@tidy/desktop` and
-`node apps/site/scripts/copy-desktop-demo.mjs` after changing desktop source during
-an existing site development session. Run host tests with
+Generated `demo-dist` and `public/desktop-demo` directories are ignored. The
+reviewed snapshot and its manifest live in `apps/site/desktop-demo/` and are
+committed. Run host tests with
 `bun test apps/desktop/src/website-demo/host.test.ts`.
 
 For product imagery, `?view=canvas` mounts the shared web/desktop FileEditor with

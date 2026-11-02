@@ -4,6 +4,33 @@ The website is a Next.js static export served through Cloudflare Workers Static
 Assets. `/download/mac` is handled by the small Worker in `worker/index.ts`.
 All other existing assets stay on Cloudflare's direct static asset path.
 
+## Pinned desktop demo
+
+Website development and builds use the exact compiled renderer stored in
+`desktop-demo/snapshot.json.gz`. Desktop app, editor and dependency changes do
+not update it automatically. `desktop-demo/manifest.json` records its version,
+source commit and SHA-256. Staging verifies the checksum and all file paths before
+atomically replacing `public/desktop-demo/`; a missing or damaged pin fails the
+build instead of silently using current desktop code. The iframe URL includes
+the snapshot hash so an intentional update requests fresh HTML.
+
+When we decide to update the demo:
+
+1. Commit the desktop and shared source changes to include in the new version.
+2. From the repository root, run
+   `bun run --cwd apps/site demo:update <version>` (for example `2026-11-02.2`).
+   This builds the renderer once from committed source and replaces the snapshot
+   and manifest. The gzip contains JSON entries with relative paths and base64
+   file contents, including lazy chunks, fonts, workers and bundled licences.
+3. Run `node apps/site/scripts/copy-desktop-demo.mjs` to stage it in an existing
+   dev session, or restart `bun dev:site`. Check both themes, the header at narrow
+   and wide desktop widths, page scrolling over the demo, and canvas interactions.
+4. Review and commit both files in `desktop-demo/`. Subsequent website builds
+   keep serving this version until the next explicit update.
+
+Run the staging regression checks with
+`bun test apps/site/scripts/copy-desktop-demo.test.mjs`.
+
 ## Latest beta download
 
 Use `downloadUrl` from `lib/download-url.ts` for the macOS download button. It

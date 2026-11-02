@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProductCaptureImage } from "./product-capture";
+import demo from "../../desktop-demo/manifest.json";
 import styles from "./machine.module.css";
 
 export function ProductPreview() {
@@ -77,7 +78,7 @@ function InteractiveDesktopPreview({ onReady }: { onReady(): void }) {
       <iframe
         ref={frameRef}
         className={styles.desktopFrame}
-        src="/desktop-demo/index.html?scroll=website"
+        src={`/desktop-demo/index.html?v=${demo.sha256.slice(0, 12)}&scroll=website`}
         loading="eager"
         title="Interactive Tidy desktop app: sample project"
         aria-describedby="desktop-demo-description"

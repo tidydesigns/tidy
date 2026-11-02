@@ -91,7 +91,7 @@
       ]
     },
     "@tidy/site#build": {
-      "dependsOn": ["^build", "@tidy/desktop#build:demo"],
+      "dependsOn": ["^build"],
       "outputs": [
         ".next/**",
         "!.next/cache/**",

@@ -1,16 +1,14 @@
-import { access, cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
-import { constants } from "node:fs";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-const source = new URL("../../desktop/demo-dist/", import.meta.url);
+import { unpackSnapshot } from "./desktop-demo-snapshot.mjs";
+const source = new URL("../desktop-demo/", import.meta.url);
 const destination = new URL("../public/desktop-demo/", import.meta.url);
 
-// Fail before touching the staged demo if the prerequisite build is unavailable.
-await access(new URL("index.html", source), constants.R_OK).catch(() => {
-  throw new Error(
-    "Desktop demo output is missing or unreadable. Run the desktop build:demo first.",
-  );
-});
+// Use only the reviewed snapshot, never a build of the current desktop source.
+// Verify all bytes and paths before touching the currently staged demo.
+const manifest = JSON.parse(await readFile(new URL("manifest.json", source), "utf8"));
+const files = unpackSnapshot(await readFile(new URL("snapshot.json.gz", source)), manifest);
 const parent = fileURLToPath(new URL("../", destination));
 await mkdir(parent, { recursive: true });
 const temporary = await mkdtemp(path.join(parent, ".desktop-demo-stage-"));
@@ -18,8 +16,11 @@ const staged = path.join(temporary, "next");
 const backup = path.join(temporary, "previous");
 let cleanup = true;
 try {
-  // Finish every source read before replacing the currently usable output.
-  await cp(source, staged, { recursive: true });
+  for (const file of files) {
+    const target = path.join(staged, file.path);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, Buffer.from(file.content, "base64"));
+  }
   let previous = false;
   try {
     await rename(destination, backup);
