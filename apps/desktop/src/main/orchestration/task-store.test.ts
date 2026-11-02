@@ -68,6 +68,61 @@ test("UI history pages retain insertion order when earlier assignments change st
   expect(remainder.nextCursor).toBeNull();
   expect((await store.threadPage(randomUUID(), input.parentThreadId)).tasks).toEqual([]);
 });
+test("existing task databases gain history indexes without changing page cursors", async () => {
+  const { directory, store, input } = await fixture();
+  const records = [];
+  for (let index = 0; index < 57; index++) {
+    const task = await store.create({
+      ...input,
+      requestId: randomUUID(),
+      childThreadId: randomUUID(),
+    });
+    await store.transition({ id: task.id, state: "failed" });
+    records.push(task);
+  }
+  const before = await store.threadPage(input.projectId, input.parentThreadId);
+  await store.close();
+  const { Database } = await import("bun:sqlite");
+  const path = join(directory, "private", "tasks.sqlite");
+  const oldDatabase = new Database(path);
+  oldDatabase.exec("DROP INDEX task_owner_position; DROP INDEX task_owner_state;");
+  oldDatabase.close();
+  for (let restart = 0; restart < 2; restart++) {
+    const restored = new TaskStore(join(directory, "private"));
+    stores.push(restored);
+    await restored.initialize();
+    const page = await restored.threadPage(input.projectId, input.parentThreadId);
+    expect(page).toEqual(before);
+    const older = await restored.threadPage(
+      input.projectId,
+      input.parentThreadId,
+      page.nextCursor ?? undefined,
+    );
+    expect(older.tasks.map((task) => task.id)).toEqual(
+      records
+        .slice(0, 7)
+        .reverse()
+        .map((task) => task.id),
+    );
+    expect(older.nextCursor).toBeNull();
+    const database = new Database(path, { readonly: true });
+    try {
+      const plan = database
+        .query<{ detail: string }, [string, string]>(
+          "EXPLAIN QUERY PLAN SELECT rowid FROM tasks INDEXED BY task_owner_position WHERE project_id = ? AND parent_thread_id = ? ORDER BY rowid DESC LIMIT 51",
+        )
+        .all(input.projectId, input.parentThreadId);
+      expect(plan.some((step) => step.detail.includes("TEMP B-TREE"))).toBe(false);
+      expect(
+        database.query("SELECT name FROM sqlite_master WHERE name = 'task_owner_state'").get(),
+      ).not.toBeNull();
+    } finally {
+      database.close();
+      await restored.close();
+    }
+  }
+});
+
 test("UI result pages bound escaped bytes and omit private prompts and permission grants", async () => {
   const { store, input } = await fixture();
   for (let index = 0; index < 25; index++) {

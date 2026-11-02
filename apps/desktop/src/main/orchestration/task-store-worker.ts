@@ -56,6 +56,8 @@ const maintain = (before) => {
 function dispatch(kind, input) {
   if (kind === 'initialize') {
     database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 3000; CREATE TABLE IF NOT EXISTS metadata (id INTEGER PRIMARY KEY CHECK (id = 1), sequence INTEGER NOT NULL); INSERT OR IGNORE INTO metadata VALUES (1, 0); CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_thread_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, state TEXT NOT NULL, sequence INTEGER NOT NULL, delivered INTEGER NOT NULL, record TEXT NOT NULL, UNIQUE(project_id, parent_thread_id, request_id)); CREATE INDEX IF NOT EXISTS task_owner_sequence ON tasks(project_id, parent_thread_id, sequence); CREATE INDEX IF NOT EXISTS task_delivery ON tasks(delivered, state, sequence); CREATE TABLE IF NOT EXISTS operation_receipts (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS task_children (project_id TEXT NOT NULL, child_thread_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, PRIMARY KEY(project_id, child_thread_id)); INSERT INTO task_children SELECT project_id, json_extract(record, \'$.childThreadId\'), id FROM tasks WHERE (json_extract(record, \'$.kind\') IS NULL OR json_extract(record, \'$.kind\') = \'initial\') AND NOT EXISTS (SELECT 1 FROM task_children WHERE task_children.task_id = tasks.id);');
+    // SQLite appends rowid to secondary indexes, matching the history cursor.
+    database.exec('CREATE INDEX IF NOT EXISTS task_owner_position ON tasks(project_id, parent_thread_id); CREATE INDEX IF NOT EXISTS task_owner_state ON tasks(project_id, parent_thread_id, state);');
     database.exec('CREATE TABLE IF NOT EXISTS task_tombstones (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_thread_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, record TEXT NOT NULL, UNIQUE(project_id, parent_thread_id, request_id)); CREATE TABLE IF NOT EXISTS receipt_tombstones (key TEXT PRIMARY KEY);');
     if (!statement("PRAGMA table_info(operation_receipts)").all().some(column => column.name === 'updated_at')) database.exec('ALTER TABLE operation_receipts ADD COLUMN updated_at TEXT');
     statement('UPDATE operation_receipts SET updated_at = ? WHERE updated_at IS NULL').run(new Date().toISOString());
@@ -123,10 +125,11 @@ function dispatch(kind, input) {
   if (kind === 'get') return get(input.id) ?? null;
   if (kind === 'thread-page') {
     const filter = input.taskIds ? ' AND id IN (' + input.taskIds.map(() => '?').join(',') + ')' : '';
-    const rows = statement('SELECT rowid AS position, record FROM tasks WHERE project_id = ? AND parent_thread_id = ?' + (input.before ? ' AND rowid < ?' : '') + filter + ' ORDER BY rowid DESC LIMIT 51')
+    const historyIndex = input.taskIds ? '' : ' INDEXED BY task_owner_position';
+    const rows = statement('SELECT rowid AS position, record FROM tasks' + historyIndex + ' WHERE project_id = ? AND parent_thread_id = ?' + (input.before ? ' AND rowid < ?' : '') + filter + ' ORDER BY rowid DESC LIMIT 51')
       .all(input.projectId, input.parentThreadId, ...(input.before ? [input.before] : []), ...(input.taskIds || []));
     const active = !input.before && !input.taskIds
-      ? statement("SELECT rowid AS position, record FROM tasks WHERE project_id = ? AND parent_thread_id = ? AND state IN ('queued', 'running', 'cancel_requested') ORDER BY CASE WHEN state = 'queued' THEN 1 ELSE 0 END, rowid DESC LIMIT 50").all(input.projectId, input.parentThreadId)
+      ? statement("SELECT rowid AS position, record FROM tasks INDEXED BY task_owner_state WHERE project_id = ? AND parent_thread_id = ? AND state IN ('queued', 'running', 'cancel_requested') ORDER BY CASE WHEN state = 'queued' THEN 1 ELSE 0 END, rowid DESC LIMIT 50").all(input.projectId, input.parentThreadId)
       : [];
     const tasks = [];
     const included = new Set();
