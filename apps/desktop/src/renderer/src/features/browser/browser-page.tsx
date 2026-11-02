@@ -16,6 +16,7 @@ import {
   type BrowserInput,
   type BrowserInputEnvelope,
 } from "../../../../shared/contracts/browser";
+const inputSentinel = "\u200b";
 const modifierBits = (event: {
   altKey: boolean;
   ctrlKey: boolean;
@@ -55,10 +56,32 @@ export function BrowserPage({
   send(input: BrowserInput): void;
 }) {
   const composing = useRef(false);
+  const keySent = useRef(false);
+  const touch = useRef<{
+    id: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    panning: boolean;
+  } | null>(null);
+  const resetInput = (element: HTMLTextAreaElement) => {
+    keySent.current = false;
+    element.value = inputSentinel;
+    element.setSelectionRange(1, 1);
+  };
   const forwardedKeys = useRef(new Set<string>());
-  useEffect(() => forwardedKeys.current.clear(), [tab?.id, tab?.viewId, interactive]);
   useEffect(() => {
-    const clear = () => forwardedKeys.current.clear();
+    forwardedKeys.current.clear();
+    touch.current = null;
+    keySent.current = false;
+  }, [tab?.id, tab?.viewId, interactive]);
+  useEffect(() => {
+    const clear = () => {
+      forwardedKeys.current.clear();
+      touch.current = null;
+      keySent.current = false;
+    };
     window.addEventListener("blur", clear);
     document.addEventListener("visibilitychange", clear);
     return () => {
@@ -186,8 +209,64 @@ export function BrowserPage({
     return () => element.removeEventListener("wheel", wheel);
   }, [interactive, tab?.id, tab?.width, tab?.height, sendPage]);
 
+  const touchPointer = (event: PointerEvent<HTMLCanvasElement>, action: "down" | "move" | "up") => {
+    if (!interactive || !event.isPrimary || !tab) return;
+    event.preventDefault();
+    if (action === "down") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      touch.current = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        panning: false,
+      };
+      return;
+    }
+    const gesture = touch.current;
+    if (!gesture || gesture.id !== event.pointerId) return;
+    const position = point(event.clientX, event.clientY);
+    if (!position) return;
+    const moved = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) >= 8;
+    if (action === "move") {
+      if (!gesture.panning && !moved) return;
+      gesture.panning = true;
+      sendPage({
+        kind: "wheel",
+        x: position.x,
+        y: position.y,
+        deltaX: Math.max(
+          -10000,
+          Math.min(10000, (gesture.lastX - event.clientX) * position.scaleX),
+        ),
+        deltaY: Math.max(
+          -10000,
+          Math.min(10000, (gesture.lastY - event.clientY) * position.scaleY),
+        ),
+        modifiers: modifierBits(event),
+      });
+      gesture.lastX = event.clientX;
+      gesture.lastY = event.clientY;
+      return;
+    }
+    touch.current = null;
+    if (gesture.panning || moved) return;
+    keyboard.current?.focus({ preventScroll: true });
+    const at = {
+      x: position.x,
+      y: position.y,
+      button: "left" as const,
+      clickCount: 1,
+      modifiers: modifierBits(event),
+    };
+    sendPage({ kind: "mouse", action: "down", ...at, buttons: 1 });
+    sendPage({ kind: "mouse", action: "up", ...at, buttons: 0 });
+  };
+
   const key = (event: KeyboardEvent<HTMLTextAreaElement>, action: "down" | "up") => {
     if (!interactive) return;
+    keySent.current = false;
     if (action === "up") {
       if (!forwardedKeys.current.delete(event.code)) return;
       event.preventDefault();
@@ -202,7 +281,14 @@ export function BrowserPage({
       });
       return;
     }
-    if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (
+      composing.current ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229 ||
+      event.key === "Process" ||
+      event.key === "Unidentified"
+    )
+      return;
     if (event.key === "Dead" || event.getModifierState("AltGraph")) return;
     if (event.key === "F6") {
       event.preventDefault();
@@ -225,6 +311,7 @@ export function BrowserPage({
         : "";
     event.preventDefault();
     forwardedKeys.current.add(event.code);
+    keySent.current = Boolean(text) || ["Backspace", "Delete", "Enter"].includes(event.key);
     const command =
       editingCommands && navigator.platform.startsWith("Mac")
         ? browserEditingCommand(event)
@@ -258,19 +345,28 @@ export function BrowserPage({
         hidden={!tab || tab.url === "about:blank" || !painted}
         onPointerDown={(event) => {
           if (!interactive || !event.isPrimary) return;
+          if (event.pointerType === "touch") {
+            touchPointer(event, "down");
+            return;
+          }
           event.currentTarget.setPointerCapture(event.pointerId);
           keyboard.current?.focus({ preventScroll: true });
           if (event.pointerType !== "mouse") pointer(event, "down");
         }}
         onMouseDown={(event) => pointer(event, "down")}
         onMouseUp={(event) => pointer(event, "up")}
-        onPointerMove={(event) => pointer(event, "move")}
+        onPointerMove={(event) => {
+          if (event.pointerType === "touch") touchPointer(event, "move");
+          else pointer(event, "move");
+        }}
         onPointerUp={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
-          if (event.pointerType !== "mouse") pointer(event, "up");
+          if (event.pointerType === "touch") touchPointer(event, "up");
+          else if (event.pointerType !== "mouse") pointer(event, "up");
         }}
         onPointerCancel={() => {
+          touch.current = null;
           forwardedKeys.current.clear();
           send({ kind: "release-keys" });
         }}
@@ -278,7 +374,7 @@ export function BrowserPage({
       />
       <textarea
         ref={keyboard}
-        className="browser-keyboard absolute top-0 left-0 size-px resize-none border-0 p-0 opacity-0"
+        className="browser-keyboard absolute top-0 left-0 size-px resize-none border-0 p-0 text-base opacity-0"
         aria-label="Type into browser page"
         aria-description="Press F6 to focus the address bar."
         tabIndex={interactive ? 0 : -1}
@@ -286,9 +382,14 @@ export function BrowserPage({
         autoCapitalize="off"
         autoCorrect="off"
         spellCheck={false}
+        defaultValue={inputSentinel}
+        onFocus={(event) => resetInput(event.currentTarget)}
+        onCopy={(event) => event.preventDefault()}
+        onCut={(event) => event.preventDefault()}
         onKeyDown={(event) => key(event, "down")}
         onKeyUp={(event) => key(event, "up")}
         onBlur={() => {
+          keySent.current = false;
           forwardedKeys.current.clear();
           send({ kind: "release-keys" });
         }}
@@ -302,13 +403,40 @@ export function BrowserPage({
           composing.current = false;
           const target = compositionView.current;
           compositionView.current = null;
-          if (target) insertText(event.currentTarget.value, target);
-          event.currentTarget.value = "";
+          if (target) insertText(event.currentTarget.value.replace(/^\u200b/, ""), target);
+          resetInput(event.currentTarget);
         }}
         onInput={(event) => {
-          if (composing.current) return;
-          insertText(event.currentTarget.value);
-          event.currentTarget.value = "";
+          const native = event.nativeEvent;
+          if (composing.current || (native instanceof InputEvent && native.isComposing)) return;
+          const inputType = native instanceof InputEvent ? native.inputType : "";
+          if (!keySent.current) {
+            if (
+              [
+                "deleteContentBackward",
+                "deleteContentForward",
+                "insertLineBreak",
+                "insertParagraph",
+              ].includes(inputType)
+            ) {
+              const name =
+                inputType === "deleteContentBackward"
+                  ? "Backspace"
+                  : inputType === "deleteContentForward"
+                    ? "Delete"
+                    : "Enter";
+              const key = {
+                key: name,
+                code: name,
+                keyCode: name === "Backspace" ? 8 : name === "Delete" ? 46 : 13,
+                text: "",
+                modifiers: 0,
+              };
+              sendPage({ kind: "key", action: "down", ...key });
+              sendPage({ kind: "key", action: "up", ...key });
+            } else insertText(event.currentTarget.value.replace(/^\u200b/, ""));
+          }
+          resetInput(event.currentTarget);
         }}
         onPaste={(event) => {
           event.preventDefault();

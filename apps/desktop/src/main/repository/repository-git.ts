@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isUtf8 } from "node:buffer";
-import { openRepositoryPath } from "./repository-path";
+import { assertRepositoryPathStable, openRepositoryPath } from "./repository-path";
 
 export type GitView = {
   directory: string;
@@ -45,6 +45,7 @@ export async function git(
   let workTree: Awaited<ReturnType<typeof openRepositoryPath>> | undefined;
   try {
     if (view) workTree = await openRepositoryPath(view.workTree, "", true);
+    signal?.throwIfAborted();
     const result = await new Promise<{ code: number; text: string; utf8: boolean; stderr: string }>(
       (resolve, reject) => {
         const environment = Object.fromEntries(
@@ -58,7 +59,7 @@ export async function git(
             ...(view
               ? [
                   `--git-dir=${view.directory}`,
-                  `--work-tree=${process.platform === "linux" ? "/proc/self/fd/3" : "/dev/fd/3"}`,
+                  `--work-tree=${process.platform === "linux" ? "/proc/self/fd/3" : view.workTree}`,
                 ]
               : []),
             ...(args[0] === "check-ignore" || pathspecs === "attributes"
@@ -154,9 +155,7 @@ export async function git(
     );
     for (const opened of [directory, workTree]) {
       if (!opened) continue;
-      const current = await stat(opened.target);
-      if (current.dev !== opened.info.dev || current.ino !== opened.info.ino)
-        throw new Error("The project directory moved. Open it again.");
+      await assertRepositoryPathStable(opened);
     }
     return result;
   } finally {

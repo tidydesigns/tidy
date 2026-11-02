@@ -1,3 +1,5 @@
+import { searchRepositoryFiles } from "../repository/repository-search";
+import { repositorySearchQuerySchema } from "../../shared/contracts/repository-search";
 import { readHarnessUsage } from "../harnesses/harness-usage";
 import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
 import { threadNamingSchema, threadTitleSchema } from "../../shared/contracts/thread-naming";
@@ -299,6 +301,11 @@ export function createWorkspaceRequests<Context>(
           .catch(() => {});
         return result;
       }),
+  );
+  handle(
+    "repository-search",
+    z.object({ projectId, query: repositorySearchQuerySchema }).strict(),
+    (value) => searchRepositoryFiles(repositoryPath(value.projectId), value.query),
   );
   handle("repository-changes", z.object({ projectId }).strict(), (value) =>
     readRepositoryChanges(repositoryPath(value.projectId)),

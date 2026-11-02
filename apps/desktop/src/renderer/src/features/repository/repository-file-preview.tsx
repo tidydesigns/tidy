@@ -15,7 +15,7 @@ const unavailableText = {
   binary: "Binary or non-UTF-8 file. A text preview is unavailable.",
   oversized:
     "This file exceeds the preview limit (1 MiB file or 2 MiB diff). Open it in your editor.",
-  symlink: "Symbolic links are shown without following their targets.",
+  symlink: "This symbolic link has an unavailable target or points outside the project.",
   unsupported: "This file type cannot be previewed.",
   missing: "This file is no longer available. Refresh to update the file list.",
   conflict: "This file has merge conflicts. Resolve them in your editor before reviewing its diff.",
@@ -162,7 +162,9 @@ export const FileContent = memo(function FileContent({
                     : "Working tree vs HEAD"
                 : displayedFile.comparison === "head"
                   ? "Unchanged from HEAD"
-                  : "File contents")}
+                  : displayedFile.truncated
+                    ? "File contents · first 1 MiB shown"
+                    : "File contents")}
         </span>
         {error && (
           <Button

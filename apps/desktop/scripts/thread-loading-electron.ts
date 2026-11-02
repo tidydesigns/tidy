@@ -25,6 +25,23 @@ void app.whenReady().then(async () => {
     );
     const cases = z.array(z.string()).min(1).parse(result);
     for (const name of cases) console.info(`PASS: ${name}`);
+    for (const width of [900, 390, 320]) {
+      window.setContentSize(width, 800);
+      for (const filter of [
+        "workspace sidebar adapts",
+        "workspace panel preserves",
+        "composer controls retain",
+      ]) {
+        const responsive: unknown = await window.webContents.executeJavaScript(`(async () => {
+          for (const element of [document.documentElement, document.body, document.getElementById("root")]) element.style.width = "100%";
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          if (window.innerWidth !== ${width}) throw new Error("Responsive viewport did not resize to ${width}px");
+          return window.runThreadLoadingTests(${JSON.stringify(filter)});
+        })()`);
+        for (const name of z.array(z.string()).min(1).parse(responsive))
+          console.info(`PASS (${width}px): ${name}`);
+      }
+    }
     window.destroy();
     app.exit(0);
   } catch (error) {

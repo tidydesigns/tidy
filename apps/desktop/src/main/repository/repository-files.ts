@@ -3,7 +3,11 @@ import { watch, type FSWatcher } from "node:fs";
 import { lstat, opendir, realpath, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { checkedRepositoryPath as checkedPath, openRepositoryPath } from "./repository-path";
+import {
+  assertRepositoryPathStable,
+  checkedRepositoryPath as checkedPath,
+  openRepositoryPath,
+} from "./repository-path";
 import { git, createGitView, closeGitView, OutputLimitError, type GitView } from "./repository-git";
 import {
   repositoryPathSchema,
@@ -159,6 +163,8 @@ export async function readRepositoryDirectory(
   const checked = await openRepositoryPath(root, path, true);
   try {
     const directory = await opendir(checked.descriptor);
+    const canonicalPath = relative(checked.root, checked.target).split(sep).join("/");
+    const ignorePath = (name: string) => (canonicalPath ? `${canonicalPath}/${name}` : name);
     const entries: RepositoryDirectory["entries"] = [];
     let limited = false;
     let payloadSize = 0;
@@ -170,18 +176,22 @@ export async function readRepositoryDirectory(
         limited = true;
         break;
       }
-      entries.push({
-        path: childPath,
-        name: entry.name,
-        kind: entry.isSymbolicLink()
-          ? "symlink"
-          : entry.isDirectory()
-            ? "directory"
-            : entry.isFile()
-              ? "file"
-              : "unsupported",
-      });
+      let kind: RepositoryDirectory["entries"][number]["kind"] = entry.isDirectory()
+        ? "directory"
+        : entry.isFile()
+          ? "file"
+          : "unsupported";
+      if (entry.isSymbolicLink()) {
+        kind = "symlink";
+        try {
+          const target = await checkedPath(root, childPath);
+          const info = await lstat(target.target);
+          kind = info.isDirectory() ? "directory" : info.isFile() ? "file" : "unsupported";
+        } catch {}
+      }
+      entries.push({ path: childPath, name: entry.name, kind });
     }
+    await assertRepositoryPathStable(checked);
     const controller = new AbortController();
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const inspection = (async () => {
@@ -193,7 +203,7 @@ export async function readRepositoryDirectory(
         const ignored = await git(
           checked.root,
           ["check-ignore", "-z", "--stdin"],
-          entries.map((entry) => `./${entry.path}`).join("\0") + "\0",
+          entries.map((entry) => `./${ignorePath(entry.name)}`).join("\0") + "\0",
           undefined,
           view,
           "literal",
@@ -223,9 +233,10 @@ export async function readRepositoryDirectory(
     const excluded = new Set(
       ignored.code === 0 ? ignored.text.split("\0").map((path) => path.replace(/^\.\//, "")) : [],
     );
+    await assertRepositoryPathStable(checked);
     return {
       entries: entries
-        .filter((entry) => !excluded.has(entry.path))
+        .filter((entry) => !excluded.has(ignorePath(entry.name)))
         .sort(
           (a, b) =>
             Number(b.kind === "directory") - Number(a.kind === "directory") ||
@@ -396,9 +407,16 @@ export async function readRepositoryFile(
   try {
     checked = await checkedPath(root, path, true);
   } catch (error) {
-    if (error instanceof Error && error.message === "Symbolic links cannot be opened.")
+    if (error instanceof Error && error.message === "Symbolic link target cannot be opened.")
       return unavailable("symlink");
     throw error;
+  }
+  if (requestedView === "diff") {
+    const entry = await lstat(join(checked.root, path)).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (entry?.isSymbolicLink()) return unavailable("unsupported");
   }
   if (previousPath !== undefined) {
     repositoryPathSchema.parse(previousPath);
@@ -410,12 +428,14 @@ export async function readRepositoryFile(
   });
   if (info && !info.isFile() && !(requestedView === "diff" && info.isDirectory()))
     return unavailable("unsupported");
-  if (info?.isFile() && info.size > fileLimit) return unavailable("oversized");
+  if (requestedView === "diff" && info?.isFile() && info.size > fileLimit)
+    return unavailable("oversized");
   let content: Buffer | null = null;
+  let truncated = false;
   if (info?.isFile()) {
     const opened = await openRepositoryPath(checked.root, path);
     try {
-      if (opened.info.size > fileLimit) return unavailable("oversized");
+      if (requestedView === "diff" && opened.info.size > fileLimit) return unavailable("oversized");
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of opened.file.createReadStream({
@@ -424,10 +444,17 @@ export async function readRepositoryFile(
         autoClose: false,
       })) {
         size += chunk.length;
-        if (size > fileLimit) return unavailable("oversized");
         chunks.push(chunk);
       }
+      await assertRepositoryPathStable(opened);
       content = Buffer.concat(chunks, size);
+      truncated = size > fileLimit;
+      if (truncated) {
+        if (requestedView === "diff") return unavailable("oversized");
+        let end = fileLimit;
+        while (end > fileLimit - 3 && (content[end] & 0xc0) === 0x80) end--;
+        content = content.subarray(0, end);
+      }
     } finally {
       await opened.file.close();
     }
@@ -435,7 +462,13 @@ export async function readRepositoryFile(
   if (content && (content.includes(0) || !isUtf8(content))) return unavailable("binary");
   if (requestedView === "file")
     return content
-      ? { kind: "text", text: content.toString("utf8"), view: "file", comparison: "none" }
+      ? {
+          kind: "text",
+          text: content.toString("utf8"),
+          view: "file",
+          comparison: "none",
+          ...(truncated ? { truncated: true } : {}),
+        }
       : unavailable("missing");
   if (!(await hasRepository(checked.root)))
     return content

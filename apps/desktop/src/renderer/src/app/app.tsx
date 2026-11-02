@@ -54,6 +54,7 @@ import { z } from "zod";
 import { useSessionState } from "./session-state";
 import { selectionSchema } from "./navigation-state";
 import { useWorkspaceNavigation } from "./use-workspace-navigation";
+import { ComposerControls } from "../features/composer/composer-controls";
 import { ComposerContext } from "../features/composer/composer-context";
 import type {
   Draft,
@@ -83,7 +84,7 @@ import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { preloadCanvasEditor } from "../features/designs/load-canvas-editor";
 import { LocalCanvas } from "../features/designs/local-canvas";
-import { DesktopShell, SidebarToggle } from "./desktop-shell";
+import { DesktopShell, SidebarToggle, SidebarNavigation } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
 import { Conversations, prepareConversation } from "../features/threads/conversations";
 import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
@@ -172,6 +173,7 @@ export function App({
       api?.repositoryDirectory && api.repositoryChanges && api.repositoryFile
         ? {
             repositoryDirectory: api.repositoryDirectory,
+            repositorySearch: api.repositorySearch,
             repositoryChanges: api.repositoryChanges,
             repositoryFile: api.repositoryFile,
             onEvent: api.onEvent,
@@ -1926,7 +1928,7 @@ export function App({
       settingsOpen={settingsOpen}
     >
       <HarnessFailureNotices key={failureNoticeAccessKey} api={api} />
-      <aside
+      <SidebarNavigation
         id="desktop-navigation"
         className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${desktopNavigationClassName}`}
         aria-label="Project workspace"
@@ -2189,7 +2191,7 @@ export function App({
           )}
           <AppUpdate api={api} />
         </div>
-      </aside>
+      </SidebarNavigation>
       <main
         className={`workspace ${terminalFullscreen ? "workspace-terminal-fullscreen" : ""}`}
         hidden={settingsOpen}
@@ -2446,7 +2448,7 @@ export function App({
                     />
                   ) : null}
                   <form
-                    className={`composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
+                    className={`composer @container/composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
                         event.preventDefault();
@@ -2466,7 +2468,7 @@ export function App({
                     }}
                   >
                     <div
-                      className={`composer-lip absolute right-3 bottom-[calc(100%_-_20px)] left-3 rounded-t-2xl border border-border bg-[light-dark(#f5f5f5,#222222)] px-2 py-[7px] pb-[25px] max-[700px]:right-2 max-[700px]:left-2 max-[700px]:px-1.5 ${thread ? "invisible pointer-events-none opacity-0" : ""}`}
+                      className={`composer-lip [&_.composer-context]:overflow-x-auto [&_.composer-context]:[scrollbar-width:thin] [&_.composer-context>*]:shrink-0 @max-[400px]/composer:[&_.reference-trigger>span]:hidden @max-[400px]/composer:[&_.context-machine>span]:hidden @max-[400px]/composer:[&_.context-machine_.context-trigger>span]:hidden absolute right-3 bottom-[calc(100%_-_20px)] left-3 rounded-t-2xl border border-border bg-[light-dark(#f5f5f5,#222222)] px-2 py-[7px] pb-[25px] max-[700px]:right-2 max-[700px]:left-2 max-[700px]:px-1.5 ${thread ? "invisible pointer-events-none opacity-0" : ""}`}
                       aria-hidden={Boolean(thread)}
                       inert={Boolean(thread)}
                     >
@@ -2668,7 +2670,7 @@ export function App({
                       )}
                       <SkillPrompt
                         ref={promptEditor}
-                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
+                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] @max-[560px]/composer:max-h-[min(160px,30dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
                         status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
@@ -2742,7 +2744,64 @@ export function App({
                           }
                         }}
                       />
-                      <div className="composer-actions flex flex-wrap items-center gap-2 py-2">
+                      <div className="composer-actions flex min-w-0 flex-nowrap items-center gap-2 py-2">
+                        <ComposerControls>
+                          <div className="composer-settings contents">
+                            <HarnessControls
+                              catalogs={harnesses.map((connection) => ({
+                                connection,
+                                ...harnessDetails[`${executionProject?.id}:${connection.id}`],
+                                details:
+                                  harnessDetails[`${executionProject?.id}:${connection.id}`]?.info,
+                                loading: Boolean(
+                                  harnessDetails[`${executionProject?.id}:${connection.id}`]
+                                    ?.loading,
+                                ),
+                              }))}
+                              onModelChange={({ harness, settings: selection }) => {
+                                if (!thread)
+                                  updateDraft({
+                                    harness,
+                                    settings: {
+                                      ...(harness === selectedHarness ? draft.settings : {}),
+                                      ...selection,
+                                    },
+                                  });
+                                else
+                                  void changeSettings({
+                                    ...(settingsPending[thread.id]?.settings ?? thread.settings),
+                                    ...selection,
+                                  });
+                              }}
+                              harness={selectedHarness}
+                              settings={
+                                thread
+                                  ? (settingsPending[thread.id]?.settings ?? thread.settings ?? {})
+                                  : (draft.settings ?? {})
+                              }
+                              actualModel={thread?.actualModel}
+                              disabled={Boolean(busy || thread?.doneAt)}
+                              onHarnessChange={
+                                thread
+                                  ? undefined
+                                  : (harness) => {
+                                      accessChoice.current++;
+                                      setAccessOffer(undefined);
+                                      updateDraft({ harness, settings: {} });
+                                    }
+                              }
+                              onSettingsChange={(settings) => void changeSettings(settings)}
+                              onRefresh={() => {
+                                if (executionProject && harnessReady)
+                                  void loadHarnessDetails(
+                                    executionProject!.id,
+                                    selectedHarness,
+                                    true,
+                                  );
+                              }}
+                            />
+                          </div>
+                        </ComposerControls>
                         <Button
                           type="button"
                           className="flex size-8 cursor-pointer items-center justify-center rounded-[5px] border-0 bg-transparent p-1.5 text-xs text-muted-ink hover:bg-hover-surface"
@@ -2767,60 +2826,7 @@ export function App({
                             />
                           </svg>
                         </Button>
-                        <div className="composer-settings contents">
-                          <HarnessControls
-                            catalogs={harnesses.map((connection) => ({
-                              connection,
-                              ...harnessDetails[`${executionProject?.id}:${connection.id}`],
-                              details:
-                                harnessDetails[`${executionProject?.id}:${connection.id}`]?.info,
-                              loading: Boolean(
-                                harnessDetails[`${executionProject?.id}:${connection.id}`]?.loading,
-                              ),
-                            }))}
-                            onModelChange={({ harness, settings: selection }) => {
-                              if (!thread)
-                                updateDraft({
-                                  harness,
-                                  settings: {
-                                    ...(harness === selectedHarness ? draft.settings : {}),
-                                    ...selection,
-                                  },
-                                });
-                              else
-                                void changeSettings({
-                                  ...(settingsPending[thread.id]?.settings ?? thread.settings),
-                                  ...selection,
-                                });
-                            }}
-                            harness={selectedHarness}
-                            settings={
-                              thread
-                                ? (settingsPending[thread.id]?.settings ?? thread.settings ?? {})
-                                : (draft.settings ?? {})
-                            }
-                            actualModel={thread?.actualModel}
-                            disabled={Boolean(busy || thread?.doneAt)}
-                            onHarnessChange={
-                              thread
-                                ? undefined
-                                : (harness) => {
-                                    accessChoice.current++;
-                                    setAccessOffer(undefined);
-                                    updateDraft({ harness, settings: {} });
-                                  }
-                            }
-                            onSettingsChange={(settings) => void changeSettings(settings)}
-                            onRefresh={() => {
-                              if (executionProject && harnessReady)
-                                void loadHarnessDetails(
-                                  executionProject!.id,
-                                  selectedHarness,
-                                  true,
-                                );
-                            }}
-                          />
-                        </div>
+
                         <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
                           <span ref={canvasDockHome} className="canvas-dock-home" />
                           <div className="composer-delivery ml-auto flex shrink-0 items-center gap-1.5">

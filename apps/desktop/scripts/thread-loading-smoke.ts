@@ -44,10 +44,17 @@ try {
     }),
   ]);
   if (!runner.success) throw new AggregateError(runner.logs, "Could not build renderer tests.");
+  const fixtureAssets = join(temporary, "renderer/assets");
+  const fixtureStyles = (await readdir(fixtureAssets))
+    .filter((name) => name.endsWith(".css"))
+    .map(
+      (name) => `<link rel="stylesheet" href="${pathToFileURL(join(fixtureAssets, name)).href}">`,
+    )
+    .join("");
   const html = join(temporary, "index.html");
   await writeFile(
     html,
-    `<!doctype html><html><head><link rel="stylesheet" href="${pathToFileURL(join(assets, css)).href}"><style>html,body,#root{height:800px;width:1100px;margin:0}#root{display:flex;flex-direction:column}.conversation{height:760px}</style></head><body><div id="root"></div><script type="module" src="./renderer/thread-loading.js"></script></body></html>`,
+    `<!doctype html><html><head><link rel="stylesheet" href="${pathToFileURL(join(assets, css)).href}">${fixtureStyles}<style>html,body,#root{height:800px;width:1100px;margin:0}#root{display:flex;flex-direction:column}.conversation{height:760px}</style></head><body><div id="root"></div><script type="module" src="./renderer/thread-loading.js"></script></body></html>`,
   );
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;

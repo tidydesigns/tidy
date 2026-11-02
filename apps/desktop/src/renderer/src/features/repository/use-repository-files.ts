@@ -10,7 +10,7 @@ import type {
 export type RepositoryAPI = Required<
   Pick<DesktopAPI, "repositoryDirectory" | "repositoryChanges" | "repositoryFile">
 > &
-  Pick<DesktopAPI, "onEvent">;
+  Pick<DesktopAPI, "onEvent" | "repositorySearch">;
 
 export type RepositoryInvalidation = { id: number; paths: readonly string[] | null };
 

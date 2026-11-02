@@ -5,10 +5,32 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type ComponentProps,
 } from "react";
 import { Button } from "@tidy/ui/button";
+import { Dialog } from "@tidy/editor/components/ui/dialog";
+import { useMediaQuery, usePanelDialog } from "../components/panel-dialog";
 
-const SidebarContext = createContext({ visible: true, toggle: () => {} });
+const SidebarContext = createContext({ visible: true, compact: false, toggle: () => {} });
+
+export function SidebarNavigation({ className, hidden, ...props }: ComponentProps<typeof Dialog>) {
+  const { visible, compact, toggle } = useContext(SidebarContext);
+  const dialog = useRef<HTMLDialogElement>(null);
+  usePanelDialog(dialog, visible && !hidden, compact);
+  return (
+    <Dialog
+      {...props}
+      ref={dialog}
+      padded={false}
+      role={compact ? "dialog" : "navigation"}
+      onCancel={(event) => {
+        event.preventDefault();
+        toggle();
+      }}
+      className={`${className ?? ""} [&]:m-0 [&]:max-h-none [&]:max-w-none [&]:rounded-none [&]:border-y-0 [&]:border-l-0 [&:not([open])]:hidden ${compact ? "[&]:fixed [&]:bottom-0 [&]:top-(--desktop-titlebar-height) [&]:left-0 [&]:right-auto [&]:h-[calc(100dvh-var(--desktop-titlebar-height,0px))] [&]:w-[min(88vw,264px)]" : "[&]:relative [&]:inset-auto [&]:h-auto [&]:w-auto [&]:shadow-none"}`}
+    />
+  );
+}
 
 export function SidebarToggle() {
   const { visible, toggle } = useContext(SidebarContext);
@@ -49,7 +71,11 @@ export function DesktopShell({
   children: ReactNode;
 }) {
   const [sidebarPreference, setSidebarPreference] = useState<boolean | null>(null);
-  const sidebarVisible = settingsOpen || (!canvasFocused && (sidebarPreference ?? true));
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const compact = useMediaQuery("(max-width: 800px)");
+  const sidebarVisible =
+    settingsOpen || (!canvasFocused && (compact ? mobileOpen : (sidebarPreference ?? true)));
+  const inlineSidebar = sidebarVisible && (!compact || settingsOpen);
   const shell = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (sidebarPreference === null) return;
@@ -66,16 +92,18 @@ export function DesktopShell({
     <SidebarContext
       value={{
         visible: sidebarVisible,
-        toggle: () => setSidebarPreference(!sidebarVisible),
+        compact,
+        toggle: () =>
+          compact ? setMobileOpen(!sidebarVisible) : setSidebarPreference(!sidebarVisible),
       }}
     >
       <div
         ref={shell}
-        className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${sidebarVisible ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${!settingsOpen ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
+        className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${inlineSidebar ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${!settingsOpen ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
       >
         <header className="desktop-titlebar hidden" />
         {children}
-        {!sidebarVisible && !canvasFocused && !settingsOpen && (
+        {!inlineSidebar && !canvasFocused && !settingsOpen && (
           <div className="desktop-sidebar-reopen absolute top-1.5 left-1 z-[3] [app-region:no-drag]">
             <SidebarToggle />
           </div>

@@ -7,6 +7,8 @@ import {
   type ComponentProps,
 } from "react";
 import { z } from "zod";
+import { Dialog } from "@tidy/editor/components/ui/dialog";
+import { useMediaQuery, usePanelDialog } from "../../components/panel-dialog";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { lazyView } from "../../components/lazy-view";
@@ -94,7 +96,9 @@ export function WorkspaceSurfaces({
   const [expanded, setExpanded] = useState(false);
   const [repositoryMounted, setRepositoryMounted] = useState(false);
   const [browserMounted, setBrowserMounted] = useState<string | null>(null);
-  const pane = useRef<HTMLElement>(null);
+  const pane = useRef<HTMLDialogElement>(null);
+  const compact = useMediaQuery("(max-width: 980px)");
+  usePanelDialog(pane, open && active, compact);
   const separator = useRef<HTMLDivElement>(null);
   const resizing = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const browserKey = browser ? `${browser.scope.projectId}:${browser.scope.threadId}` : null;
@@ -158,7 +162,7 @@ export function WorkspaceSurfaces({
   useLayoutEffect(() => {
     const node = pane.current,
       parent = node?.parentElement;
-    if (!node || !parent) return;
+    if (!node || !parent || compact) return;
     const update = () => {
       const maximum = Math.max(0, parent.clientWidth - Math.min(280, parent.clientWidth * 0.45));
       if (width === null) parent.style.removeProperty("--workspace-panel-width");
@@ -178,7 +182,7 @@ export function WorkspaceSurfaces({
       observer.disconnect();
       parent.style.removeProperty("--workspace-panel-width");
     };
-  }, [width, open, expanded]);
+  }, [width, open, expanded, compact]);
   const resize = (requested: number) => {
     const parent = pane.current?.parentElement;
     if (!parent) return 0;
@@ -189,15 +193,25 @@ export function WorkspaceSurfaces({
     return value;
   };
   return (
-    <aside
+    <Dialog
       ref={pane}
+      padded={false}
       id="workspace-side-panel"
-      className="workspace-side-panel relative flex min-h-0 min-w-0 flex-col overflow-clip border-l border-border bg-(--color-surface) text-[13px] leading-[1.5] text-ink [--workspace-hairline:color-mix(in_srgb,var(--color-border)_65%,transparent)]"
-      hidden={!open}
+      className={`workspace-side-panel flex min-h-0 min-w-0 flex-col overflow-clip border-l border-border bg-(--color-surface) text-[13px] leading-[1.5] text-ink [--workspace-hairline:color-mix(in_srgb,var(--color-border)_65%,transparent)] [&]:max-h-none [&]:rounded-none [&:not([open])]:hidden ${compact ? "[&]:fixed [&]:bottom-0 [&]:top-(--desktop-titlebar-height) [&]:right-0 [&]:left-auto [&]:m-0 [&]:h-[calc(100dvh-var(--desktop-titlebar-height,0px))] [&]:w-[min(88vw,28rem)] [&]:max-w-none" : "[&]:relative [&]:inset-auto [&]:m-0 [&]:h-full [&]:w-auto [&]:max-w-none [&]:border-y-0 [&]:border-r-0 [&]:shadow-none"}`}
+      role={compact ? "dialog" : "complementary"}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       aria-label="Workspace surfaces"
-      data-expanded={expanded || undefined}
+      data-expanded={(!compact && expanded) || undefined}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && selected !== "browser" && !event.defaultPrevented) {
+        if (
+          event.key === "Escape" &&
+          !compact &&
+          selected !== "browser" &&
+          !event.defaultPrevented
+        ) {
           event.preventDefault();
           onClose();
         }
@@ -205,6 +219,7 @@ export function WorkspaceSurfaces({
     >
       <div
         ref={separator}
+        hidden={compact}
         className="workspace-resize-handle absolute inset-y-0 left-0 z-3 w-[5px] cursor-col-resize touch-none hover:bg-border focus-visible:-outline-offset-1 focus-visible:outline focus-visible:outline-(--color-control-border) in-data-[expanded]:hidden"
         role="separator"
         aria-label="Resize side panel"
@@ -336,6 +351,7 @@ export function WorkspaceSurfaces({
         </Button>
         <Button
           className={`${workspaceIconButtonClassName} size-7 min-h-7`}
+          hidden={compact}
           aria-label={expanded ? "Restore side panel size" : "Expand side panel"}
           title={expanded ? "Restore side panel size" : "Expand side panel"}
           onClick={() => setExpanded((value) => !value)}
@@ -408,6 +424,6 @@ export function WorkspaceSurfaces({
           />
         </div>
       )}
-    </aside>
+    </Dialog>
   );
 }

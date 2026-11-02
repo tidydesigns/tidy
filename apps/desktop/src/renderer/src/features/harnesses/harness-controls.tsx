@@ -74,7 +74,7 @@ export function HarnessControls({
             placement="top"
             value={effort ?? ""}
             disabled={disabled}
-            triggerClassName={codeControlClassName}
+            triggerClassName={`${codeControlClassName} effort-trigger`}
             options={[
               ...(!effort ? [{ value: "", label: "Choose effort", disabled: true }] : []),
               ...model.efforts.map((value) => ({
@@ -105,7 +105,7 @@ export function HarnessControls({
           selectionIndicator="none"
           value={effectivePermissionMode(harness, settings.permissionMode)}
           disabled={disabled}
-          triggerClassName={codeControlClassName}
+          triggerClassName={`${codeControlClassName} permission-trigger`}
           options={permissionModes[harness].map((option) => ({
             value: option.value,
             label: option.label,

@@ -1,3 +1,4 @@
+import { runBrowserInputTests } from "./browser-input";
 import type { Draft } from "../../features/composer/machine-context";
 import { runHarnessUsageTests } from "./harness-usage";
 import { runAppUpdateTests } from "./app-update";
@@ -36,6 +37,11 @@ import { RemoteMachines } from "../../features/settings/remote-machines";
 import { Settings } from "../../features/settings/settings";
 import type { MachineBridge } from "../../../../shared/remote";
 import { UserFacingError } from "@tidy/ui/errors";
+import { SelectMenu } from "@tidy/ui/select-menu";
+import { ComposerControls } from "../../features/composer/composer-controls";
+import { HarnessControls } from "../../features/harnesses/harness-controls";
+import { DesktopShell, SidebarToggle, SidebarNavigation } from "../desktop-shell";
+import { WorkspaceSurfaces } from "../../features/workspace/workspace-surfaces";
 import { ProjectSwitcher } from "../../features/workspace/project-switcher";
 import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
 import { SkillPrompt } from "../../features/composer/skill-prompt";
@@ -399,6 +405,289 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run(
+    "workspace sidebar adapts to narrow screens and preserves explicit toggles",
+    async (root) => {
+      flushSync(() =>
+        root.render(
+          <DesktopShell canvasFocused={false}>
+            <SidebarNavigation className="desktop-navigation workspace-header">
+              <SidebarToggle />
+            </SidebarNavigation>
+          </DesktopShell>,
+        ),
+      );
+      const shell = required(host.querySelector<HTMLElement>(".desktop"), "Workspace shell");
+      const narrow = window.matchMedia("(max-width: 800px)").matches;
+      const navigation = required(
+        shell.querySelector<HTMLElement>(".desktop-navigation"),
+        "Navigation",
+      );
+      const collapsed = () => getComputedStyle(navigation).display === "none";
+      check(collapsed() === narrow, "Initial sidebar does not match available width");
+      const toggle = () =>
+        required(
+          shell.querySelector<HTMLButtonElement>(
+            collapsed()
+              ? ".desktop-sidebar-reopen button"
+              : ".desktop-navigation .desktop-sidebar-toggle",
+          ),
+          "Sidebar toggle",
+        ).click();
+      toggle();
+      await until(() => collapsed() !== narrow, "Explicit sidebar toggle");
+      toggle();
+      await until(() => collapsed() === narrow, "Sidebar toggle restores initial state");
+    },
+  );
+
+  await run(
+    "composer controls retain their labels, values and focus across available widths",
+    async (root) => {
+      let rename: (name: string) => void = () => {};
+      function Probe() {
+        const [name, setName] = useState("Standard model");
+        rename = setName;
+        return (
+          <div data-composer-host className="@container/composer flex gap-2" style={{ width: 600 }}>
+            <ComposerControls>
+              <button className="size-8 shrink-0" aria-label="Attach files">
+                +
+              </button>
+              <div className="composer-settings contents">
+                <HarnessControls
+                  harness="codex"
+                  settings={{ model: "default", effort: "low" }}
+                  disabled={false}
+                  catalogs={[
+                    {
+                      connection: { id: "codex", name: "Codex", status: "ready" },
+                      loading: false,
+                      details: {
+                        models: [{ id: "default", name, efforts: ["low", "high"] }],
+                        windows: [],
+                        updatedAt: timestamp,
+                        usagePage: "subscription",
+                      },
+                    },
+                  ]}
+                  onModelChange={() => {}}
+                  onSettingsChange={() => {}}
+                  onRefresh={() => {}}
+                />
+              </div>
+            </ComposerControls>
+            <button className="size-8 shrink-0" aria-label="Send">
+              ↑
+            </button>
+          </div>
+        );
+      }
+      flushSync(() => root.render(<Probe />));
+      const container = required(
+        host.querySelector<HTMLElement>("[data-composer-host]"),
+        "Composer host",
+      );
+      const controls = required(
+        container.querySelector<HTMLElement>(".composer-controls"),
+        "Composer controls",
+      );
+      const model = required(
+        container.querySelector<HTMLButtonElement>(".model-trigger"),
+        "Model control",
+      );
+      const permissions = required(
+        container.querySelector<HTMLButtonElement>(".permission-trigger"),
+        "Permission control",
+      );
+      await until(() => controls.dataset.compactCount === "0", "Full composer labels");
+      permissions.click();
+      await until(() => Boolean(container.querySelector(":popover-open")), "Permissions open");
+      const focused = document.activeElement;
+      container.style.width = "240px";
+      await until(() => controls.dataset.compactCount === "3", "Narrow composer controls");
+      check(
+        model.getBoundingClientRect().width >= 95 && model.getBoundingClientRect().width <= 97,
+        "Model became an icon without a readable label",
+      );
+      check(permissions.getBoundingClientRect().width <= 33, "Permission label did not compact");
+      const label = required(
+        model.querySelector<HTMLElement>("span:not(.model-provider-icon)"),
+        "Model label",
+      );
+      check(
+        getComputedStyle(label).visibility === "visible" && label.clientWidth > 0,
+        "Model label disappeared",
+      );
+      check(document.activeElement === focused, "Compaction lost menu focus");
+      check(container.querySelector(".model-trigger") === model, "Compaction replaced its trigger");
+      flushSync(() => rename("A much longer model name"));
+      await until(
+        () => model.title.includes("A much longer model name"),
+        "Changed selected model label",
+      );
+      container.style.width = "600px";
+      await until(() => controls.dataset.compactCount === "0", "Composer labels restored");
+      check(document.activeElement === focused, "Expansion lost menu focus");
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      await until(
+        () => !container.querySelector(":popover-open"),
+        "Permissions close after expansion",
+      );
+      check(
+        document.activeElement === permissions,
+        "Closing menu did not restore its original trigger",
+      );
+    },
+  );
+
+  await run(
+    "workspace panel preserves chat width on narrow screens and restores focus",
+    async (root) => {
+      const api = {
+        onEvent: () => () => {},
+        repositoryDirectory: async () => ({
+          entries: [{ path: "file.txt", name: "file.txt", kind: "file" as const }],
+          limited: false,
+        }),
+        repositoryChanges: async () => ({
+          repository: true,
+          head: null,
+          changes: [],
+        }),
+        repositoryFile: async () => ({ kind: "unavailable" as const, reason: "missing" as const }),
+      };
+      function Probe() {
+        const [open, setOpen] = useState(false);
+        return (
+          <section
+            className="project-workspace surfaces-workspace"
+            data-panel-open={open}
+            style={{ width: "100%", height: 500 }}
+          >
+            <div data-chat>
+              <button onClick={() => setOpen(true)}>Open panel</button>
+            </div>
+            <WorkspaceSurfaces
+              projectId={projectId}
+              repositoryAPI={api}
+              active={open}
+              open={open}
+              onClose={() => setOpen(false)}
+            />
+          </section>
+        );
+      }
+      flushSync(() => root.render(<Probe />));
+      const chat = required(host.querySelector<HTMLElement>("[data-chat]"), "Conversation");
+      const trigger = required(chat.querySelector<HTMLButtonElement>("button"), "Panel toggle");
+      const width = chat.getBoundingClientRect().width;
+      trigger.focus();
+      trigger.click();
+      const panel = required(
+        host.querySelector<HTMLDialogElement>("#workspace-side-panel"),
+        "Workspace panel",
+      );
+      await until(() => panel.open, "Panel opens");
+      const narrow = window.matchMedia("(max-width: 980px)").matches;
+      check(panel.matches(":modal") === narrow, "Panel presentation does not match viewport");
+      if (narrow)
+        check(
+          Math.abs(chat.getBoundingClientRect().width - width) < 1,
+          "Overlay compressed the conversation",
+        );
+      await until(() => Boolean(panel.querySelector('[role="treeitem"]')), "Files load");
+      required(panel.querySelector<HTMLButtonElement>('[role="treeitem"]'), "File entry").click();
+      await until(
+        () =>
+          Boolean(
+            panel.querySelector(
+              '.repository-file-pane:not([hidden]) [aria-label="Close file preview"]',
+            ),
+          ),
+        "File preview opens",
+      );
+      const explorer = required(
+        panel.querySelector<HTMLElement>(".repository-explorer"),
+        "File explorer",
+      );
+      if (panel.clientWidth <= 420)
+        check(
+          getComputedStyle(explorer).display === "none",
+          "File list compressed the narrow preview",
+        );
+      required(
+        panel.querySelector<HTMLButtonElement>('[aria-label="Close file preview"]'),
+        "Preview close",
+      ).click();
+      await until(
+        () => document.activeElement === panel.querySelector(".repository-tree"),
+        "Closing preview restores file-list focus",
+      );
+      required(
+        panel.querySelector<HTMLButtonElement>('[aria-label="Close side panel"]'),
+        "Panel close",
+      ).click();
+      await until(() => !panel.open, "Panel closes");
+      check(document.activeElement === trigger, "Panel did not return focus to its opener");
+    },
+  );
+
+  await run("browser touch scrolling and soft keyboard editing", runBrowserInputTests);
+
+  await run("open settings menus follow layout resizing without losing focus", async (root) => {
+    flushSync(() =>
+      root.render(
+        <div
+          data-menu-host
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            width: Math.min(600, window.innerWidth - 24),
+          }}
+        >
+          <SelectMenu
+            label="Layout option"
+            value="one"
+            options={[{ value: "one", label: "First option" }]}
+            onChange={() => {}}
+            placement="bottom"
+            align="end"
+            triggerClassName="inline-flex size-8 shrink-0 items-center justify-center"
+            triggerContent={<span aria-hidden="true">A</span>}
+          />
+        </div>,
+      ),
+    );
+    const container = required(host.querySelector<HTMLElement>("[data-menu-host]"), "Menu host");
+    const trigger = required(container.querySelector<HTMLButtonElement>("button"), "Menu trigger");
+    trigger.click();
+    await until(() => Boolean(container.querySelector(":popover-open")), "Settings menu opens");
+    const popup = required(container.querySelector<HTMLElement>(":popover-open"), "Settings menu");
+    const focused = document.activeElement;
+    const triggerWidth = trigger.getBoundingClientRect().width;
+    const aligned = () =>
+      Math.abs(popup.getBoundingClientRect().right - trigger.getBoundingClientRect().right) < 1;
+    await until(aligned, "Initial menu position");
+    for (const width of [
+      Math.min(320, window.innerWidth - 48),
+      Math.min(600, window.innerWidth - 24),
+    ]) {
+      container.style.width = `${width}px`;
+      await until(aligned, "Menu follows its resized layout");
+      check(trigger.getBoundingClientRect().width === triggerWidth, "Trigger size changed");
+      check(document.activeElement === focused, "Resize lost menu focus");
+      check(popup.matches(":popover-open"), "Resize dismissed the menu");
+    }
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await until(() => !popup.matches(":popover-open"), "Escape closes the resized menu");
+    check(document.activeElement === trigger, "Escape did not restore trigger focus");
+  });
 
   await run(
     "thread names edit immediately, cancel cleanly and expose explicit regeneration",

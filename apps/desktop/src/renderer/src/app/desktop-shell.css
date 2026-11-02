@@ -1,4 +1,4 @@
-.desktop-sidebar-hidden > .desktop-navigation {
+.desktop-sidebar-hidden > .desktop-navigation:not(:modal) {
   display: none;
 }
 
@@ -9,7 +9,7 @@
   padding-top: var(--desktop-titlebar-height);
 }
 :root[data-titlebar="hidden"] .desktop::before,
-:root[data-titlebar="hidden"] .desktop-navigation::before {
+:root[data-titlebar="hidden"] .desktop-navigation:not(:modal)::before {
   content: "";
   position: absolute;
   top: 0;
@@ -20,7 +20,7 @@
   width: 100%;
   background: var(--color-panel);
 }
-:root[data-titlebar="hidden"] .desktop-navigation::before {
+:root[data-titlebar="hidden"] .desktop-navigation:not(:modal)::before {
   width: var(--project-sidebar-width);
   border-right: 1px solid var(--color-border);
   background: var(--desktop-navigation-surface);

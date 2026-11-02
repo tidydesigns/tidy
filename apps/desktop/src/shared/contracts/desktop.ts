@@ -211,6 +211,10 @@ export type DesktopAPI = {
     projectId: string,
     path: string,
   ): Promise<import("./repository-files").RepositoryDirectory>;
+  repositorySearch?(
+    projectId: string,
+    query: string,
+  ): Promise<import("./repository-search").RepositorySearch>;
   repositoryChanges?(projectId: string): Promise<import("./repository-files").RepositoryChanges>;
   repositoryFile?(
     projectId: string,

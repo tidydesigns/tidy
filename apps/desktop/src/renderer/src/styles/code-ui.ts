@@ -23,8 +23,11 @@ export const codeMenuClassName = [
   "[&_[data-slot=select-menu-content]]:flex [&_[data-slot=select-menu-content]]:items-center [&_[data-slot=select-menu-content]]:gap-[7px] [&_[data-slot=select-menu-content]>svg]:size-3.5",
 ].join(" ");
 
-export const codeControlClassName =
-  "harness-setting-trigger flex min-h-8 max-w-[185px] cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1.5 text-sm leading-5 text-muted-ink hover:bg-hover-surface [&>svg]:size-4 [&>svg]:shrink-0 max-[1000px]:text-xs max-[700px]:px-1 max-[700px]:text-[11px]";
+export const codeControlClassName = [
+  "harness-setting-trigger flex min-h-8 min-w-8 max-w-[185px] whitespace-nowrap",
+  "data-[compact=true]:justify-center [&[data-compact=true]:not(.model-trigger)>:not(:first-child)]:invisible [&[data-compact=true]:not(.model-trigger)>:not(:first-child)]:absolute [&[data-compact=true]:not(.model-trigger)>:not(:first-child)]:w-max [&[data-compact=true]:not(.model-trigger)>:not(:first-child)]:max-w-none [&[data-compact=true].model-trigger]:w-24 [&[data-compact=true].model-trigger>span:not(.model-provider-icon)]:min-w-0 [&[data-compact=true].model-trigger>svg:last-child]:invisible [&[data-compact=true].model-trigger>svg:last-child]:absolute",
+  "cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1.5 text-sm leading-5 text-muted-ink hover:bg-hover-surface [&>svg]:size-4 [&>svg]:shrink-0 max-[1000px]:text-xs max-[700px]:px-1 max-[700px]:text-[11px]",
+].join(" ");
 
 export const codeContextClassName =
   "flex min-w-0 items-center gap-[7px] text-xs leading-[18px] text-muted-ink [&_svg]:size-[15px] [&_svg]:shrink-0 max-[700px]:gap-[5px] max-[700px]:text-[11px]";

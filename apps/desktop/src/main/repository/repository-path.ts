@@ -13,23 +13,30 @@ export async function checkedRepositoryPath(root: string, value: string, missing
   let target = canonicalRoot;
   for (let index = 0; index < parts.length; index++) {
     target = join(target, parts[index]);
+    let info;
     try {
-      const info = await lstat(target);
-      if (info.isSymbolicLink()) throw new Error("Symbolic links cannot be opened.");
-      if (index < parts.length - 1 && !info.isDirectory())
-        throw new Error("Not a repository folder.");
+      info = await lstat(target);
     } catch (error) {
-      if (missing && error instanceof Error && "code" in error && error.code === "ENOENT") break;
+      if (missing && error instanceof Error && "code" in error && error.code === "ENOENT") {
+        target = join(target, ...parts.slice(index + 1));
+        break;
+      }
       throw error;
     }
+    try {
+      target = await realpath(target);
+      const delta = relative(canonicalRoot, target);
+      if (delta === ".." || delta.startsWith(`..${sep}`) || isAbsolute(delta))
+        throw new Error("Choose a path inside this repository.");
+      repositoryPathSchema.parse(delta.split(sep).join("/"));
+    } catch (error) {
+      if (info.isSymbolicLink()) throw new Error("Symbolic link target cannot be opened.");
+      throw error;
+    }
+    if (index < parts.length - 1 && !(await lstat(target)).isDirectory())
+      throw new Error("Not a repository folder.");
   }
-  target = join(canonicalRoot, path);
-  const actual = await realpath(target).catch(() => target);
-  const delta = relative(canonicalRoot, actual);
-  if (delta === ".." || delta.startsWith(`..${sep}`) || isAbsolute(delta))
-    throw new Error("Choose a path inside this repository.");
-  repositoryPathSchema.parse(delta.split(sep).join("/"));
-  return { root: canonicalRoot, target };
+  return { root: canonicalRoot, target, path };
 }
 
 export async function openRepositoryPath(root: string, path: string, directory = false) {
@@ -44,12 +51,7 @@ export async function openRepositoryPath(root: string, path: string, directory =
       (directory ? (constants.O_DIRECTORY ?? 0) : 0),
   );
   try {
-    const descriptor =
-      process.platform === "linux"
-        ? `/proc/self/fd/${file.fd}`
-        : process.platform === "darwin"
-          ? `/dev/fd/${file.fd}`
-          : checked.target;
+    const descriptor = process.platform === "linux" ? `/proc/self/fd/${file.fd}` : checked.target;
     const actual = await realpath(process.platform === "linux" ? descriptor : checked.target);
     const delta = relative(checked.root, actual);
     if (delta === ".." || delta.startsWith(`..${sep}`) || isAbsolute(delta))
@@ -58,9 +60,32 @@ export async function openRepositoryPath(root: string, path: string, directory =
     const info = await file.stat();
     if (directory ? !info.isDirectory() : !info.isFile())
       throw new Error("Choose a regular repository file or folder.");
+    if (process.platform !== "linux") {
+      // Path-based directory APIs must still refer to the object we opened.
+      // This detects persistent replacements; it cannot make a later pathname lookup atomic.
+      const current = await lstat(checked.target);
+      if (current.isSymbolicLink() || current.dev !== info.dev || current.ino !== info.ino)
+        throw new Error("The project directory moved. Open it again.");
+    }
     return { ...checked, file, info, descriptor };
   } catch (error) {
     await file.close();
     throw error;
+  }
+}
+
+export async function assertRepositoryPathStable(
+  opened: Awaited<ReturnType<typeof openRepositoryPath>>,
+) {
+  const current = await openRepositoryPath(opened.root, opened.path, opened.info.isDirectory());
+  try {
+    if (
+      current.target !== opened.target ||
+      current.info.dev !== opened.info.dev ||
+      current.info.ino !== opened.info.ino
+    )
+      throw new Error("The project directory moved. Open it again.");
+  } finally {
+    await current.file.close();
   }
 }

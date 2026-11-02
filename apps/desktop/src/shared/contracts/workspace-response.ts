@@ -1,3 +1,4 @@
+import { repositorySearchSchema } from "./repository-search";
 import { harnessUsageSchema } from "./harness-usage";
 import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
@@ -68,6 +69,7 @@ export const workspaceResponseSchemas = {
   harnesses: z.array(harnessConnectionSchema),
   "repository-context": repositoryContextSchema,
   "repository-directory": repositoryDirectorySchema,
+  "repository-search": repositorySearchSchema,
   "repository-changes": repositoryChangesSchema,
   "repository-file": repositoryFileSchema,
   "switch-branch": branchSwitchResultSchema,

@@ -5,6 +5,7 @@ import { useSessionState } from "../../app/session-state";
 import { visibleTreeRows, type TreeRow } from "./file-rows";
 import { useVirtualWindow } from "./virtual-window";
 import { useRepositoryFiles, type RepositoryAPI } from "./use-repository-files";
+import { useRepositorySearch } from "./use-repository-search";
 import { useRepositoryScroll, rememberScroll } from "./use-repository-scroll";
 import { ContinuousReview } from "./continuous-review";
 import { FileContent } from "./repository-file-preview";
@@ -71,6 +72,13 @@ export function RepositoryBrowser({
     selected: surface === "files" ? navigation.selected : null,
     expanded: fileExpanded,
   });
+  const search = useRepositorySearch(
+    api,
+    projectId,
+    query,
+    active && view === "files",
+    repository.contentRevision.id,
+  );
   const [focused, setFocused] = useState<string | null>(null);
   const [reveal, setReveal] = useState(0);
   const [treeError, setTreeError] = useState("");
@@ -90,20 +98,14 @@ export function RepositoryBrowser({
   const rows = useMemo<TreeRow[]>(() => {
     const directories = view === "files" ? repository.directories : changeDirectories;
     if (view === "changes" || !query.trim()) return visibleTreeRows(directories, expanded);
-    const entries = [...directories.values()]
-      .flatMap((directory) => directory.entries)
-      .filter(
-        (entry) =>
-          entry.kind !== "directory" &&
-          entry.path.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-      );
+    const entries = search.entries;
     return entries.map((entry, index) => ({
       ...entry,
       depth: 1,
       position: index + 1,
       siblings: entries.length,
     }));
-  }, [view, repository.directories, changeDirectories, expanded, query]);
+  }, [view, repository.directories, changeDirectories, expanded, query, search.entries]);
   const statuses = useMemo(
     () => new Map(repository.changes?.changes.map((change) => [change.path, change])),
     [repository.changes],
@@ -168,6 +170,28 @@ export function RepositoryBrowser({
     repository.changes,
     scrollPositions,
   ]);
+  const panes = useRef<HTMLDivElement>(null);
+  const restoreTreeFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!navigation.selected && restoreTreeFocus.current) {
+      restoreTreeFocus.current = false;
+      virtual.ref.current?.focus();
+    }
+    const node = panes.current;
+    const focused = document.activeElement;
+    if (!node || surface !== "files" || !(focused instanceof HTMLElement)) return;
+    if (
+      navigation.selected &&
+      node.clientWidth <= 420 &&
+      node.querySelector(".repository-explorer")?.contains(focused)
+    )
+      node.querySelector<HTMLButtonElement>(".repository-file-pane:not([hidden]) button")?.focus();
+    else if (
+      !navigation.selected &&
+      node.querySelector(".repository-file-pane[hidden]")?.contains(focused)
+    )
+      virtual.ref.current?.focus();
+  }, [navigation.selected, surface]);
   const typeahead = useRef({ value: "", at: 0 });
   function focusRow(index: number) {
     const row = rows[index];
@@ -378,7 +402,11 @@ export function RepositoryBrowser({
         {!rows.length && (
           <p className="repository-empty" role="status">
             {view === "files" && query.trim()
-              ? "No matching files in loaded folders"
+              ? search.pending
+                ? "Searching files…"
+                : search.error
+                  ? "Search unavailable"
+                  : "No matching files"
               : !repository.directories.has("") && view === "files"
                 ? repository.directoryError
                   ? "Files unavailable"
@@ -395,6 +423,11 @@ export function RepositoryBrowser({
           </p>
         )}
       </div>
+      {view === "files" && query.trim() && search.limited && (
+        <p className="repository-limit" role="status">
+          Search limit reached. Refine your search to find more files.
+        </p>
+      )}
       {limitedFolders.length > 0 && (
         <p className="repository-limit">
           Folder preview limit reached (5,000 entries or 2 MiB). Some files are omitted.
@@ -434,7 +467,9 @@ export function RepositoryBrowser({
   return (
     <div className="repository-browser">
       <div
-        className="repository-panes"
+        ref={panes}
+        className="repository-panes @max-[420px]/repository-surface:[&[data-file-preview=true]>.repository-explorer]:hidden"
+        data-file-preview={surface === "files" && Boolean(navigation.selected)}
         data-preview={surface === "diff" || Boolean(navigation.selected) || undefined}
       >
         <div className="repository-file-pane" hidden={surface !== "diff"}>
@@ -479,7 +514,10 @@ export function RepositoryBrowser({
               className="quiet-button repository-icon-button"
               aria-label="Close file preview"
               title="Close file preview"
-              onClick={() => setNavigation((current) => ({ ...current, selected: null }))}
+              onClick={() => {
+                restoreTreeFocus.current = true;
+                setNavigation((current) => ({ ...current, selected: null }));
+              }}
             >
               <RepositoryIcon name="close" />
             </Button>
@@ -527,8 +565,9 @@ export function RepositoryBrowser({
                 <input
                   type="search"
                   className="repository-search w-full min-w-0 flex-1 border-0 bg-transparent px-0 py-[3px] text-[12px] text-ink outline-none focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-(--color-control-border)"
-                  aria-label="Search loaded files"
-                  placeholder="Search loaded files"
+                  aria-label="Search files"
+                  placeholder="Search files"
+                  maxLength={256}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -566,7 +605,9 @@ export function RepositoryBrowser({
                 </Button>
               )}
             </div>
-            {errorNotice(treeError || (view === "files" ? repository.directoryError : ""))}
+            {errorNotice(
+              treeError || (view === "files" ? search.error || repository.directoryError : ""),
+            )}
             {treePane}
           </div>
         </RepositoryExplorer>

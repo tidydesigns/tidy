@@ -59,6 +59,7 @@ export const repositoryFileSchema = z.discriminatedUnion("kind", [
     view: z.enum(["diff", "file"]),
     comparison: z.enum(["head", "empty", "unborn", "none"]),
     deleted: z.literal(true).optional(),
+    truncated: z.literal(true).optional(),
   }),
   z.object({
     kind: z.literal("unavailable"),

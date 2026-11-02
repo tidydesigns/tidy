@@ -483,7 +483,12 @@ export class RemoteClient {
       return Promise.reject(new Error("Remote machine is disconnected. Wait for reconnection."));
     if (
       !this.supportsRepositoryFiles &&
-      ["repository-directory", "repository-changes", "repository-file"].includes(name)
+      [
+        "repository-directory",
+        "repository-search",
+        "repository-changes",
+        "repository-file",
+      ].includes(name)
     )
       return Promise.reject(
         new Error(

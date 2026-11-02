@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { z } from "zod";
 import { execFile } from "node:child_process";
 import {
   access,
@@ -18,14 +19,20 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { repositoryPathSchema } from "../../shared/contracts/repository-files";
+import { pathToFileURL } from "node:url";
+import {
+  repositoryPathSchema,
+  repositoryDirectorySchema,
+  repositoryChangesSchema,
+  repositoryFileSchema,
+} from "../../shared/contracts/repository-files";
 import {
   RepositoryObservers,
   readRepositoryDirectory,
   readRepositoryChanges,
   readRepositoryFile,
 } from "./repository-files";
-import { openRepositoryPath } from "./repository-path";
+import { assertRepositoryPathStable, openRepositoryPath } from "./repository-path";
 import { createGitView, closeGitView, closeGitSnapshots } from "./repository-git";
 import { prepareFileRows } from "../../renderer/src/features/repository/file-rows";
 
@@ -102,15 +109,23 @@ test("raw previews retain path confinement and file limits without Git", async (
   await writeFile(join(root, "empty"), "");
   await expect(readRepositoryFile(root, "../file.txt", undefined, "file")).rejects.toThrow();
   for (const [path, reason] of [
-    ["link.txt", "symlink"],
     ["binary", "binary"],
-    ["large", "oversized"],
     ["missing", "missing"],
   ] as const)
     expect(await readRepositoryFile(root, path, undefined, "file")).toEqual({
       kind: "unavailable",
       reason,
     });
+  expect(await readRepositoryFile(root, "link.txt", undefined, "file")).toEqual(
+    await readRepositoryFile(root, "file.txt", undefined, "file"),
+  );
+  expect(await readRepositoryFile(root, "large", undefined, "file")).toEqual({
+    kind: "text",
+    text: "x".repeat(1024 * 1024),
+    view: "file",
+    comparison: "none",
+    truncated: true,
+  });
   expect(await readRepositoryFile(root, "empty", undefined, "file")).toEqual({
     kind: "text",
     text: "",
@@ -200,7 +215,7 @@ test("handles deleted files, staged renames, untracked files and unborn HEAD", a
   });
 });
 
-test("rejects traversal, metadata, parent symlinks, binary and special files", async () => {
+test("rejects traversal, metadata, escaping parent symlinks, binary and special files", async () => {
   const { root } = await fixture();
   for (const path of [
     "../file",
@@ -1004,4 +1019,159 @@ test("fixture Git commands ignore inherited repository and index locations", asy
       else process.env[key] = value;
     }
   }
+});
+
+test("native Node runtime supports directory listing and Git previews", async () => {
+  const { root } = await fixture();
+  await mkdir(join(root, "nested"));
+  await writeFile(join(root, "nested/new.txt"), "new file\n");
+  await symlink("nested", join(root, "alias"));
+  await writeFile(join(root, "file.txt"), "changed\nlast\n");
+  const module = pathToFileURL(join(import.meta.dirname, "repository-files.ts")).href;
+  const script = `
+    const { readRepositoryDirectory, readRepositoryChanges, readRepositoryFile } = await import(${JSON.stringify(module)});
+    const { closeGitSnapshots } = await import(${JSON.stringify(pathToFileURL(join(import.meta.dirname, "repository-git.ts")).href)});
+    const root = ${JSON.stringify(root)};
+    const directory = await readRepositoryDirectory(root, "alias");
+    const changes = await readRepositoryChanges(root);
+    const file = await readRepositoryFile(root, "file.txt");
+    const alias = await readRepositoryFile(root, "alias/new.txt", undefined, "file");
+    await closeGitSnapshots();
+    console.log(JSON.stringify({ directory, changes, file, alias }));
+  `;
+  const index = await readFile(join(root, ".git/index"));
+  const result = await execute(
+    "node",
+    ["--import", import.meta.resolve("tsx"), "--input-type=module", "--eval", script],
+    { env: gitEnvironment() },
+  );
+  expect(await readFile(join(root, ".git/index"))).toEqual(index);
+  const value = z
+    .object({
+      directory: repositoryDirectorySchema,
+      changes: repositoryChangesSchema,
+      file: repositoryFileSchema,
+      alias: repositoryFileSchema,
+    })
+    .parse(JSON.parse(result.stdout));
+  expect(value.directory.entries).toContainEqual({
+    path: "alias/new.txt",
+    name: "new.txt",
+    kind: "file",
+  });
+  expect(value.changes.changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "modified",
+  });
+  expect(value.alias).toEqual({
+    kind: "text",
+    text: "new file\n",
+    view: "file",
+    comparison: "none",
+  });
+  expect(value.file).toMatchObject({ kind: "text", view: "diff" });
+  expect(value.file.kind === "text" && value.file.text).toContain("+changed");
+});
+
+test.each(["file", "directory"] as const)(
+  "%s identity validation rejects replacements and symlink aliases",
+  async (kind) => {
+    const { root } = await fixture();
+    const create = () =>
+      kind === "directory"
+        ? mkdir(join(root, "nested"))
+        : writeFile(join(root, "nested"), "preview content");
+    await create();
+    const opened = await openRepositoryPath(root, "nested", kind === "directory");
+    try {
+      await assertRepositoryPathStable(opened);
+      await rename(join(root, "nested"), join(root, "held"));
+      await create();
+      await expect(assertRepositoryPathStable(opened)).rejects.toThrow("project directory");
+      await rm(join(root, "nested"), { recursive: true });
+      await symlink(join(root, "held"), join(root, "nested"));
+      await expect(assertRepositoryPathStable(opened)).rejects.toThrow("project directory");
+    } finally {
+      await opened.file.close();
+    }
+  },
+);
+
+test("browses confined file and directory links while keeping unsafe links unavailable", async () => {
+  const { root } = await fixture();
+  await mkdir(join(root, "source"));
+  await writeFile(join(root, "source/note.txt"), "linked content");
+  await writeFile(join(root, "source/ignored.txt"), "ignored");
+  await writeFile(join(root, ".gitignore"), "source/ignored.txt\n");
+  await symlink("source", join(root, "alias"));
+  await symlink("alias/note.txt", join(root, "note.txt"));
+  await symlink(".git/config", join(root, "metadata"));
+  await symlink("missing.txt", join(root, "dangling"));
+  await symlink("cycle", join(root, "cycle"));
+  const listing = await readRepositoryDirectory(root, "");
+  for (const [name, kind] of [
+    ["alias", "directory"],
+    ["note.txt", "file"],
+    ["metadata", "symlink"],
+    ["dangling", "symlink"],
+    ["cycle", "symlink"],
+  ] as const)
+    expect(listing.entries).toContainEqual({ name, path: name, kind });
+  const aliasedDirectory = await readRepositoryDirectory(root, "alias");
+  expect(aliasedDirectory.ignoreUnavailable).toBeUndefined();
+  expect(aliasedDirectory.entries.map((entry) => entry.name)).toEqual(["note.txt"]);
+  expect(aliasedDirectory.entries).toContainEqual({
+    name: "note.txt",
+    path: "alias/note.txt",
+    kind: "file",
+  });
+  expect(await readRepositoryFile(root, "note.txt", undefined, "file")).toEqual({
+    kind: "text",
+    text: "linked content",
+    view: "file",
+    comparison: "none",
+  });
+  expect(await readRepositoryFile(root, "note.txt")).toEqual({
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+  for (const path of ["metadata", "dangling", "cycle"])
+    expect(await readRepositoryFile(root, path, undefined, "file")).toEqual({
+      kind: "unavailable",
+      reason: "symlink",
+    });
+  const opened = await openRepositoryPath(root, "note.txt");
+  try {
+    await rm(join(root, "alias"));
+    await symlink(".", join(root, "alias"));
+    await expect(assertRepositoryPathStable(opened)).rejects.toThrow();
+  } finally {
+    await opened.file.close();
+  }
+});
+
+test("truncates text previews at a complete UTF-8 character without presenting partial diffs", async () => {
+  const { root } = await fixture();
+  const prefix = "x".repeat(1024 * 1024 - 1);
+  await writeFile(join(root, "large.txt"), prefix + "€tail");
+  expect(await readRepositoryFile(root, "large.txt", undefined, "file")).toEqual({
+    kind: "text",
+    text: prefix,
+    view: "file",
+    comparison: "none",
+    truncated: true,
+  });
+  expect(await readRepositoryFile(root, "large.txt")).toEqual({
+    kind: "unavailable",
+    reason: "oversized",
+  });
+  await writeFile(join(root, "large.txt"), "x".repeat(1024 * 1024));
+  const complete = await readRepositoryFile(root, "large.txt", undefined, "file");
+  expect(complete.kind === "text" && complete.truncated).toBeUndefined();
+  await writeFile(join(root, "large.txt"), Buffer.alloc(1024 * 1024 + 1, 0x80));
+  expect(await readRepositoryFile(root, "large.txt", undefined, "file")).toEqual({
+    kind: "unavailable",
+    reason: "binary",
+  });
 });

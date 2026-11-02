@@ -139,6 +139,8 @@ export function SelectMenu({
     position();
     const resize = new ResizeObserver(() => position());
     resize.observe(popup);
+    for (let ancestor: HTMLElement | null = anchor; ancestor; ancestor = ancestor.parentElement)
+      resize.observe(ancestor);
     const preferred = popup.querySelector<HTMLElement>("[data-select-initial]");
     const active =
       (preferred && !preferred.closest("details:not([open])") ? preferred : null) ??

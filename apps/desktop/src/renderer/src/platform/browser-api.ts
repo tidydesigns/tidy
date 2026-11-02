@@ -18,9 +18,12 @@ async function request<Name extends WorkspaceOperation>(
   file?: { name: string; document: unknown },
   projectPath?: string,
 ): Promise<WorkspaceResponse<Name>> {
-  const repositoryRead = ["repository-directory", "repository-changes", "repository-file"].includes(
-    name,
-  );
+  const repositoryRead = [
+    "repository-directory",
+    "repository-search",
+    "repository-changes",
+    "repository-file",
+  ].includes(name);
   const controller = repositoryRead ? new AbortController() : undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const operation = async () => {
@@ -36,7 +39,12 @@ async function request<Name extends WorkspaceOperation>(
       return parseWorkspaceResponse(name, await response.json());
     } catch (error) {
       if (
-        ["repository-directory", "repository-changes", "repository-file"].includes(name) &&
+        [
+          "repository-directory",
+          "repository-search",
+          "repository-changes",
+          "repository-file",
+        ].includes(name) &&
         error instanceof Error &&
         error.message === "Unknown desktop request."
       )
@@ -169,6 +177,7 @@ const api: DesktopAPI = {
   },
   checkHarnesses: () => request("harnesses"),
   repositoryDirectory: (projectId, path) => request("repository-directory", { projectId, path }),
+  repositorySearch: (projectId, query) => request("repository-search", { projectId, query }),
   repositoryChanges: (projectId) => request("repository-changes", { projectId }),
   repositoryFile: (projectId, path, previousPath, view) =>
     request("repository-file", { projectId, path, previousPath, view }),

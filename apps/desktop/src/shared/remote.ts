@@ -149,6 +149,7 @@ const remoteReadOperations = new Set([
   "refresh-design",
   "repository-context",
   "repository-directory",
+  "repository-search",
   "repository-changes",
   "repository-file",
   "skills",

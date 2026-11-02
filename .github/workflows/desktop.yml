@@ -52,6 +52,11 @@ jobs:
           bun test
           apps/desktop/src/main/platform/project-video-file.test.ts
           apps/desktop/src/main/workspace/video-preview.test.ts
+      - name: Test native repository browsing and Git previews
+        run: >-
+          bun test
+          apps/desktop/src/main/repository/repository-files.test.ts
+          apps/desktop/src/main/repository/repository-search.test.ts
       - run: bun run build:desktop
       - if: runner.os == 'Linux'
         run: |

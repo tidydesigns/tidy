@@ -360,6 +360,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
     checkHarnesses: () => scopedRequest("harnesses"),
     repositoryDirectory: (projectId, path) =>
       scopedRequest("repository-directory", { projectId, path }),
+    repositorySearch: (projectId, query) =>
+      scopedRequest("repository-search", { projectId, query }),
     repositoryChanges: (projectId) => scopedRequest("repository-changes", { projectId }),
     repositoryFile: (projectId, path, previousPath, view) =>
       scopedRequest("repository-file", { projectId, path, previousPath, view }),
