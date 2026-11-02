@@ -345,6 +345,7 @@ export const Conversation = memo(function Conversation({
   const tooltip = useRef<HTMLDivElement>(null);
   const following = useRef(positions.get(identity)?.following ?? true);
   const scrollTarget = useRef<number | undefined>(undefined);
+  const lastScrollTop = useRef(0);
   const initialized = useRef(false);
   const restorePosition = useRef(true);
   const visible = useRef(active);
@@ -429,6 +430,7 @@ export const Conversation = memo(function Conversation({
     if (!element) return;
     element.scrollTop = top;
     scrollTarget.current = element.scrollTop;
+    lastScrollTop.current = element.scrollTop;
   }
   function cancelJump() {
     cancelAnimationFrame(jumpFrame.current);
@@ -610,7 +612,7 @@ export const Conversation = memo(function Conversation({
         onScroll={(event) => {
           if (!visible.current || !event.currentTarget.clientHeight) return;
           const element = event.currentTarget;
-          const previousTop = positions.get(identity)?.top ?? element.scrollTop;
+          const previousTop = lastScrollTop.current;
           const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
           const atEnd = distance <= 40;
           const programmatic =
@@ -624,6 +626,7 @@ export const Conversation = memo(function Conversation({
             if (element.scrollTop < previousTop && distance > 1) following.current = false;
             else if (element.scrollTop > previousTop && atEnd) following.current = true;
           }
+          lastScrollTop.current = element.scrollTop;
           rememberPosition(element);
           cancelAnimationFrame(frame.current);
           frame.current = requestAnimationFrame(() => measureRef.current());

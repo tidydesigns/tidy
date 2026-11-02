@@ -2214,6 +2214,37 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     );
   });
 
+  await run("downward scrolling resumes following across a pending thread update", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    render({ selected: a.id });
+    await until(
+      () => Boolean(host.querySelector<HTMLDivElement>(".transcript")?.clientHeight),
+      "Scrollable transcript",
+    );
+    await settle();
+    const viewport = visibleTranscript();
+    viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100 }));
+    viewport.scrollTop -= 100;
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    check(host.querySelector(".latest-message"), "Upward scrolling did not pause following");
+
+    viewport.scrollTop = viewport.scrollHeight;
+    // An update measures the new offset before the browser handles the downward scroll.
+    threads[a.id] = { ...a, revision: 2, messages: [...a.messages] };
+    render({ selected: a.id });
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    const content = required(viewport.querySelector(".conversation-content"), "Content");
+    const delayed = document.createElement("div");
+    delayed.style.height = "200px";
+    content.append(delayed);
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2,
+      "Following resumes after a thread update precedes the downward scroll event",
+    );
+  });
+
   await run("a cold thread fills its existing selected view when data arrives", async (root) => {
     const { a, threads, render } = conversationFixture(root);
     delete threads[a.id];
