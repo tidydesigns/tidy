@@ -1,4 +1,5 @@
 import { repositorySearchSchema } from "./repository-search";
+import { mobileStateSchema, mobileFrameSchema } from "./mobile";
 import { harnessUsageSchema } from "./harness-usage";
 import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
@@ -47,6 +48,10 @@ export const projectSetupResultSchema = z.discriminatedUnion("kind", [
 export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 export const workspaceResponseSchemas = {
+  "mobile-state": mobileStateSchema,
+  "mobile-command": mobileStateSchema,
+  "mobile-frame": mobileFrameSchema.nullable(),
+  "mobile-input": z.void(),
   "terminal-close": z.void(),
   "browser-state": browserStateSchema,
   "browser-discard-draft": z.void(),

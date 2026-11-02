@@ -128,6 +128,8 @@ export type RemoteBridge = {
 };
 
 const remoteReadOperations = new Set([
+  "mobile-state",
+  "mobile-frame",
   "browser-state",
   "browser-query",
   "project-directories",
@@ -160,6 +162,8 @@ const remoteReadOperations = new Set([
   "receipt",
 ]);
 export function isRemoteMutation(name: string) {
+  // Ephemeral device input must never be persisted or replayed after reconnecting.
+  if (name === "mobile-input") return false;
   return !remoteReadOperations.has(name);
 }
 export const requestReceiptSchema = z.discriminatedUnion("kind", [

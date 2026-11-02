@@ -30,6 +30,7 @@
     "test:terminal": "bun run build && env -u ELECTRON_RUN_AS_NODE electron scripts/terminal-smoke.mjs"
   },
   "dependencies": {
+    "@grpc/grpc-js": "1.14.7",
     "@lydell/node-pty": "1.1.0",
     "@modelcontextprotocol/server": "2.3.1",
     "@puppeteer/browsers": "3.2.6",
@@ -37,8 +38,11 @@
     "@tidy/design-renderer": "workspace:*",
     "@tidy/editor": "workspace:*",
     "@tidy/ui": "workspace:*",
-    "mdast-util-from-markdown": "2.1.0",
     "ghostty-web": "0.4.0",
+    "highlight.js": "11.11.2",
+    "lowlight": "3.3.0",
+    "mdast-util-from-markdown": "2.1.0",
+    "protobufjs": "8.8.1",
     "puppeteer-core": "25.16.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -46,9 +50,7 @@
     "remark-gfm": "4.0.1",
     "simple-icons": "16.35.0",
     "ws": "8.21.0",
-    "zod": "^4.6.6",
-    "highlight.js": "11.11.2",
-    "lowlight": "3.3.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@electron/fuses": "2.1.3",

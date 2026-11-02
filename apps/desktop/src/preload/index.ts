@@ -193,6 +193,12 @@ function workspaceApi(machineId?: string): DesktopAPI {
   return {
     terminal: terminalApi(machineId),
     browser: browserApi(machineId),
+    mobile: {
+      state: (input) => scopedRequest("mobile-state", input),
+      command: (input) => scopedRequest("mobile-command", input),
+      frame: (input) => scopedRequest("mobile-frame", input),
+      input: (input) => scopedRequest("mobile-input", input),
+    },
     projectDirectories: (path) => scopedRequest("project-directories", path),
     projectCheckouts: (projectId) => scopedRequest("project-checkouts", projectId),
     setupProject: (input) => scopedRequest("setup-project", input),

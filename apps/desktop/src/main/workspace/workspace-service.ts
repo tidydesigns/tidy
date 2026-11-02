@@ -34,6 +34,7 @@ import { ThreadPorts } from "../processes/thread-ports";
 import { RepositoryObservers } from "../repository/repository-files";
 import { closeGitSnapshots } from "../repository/repository-git";
 import { TerminalService } from "../terminal/terminal-service";
+import { MobileService } from "../mobile/mobile-service";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
@@ -135,6 +136,13 @@ type FinishJobRequest = { job: Job } & (
 );
 
 export class WorkspaceService {
+  readonly mobile = new MobileService(async (projectId) => {
+    if (this.closing) throw new Error("Tidy is closing.");
+    await this.assertProjectAccess(projectId);
+    const project = this.store.project(projectId);
+    if (project.cloud) throw new Error("Choose a connected code project for device previews.");
+    return project.path;
+  });
   readonly terminal = new TerminalService(async (projectId, threadId, threadProjectId) => {
     if (this.closing) throw new Error("Tidy is closing.");
     await this.assertProjectAccess(projectId);
@@ -605,6 +613,7 @@ export class WorkspaceService {
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
     this.terminal.removeProject(projectId);
+    this.mobile.removeProject(projectId);
     await this.browser.removeProject(projectId);
     this.repositoryObservers.forget(projectId);
     this.sessionGeneration++;
@@ -2748,6 +2757,7 @@ export class WorkspaceService {
     this.closing = "quit";
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));
     await this.terminal.close();
+    await this.mobile.close();
     await this.drainRequests(requestDrainTimeoutMs);
     this.repositoryObservers.close();
     for (const watcher of this.watchers.values()) watcher.close();

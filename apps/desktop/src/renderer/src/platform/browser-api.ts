@@ -100,6 +100,12 @@ function remember<T extends ProjectSnapshot | null>(snapshot: T): T {
 }
 
 const api: DesktopAPI = {
+  mobile: {
+    state: (input) => request("mobile-state", input),
+    command: (input) => request("mobile-command", input),
+    frame: (input) => request("mobile-frame", input),
+    input: (input) => request("mobile-input", input),
+  },
   projectDirectories: (path) => request("project-directories", path),
   projectCheckouts: (projectId) => request("project-checkouts", projectId),
   setupProject: (input) => request("setup-project", input),

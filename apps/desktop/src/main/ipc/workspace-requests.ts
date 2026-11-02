@@ -1,5 +1,11 @@
 import { threadModeSchema } from "../../shared/contracts/thread-workspace";
 import { searchRepositoryFiles } from "../repository/repository-search";
+import {
+  mobileStateRequestSchema,
+  mobileCommandSchema,
+  mobileFrameRequestSchema,
+  mobileInputSchema,
+} from "../../shared/contracts/mobile";
 import { repositorySearchQuerySchema } from "../../shared/contracts/repository-search";
 import { threadCompletionSchema } from "../../shared/contracts/thread-completion";
 import { readHarnessUsage } from "../harnesses/harness-usage";
@@ -99,6 +105,10 @@ export function createWorkspaceRequests<Context>(
     z.object({ projectId: uuid, threadId: uuid, taskId: uuid }).strict(),
     (input) => service.cancelThreadTask(input.projectId, input.threadId, input.taskId),
   );
+  handle("mobile-state", mobileStateRequestSchema, (input) => service.mobile.state(input));
+  handle("mobile-command", mobileCommandSchema, (input) => service.mobile.command(input));
+  handle("mobile-frame", mobileFrameRequestSchema, (input) => service.mobile.frame(input));
+  handle("mobile-input", mobileInputSchema, (input) => service.mobile.input(input));
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
   handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId, terminalId }) =>
     service.terminal.end(projectId, sessionId, terminalId),

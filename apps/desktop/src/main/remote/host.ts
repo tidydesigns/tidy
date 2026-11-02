@@ -21,6 +21,7 @@ export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
 const hostCapabilities = [
   "browser-v2",
+  "mobile-preview-v1",
   "browser-draft-discard",
   "thread-naming",
   "repository-files",
@@ -164,11 +165,13 @@ export function createRemoteHost({
         if (
           service.activeRunCount > 0 ||
           service.browser.activeCount > 0 ||
+          service.mobile.activeCount > 0 ||
           service.terminal.activeCount > 0 ||
           inflight > 0
         )
           return send(409, {
-            error: "Finish active runs and close browser tabs and terminals before updating.",
+            error:
+              "Finish active runs and disconnect device previews, browser tabs and terminals before updating.",
           });
         if (!draining) {
           draining = true;

@@ -50,6 +50,7 @@ export class RemoteClient {
   private supportsRepositoryFiles = false;
   private supportsRepositorySearch = false;
   private capabilities: string[] = [];
+  private supportsMobilePreview = false;
   private connection?: RemoteConnection;
   private pending = new Map<
     string,
@@ -475,7 +476,7 @@ export class RemoteClient {
     input?: unknown,
     context?: Pick<RemoteRequest, "projectPath" | "file">,
   ): Promise<unknown> {
-    if (isRemoteMutation(name) && this.current.kind !== "connected")
+    if ((isRemoteMutation(name) || name === "mobile-input") && this.current.kind !== "connected")
       return Promise.reject(
         new Error(
           "Wait until the remote machine reconnects and finishes syncing before making changes.",
@@ -483,6 +484,12 @@ export class RemoteClient {
       );
     if (this.closed || this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(new Error("Remote machine is disconnected. Wait for reconnection."));
+    if (name.startsWith("mobile-") && !this.supportsMobilePreview)
+      return Promise.reject(
+        new Error(
+          "Device previews need a backend update. Update this machine in Settings → Remote machines, then reconnect.",
+        ),
+      );
     if (
       (name === "repository-search" && !this.supportsRepositorySearch) ||
       (!this.supportsRepositoryFiles &&
@@ -696,6 +703,7 @@ export class RemoteClient {
           if (greeted || frame.hostId !== this.hostId)
             throw new Error("Unexpected remote identity.");
           this.supportsThreadNaming = frame.capabilities?.includes("thread-naming") ?? false;
+          this.supportsMobilePreview = frame.capabilities?.includes("mobile-preview-v1") ?? false;
           this.supportsRepositoryFiles = frame.capabilities?.includes("repository-files") ?? false;
           this.supportsRepositorySearch =
             frame.capabilities?.includes("repository-search") ?? false;
@@ -774,6 +782,7 @@ export class RemoteClient {
     this.supportsRepositoryFiles = false;
     this.supportsRepositorySearch = false;
     this.capabilities = [];
+    this.supportsMobilePreview = false;
     clearTimeout(this.establishmentTimer);
     clearTimeout(this.synchronizationTimer);
     clearTimeout(this.probeState?.timer);

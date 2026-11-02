@@ -18,6 +18,8 @@ import { RepositoryIcon } from "../repository/repository-icons";
 import type { RepositoryBrowser as RepositoryComponent } from "../repository/repository-browser";
 import type { RepositoryAPI } from "../repository/use-repository-files";
 import type { BrowserWorkspace as BrowserComponent } from "../browser/browser-workspace";
+import type { MobileWorkspace as MobileComponent } from "../mobile/mobile-workspace";
+import { DeviceGlyph } from "../mobile/device-glyph";
 
 const RepositoryBrowser = lazyView<ComponentProps<typeof RepositoryComponent>>(
   () =>
@@ -31,10 +33,15 @@ const BrowserWorkspace = lazyView<ComponentProps<typeof BrowserComponent>>(
     import("../browser/browser-workspace").then((module) => ({ default: module.BrowserWorkspace })),
   { label: "browser" },
 );
-const surfaceSchema = z.enum(["files", "diff", "browser"]);
+const MobileWorkspace = lazyView<ComponentProps<typeof MobileComponent>>(
+  () =>
+    import("../mobile/mobile-workspace").then((module) => ({ default: module.MobileWorkspace })),
+  { label: "devices" },
+);
+const surfaceSchema = z.enum(["files", "diff", "browser", "devices"]);
 const panelSchema = z
   .object({
-    tabs: z.array(surfaceSchema).max(3),
+    tabs: z.array(surfaceSchema).max(4),
     active: surfaceSchema.nullable(),
   })
   .refine(
@@ -50,12 +57,16 @@ export type BrowserSurface = Omit<
 >;
 const workspaceIconButtonClassName =
   "workspace-icon-button grid shrink-0 cursor-pointer place-items-center rounded-[5px] border-0 bg-transparent p-0 text-[12px] text-muted-ink hover:bg-(--color-hover-surface) hover:text-ink active:scale-[0.96]";
-const labels = { files: "Files", diff: "Changes", browser: "Browser" } satisfies Record<
-  Surface,
-  string
->;
+const labels = {
+  files: "Files",
+  diff: "Changes",
+  browser: "Browser",
+  devices: "Devices",
+} satisfies Record<Surface, string>;
 function SurfaceIcon({ surface }: { surface: Surface }) {
-  return surface === "files" ? (
+  return surface === "devices" ? (
+    <DeviceGlyph size={14} />
+  ) : surface === "files" ? (
     <Icon name="folder" size={14} />
   ) : surface === "diff" ? (
     <RepositoryIcon name="diff" />
@@ -67,6 +78,7 @@ export function WorkspaceSurfaces({
   projectId,
   repositoryAPI,
   browser,
+  mobile,
   active,
   open,
   request,
@@ -75,6 +87,7 @@ export function WorkspaceSurfaces({
   projectId: string;
   repositoryAPI?: RepositoryAPI;
   browser?: BrowserSurface;
+  mobile?: Omit<ComponentProps<typeof MobileComponent>, "active" | "projectId">;
   active: boolean;
   open: boolean;
   request?: SurfaceRequest;
@@ -95,6 +108,7 @@ export function WorkspaceSurfaces({
   );
   const [expanded, setExpanded] = useState(false);
   const [repositoryMounted, setRepositoryMounted] = useState(false);
+  const [mobileMounted, setMobileMounted] = useState(false);
   const [browserMounted, setBrowserMounted] = useState<string | null>(null);
   const pane = useRef<HTMLDialogElement>(null);
   const compact = useMediaQuery("(max-width: 980px)");
@@ -103,10 +117,12 @@ export function WorkspaceSurfaces({
   const resizing = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const browserKey = browser ? `${browser.scope.projectId}:${browser.scope.threadId}` : null;
   const hasBrowser = Boolean(browser),
+    hasMobile = Boolean(mobile),
     hasRepository = Boolean(repositoryAPI);
   const available = useCallback(
-    (surface: Surface) => (surface === "browser" ? hasBrowser : hasRepository),
-    [hasBrowser, hasRepository],
+    (surface: Surface) =>
+      surface === "devices" ? hasMobile : surface === "browser" ? hasBrowser : hasRepository,
+    [hasBrowser, hasRepository, hasMobile],
   );
   const selected = panel.active && available(panel.active) ? panel.active : null;
   const tabs = panel.tabs.filter(available);
@@ -125,6 +141,7 @@ export function WorkspaceSurfaces({
   }, [request?.id, openSurface]);
   useEffect(() => {
     if (selected === "browser") setBrowserMounted(browserKey);
+    else if (selected === "devices") setMobileMounted(true);
     else if (selected) setRepositoryMounted(true);
   }, [selected, browserKey]);
   const previousFocus = useRef({ open: false });
@@ -142,6 +159,7 @@ export function WorkspaceSurfaces({
     if (opening && tabs.length === 0 && !request) {
       if (hasRepository) openSurface("files");
       else if (hasBrowser) openSurface("browser");
+      else if (hasMobile) openSurface("devices");
     }
     const changed = opening || focusRequest !== handledFocusRequest.current;
     previousFocus.current = { open };
@@ -157,6 +175,7 @@ export function WorkspaceSurfaces({
     request,
     hasRepository,
     hasBrowser,
+    hasMobile,
     openSurface,
   ]);
   useLayoutEffect(() => {
@@ -284,7 +303,13 @@ export function WorkspaceSurfaces({
                   openSurface(surface);
                 }}
                 onPointerEnter={() => {
-                  void (surface === "browser" ? BrowserWorkspace : RepositoryBrowser)
+                  void (
+                    surface === "devices"
+                      ? MobileWorkspace
+                      : surface === "browser"
+                        ? BrowserWorkspace
+                        : RepositoryBrowser
+                  )
                     .preload()
                     .catch(() => {});
                 }}
@@ -373,7 +398,7 @@ export function WorkspaceSurfaces({
           aria-label="Open a tab"
         >
           <div className="row-start-2 grid w-full max-w-56 gap-1">
-            {(["files", "diff", "browser"] as const).filter(available).map((surface) => (
+            {(["files", "diff", "browser", "devices"] as const).filter(available).map((surface) => (
               <Button
                 key={surface}
                 className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-[13px] text-(--color-secondary-ink) hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-control-border) [&>svg]:size-[18px] [&>svg]:shrink-0 [&>svg]:text-muted-ink"
@@ -382,7 +407,13 @@ export function WorkspaceSurfaces({
                   openSurface(surface);
                 }}
                 onPointerEnter={() => {
-                  void (surface === "browser" ? BrowserWorkspace : RepositoryBrowser)
+                  void (
+                    surface === "devices"
+                      ? MobileWorkspace
+                      : surface === "browser"
+                        ? BrowserWorkspace
+                        : RepositoryBrowser
+                  )
                     .preload()
                     .catch(() => {});
                 }}
@@ -404,6 +435,21 @@ export function WorkspaceSurfaces({
             projectId={projectId}
             active={active && (selected === "files" || selected === "diff")}
             surface={selected === "diff" ? "diff" : "files"}
+          />
+        </div>
+      )}
+      {mobile && (mobileMounted || selected === "devices") && (
+        <div
+          id="workspace-surface-devices"
+          className="workspace-surface-content flex min-h-0 min-w-0 flex-1 overflow-hidden"
+          role="tabpanel"
+          aria-labelledby="workspace-tab-devices"
+          hidden={selected !== "devices"}
+        >
+          <MobileWorkspace
+            {...mobile}
+            projectId={projectId}
+            active={active && selected === "devices"}
           />
         </div>
       )}

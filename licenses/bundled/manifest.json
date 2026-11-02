@@ -494,5 +494,65 @@
   "@modelcontextprotocol/core": {
     "source": "LICENSE",
     "notice": "MCP-core.txt"
+  },
+  "@grpc/grpc-js": {
+    "source": "LICENSE",
+    "notice": "grpc-grpc-js.txt"
+  },
+  "@js-sdsl/ordered-map": {
+    "source": "LICENSE",
+    "notice": "js-sdsl-ordered-map.txt"
+  },
+  "lodash.camelcase": {
+    "source": "LICENSE",
+    "notice": "lodash.camelcase.txt"
+  },
+  "@protobufjs/aspromise": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/base64": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/eventemitter": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/float": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/utf8": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/pool": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "protobufjs": {
+    "source": "LICENSE",
+    "notice": "protobufjs.txt"
+  },
+  "long": {
+    "source": "LICENSE",
+    "notice": "long.txt"
+  },
+  "@protobufjs/codegen": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/fetch": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@protobufjs/path": {
+    "source": "LICENSE",
+    "notice": "protobufjs-helpers.txt"
+  },
+  "@grpc/proto-loader": {
+    "source": "LICENSE",
+    "notice": "grpc-proto-loader.txt"
   }
 }

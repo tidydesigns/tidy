@@ -80,6 +80,64 @@ bun run --cwd apps/desktop test:browser
 Set `TIDY_BROWSER_EXECUTABLE=/path/to/chromium` to skip managed installation.
 The regular Bun suite skips the Node browser integration cases.
 
+## iOS and Android previews
+
+In **Threads**, open the workspace side panel, choose **+ → Devices**, pick a
+simulator, and choose **Start device** or **Connect device**. The device stays
+inside the resizable panel, which can also expand to fill the workspace.
+Tap, drag and type directly on the display; paste inserts text into the device.
+Home, Android Back, rotation and app reload are available beneath the display.
+Tab leaves the interactive display and returns to Tidy's controls.
+
+Tidy discovers Expo, React Native, Flutter, shared Xcode schemes and standard
+Gradle Android apps, including apps in monorepos. Select the app and choose
+**Run** to build, install and open it on the selected device. Build progress stays
+in the panel; **Output** expands a bounded build log. **Stop** cancels the run and
+its development server. Flutter supports hot reload; Expo and React Native keep
+Metro running for Fast Refresh. Native iOS runs use Debug simulator builds without
+code signing. The project must already have its dependencies installed.
+
+Hiding Devices pauses capture while keeping the simulator and app run alive.
+Reopening resumes the display. Disconnecting ends the preview and its managed
+run; it does not erase or shut down the simulator. Removing the project or closing
+the owning backend releases helpers and build processes. Android emulators that
+Tidy starts are also stopped when their owning backend closes. Simulators already
+running outside Tidy remain independent.
+
+Prerequisites on the project's machine:
+
+- **iOS:** Apple silicon, macOS 15+, Xcode 26+ and an installed iOS runtime. On first
+  connection Tidy downloads Meta idb 1.7.8 into `~/.cache/tidy/mobile`, verifies the
+  pinned SHA-256 and runs its companion over a private Unix socket. Homebrew and
+  a separately installed idb client are unnecessary. `TIDY_IDB_COMPANION` can point
+  to an operator-provided compatible companion instead. The integration uses
+  private Xcode APIs, so future Xcode releases require compatibility testing.
+- **Android:** Android Studio's Emulator and SDK Platform-Tools and an existing
+  virtual device. Tidy checks `ANDROID_HOME`, `ANDROID_SDK_ROOT`, standard SDK
+  locations and `PATH`. It starts virtual devices without an external window and
+  connects to their authenticated, loopback-only gRPC display. An existing
+  emulator needs an authenticated gRPC endpoint; otherwise close it once in
+  Android Studio and start it from Devices. Native Gradle runs currently support
+  a standard `app:assembleDebug` target and a single debug APK on macOS/Linux.
+- **Flutter / Expo / React Native:** Install the framework's SDK and project
+  dependencies on the host. Builds and development servers execute in the app's
+  own directory. A remote machine must have the mobile-preview backend capability;
+  older backends show an update request instead of running tools locally.
+
+Device frames stay in memory and are not added to design files or transcripts.
+Capture retains only the latest frame and stops when no visible viewer requests
+frames. Device requests validate project access and session identity; build targets
+are rediscovered on the host, and clients cannot supply shell commands or executable
+paths. Touch and key events are ephemeral and never replay after reconnecting.
+Like browser previews, the streamed app content is unavailable to the client's
+screen reader; device and build controls have accessible labels.
+
+Run the mobile contract, protocol and lifecycle tests from the repository root:
+
+```sh
+bun test apps/desktop/src/main/mobile apps/desktop/src/shared/contracts/mobile.test.ts
+```
+
 ## Terminal
 
 Use the terminal icon beside the project picker, or **Ctrl+`**, to open a shell

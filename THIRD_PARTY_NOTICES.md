@@ -3,6 +3,17 @@
 Tidy is licensed under the [Apache License 2.0](LICENSE). Third-party code
 and assets retain their original licenses and copyright notices.
 
+- **@grpc/grpc-js**, **@grpc/proto-loader** and **long**: Apache-2.0.
+  **protobuf.js** and its helpers: BSD-3-Clause. **@js-sdsl/ordered-map** and
+  **lodash.camelcase**: MIT. Their upstream notices are retained in
+  `licenses/bundled/` and included with the desktop and host bundles.
+- **Meta idb 1.7.8**: MIT. The iOS preview integration uses a wire-compatible
+  subset of its protocol. Tidy downloads the pinned companion into the user's
+  private cache on first connection and verifies its SHA-256 before extracting
+  or executing it. Its notice is retained in `licenses/bundled/idb.txt`.
+  Android Emulator protocol definitions are Apache-2.0, copyright The Android
+  Open Source Project; Android SDK tools and system images are installed separately.
+
 - **ghostty-web**, **Ghostty/libghostty-vt**, and **@lydell/node-pty**: MIT.
   Notices are retained in `licenses/bundled/ghostty-web.txt`, `Ghostty.txt` and
   `node-pty.txt`. Native PTY packages retain their bundled licences as well.
