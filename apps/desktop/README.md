@@ -148,6 +148,14 @@ session, verified account and workspace membership. The existing database and R2
 services enforce document, asset, quota and role limits. No database credentials
 are shipped to desktop and no schema migration is needed for this increment.
 
+If an app rename changes the macOS Keychain identity and the saved login can no
+longer be decrypted, Tidy starts signed out with **Sign in** available. Sign in
+again from **Settings → Account** to authorize the account and store a new login
+using the current protected key. The previous encrypted login is replaced only
+after successful authorization; cached designs and pending sync bindings remain
+on disk and require the original account's authorization before resuming. No
+manual Keychain changes or deletion of the cloud-sync folder are needed.
+
 To test against a local or self-hosted web app running this branch:
 
 ```sh

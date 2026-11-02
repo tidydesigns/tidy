@@ -200,7 +200,11 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
   const state = new PrivateState(join(root, "private"));
   await state.initialize();
   const remote = new Remote();
-  async function make(accountId = "alice", workspaceAvailable = true) {
+  async function make(
+    accountId = "alice",
+    workspaceAvailable = true,
+    decrypt = (value: Buffer) => value.toString(),
+  ) {
     await state.write("credentials", {
       origin,
       encrypted: Buffer.from(
@@ -219,7 +223,7 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
       {
         available: () => true,
         encrypt: (value) => Buffer.from(value),
-        decrypt: (value) => value.toString(),
+        decrypt,
       },
       async () => {},
       (async () => {
@@ -470,6 +474,60 @@ test("concurrent cloud thread recoveries share fresh account metadata without ca
     await recovery;
     accounts.mockRestore();
   }
+});
+
+test("unreadable login keeps sign-in available and preserves cached cloud files and sync bindings", async () => {
+  const f = await fixture();
+  const opened = await f.cloud.openFile("org", f.remote.library.files[0].id);
+  await f.cloud.signOut();
+  const document = structuredClone(opened.design.document);
+  document.nodes[0].name = "Unsynced local edit";
+  await f.store.updateDesign({
+    projectId: opened.projectId,
+    designId: opened.design.id,
+    expectedVersion: opened.design.version,
+    document,
+  });
+  const bindings = (await f.state.read("bindings")) as string[];
+  expect(bindings.length).toBeGreaterThan(0);
+  const savedBindings = await Promise.all(bindings.map((id) => f.state.read(id)));
+  const cached = await f.store.readDesign(opened.projectId, opened.design.id);
+
+  const recovered = await f.make("alice", true, () => {
+    throw Error("Wrong credential key");
+  });
+  expect(await recovered.state()).toEqual({
+    available: true,
+    signedIn: false,
+    accountId: undefined,
+    bindings: [],
+  });
+  await expect(recovered.account()).rejects.toThrow("Sign in");
+  await expect(recovered.openFile("org", f.remote.library.files[0].id)).rejects.toThrow("Sign in");
+  expect(await f.state.read("bindings")).toEqual(bindings);
+  expect(await Promise.all(bindings.map((id) => f.state.read(id)))).toEqual(savedBindings);
+  expect(await f.store.readDesign(opened.projectId, opened.design.id)).toEqual(cached);
+
+  // Only the original account can resume its durable outbox after reauthorization.
+  const otherAccount = await f.make("bob");
+  expect((await otherAccount.state()).bindings).toEqual([]);
+  await otherAccount.signOut();
+  const restored = await f.make("alice");
+  await restored.account();
+  await restored.openWorkspace("org");
+  expect((await restored.state()).bindings).toContainEqual(
+    expect.objectContaining({ projectId: opened.projectId, designId: opened.design.id }),
+  );
+  for (let i = 0; i < 300; i++) {
+    if (
+      f.remote.snapshots.get(f.remote.library.files[0].id)?.content.nodes[0].name ===
+      document.nodes[0].name
+    )
+      break;
+    await Bun.sleep(10);
+  }
+  expect(f.remote.snapshots.get(f.remote.library.files[0].id)?.content).toEqual(document);
+  expect((await f.store.readDesign(opened.projectId, opened.design.id)).document).toEqual(document);
 });
 
 test("cloud files open in a private workspace without selecting or uploading the local project", async () => {

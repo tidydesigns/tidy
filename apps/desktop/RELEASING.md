@@ -10,6 +10,16 @@ verification and reports the setup requirement, without signing or publishing.
 Merging this workflow does not export local credentials or publish the existing
 local candidate.
 
+For the cloud-login recovery hotfix, merge the change to `main` and verify that
+the desktop beta release workflow publishes a signed beta containing that commit.
+Affected users install that beta through the sidebar updater and restart, or
+install its DMG manually, then open **Settings → Account → Sign in**. The update
+check works independently of cloud sign-in. Successful authorization stores the
+login under the current **Tidy (Beta)** Keychain identity and lets the original
+account resume its cached workspace designs and pending sync. Do not rename or
+delete Keychain entries, credentials, or the cloud-sync folder. Confirm recovery
+on an upgraded beta and a fresh installation before closing the issue.
+
 ## One-time setup
 
 1. In repository Settings → Environments, create `desktop-beta`. Restrict its

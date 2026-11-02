@@ -93,11 +93,18 @@ export class CloudAuth {
     if (client?.origin === this.origin) this.clientId = client.clientId;
     const stored = await this.state.read("credentials");
     if (!stored) return;
-    const value = z.object({ origin: z.string(), encrypted: z.string() }).parse(stored);
-    if (value.origin === this.origin)
-      this.session = sessionSchema.parse(
-        JSON.parse(this.protection.decrypt(Buffer.from(value.encrypted, "base64"))),
-      );
+    try {
+      const value = z.object({ origin: z.string(), encrypted: z.string() }).parse(stored);
+      if (value.origin === this.origin)
+        this.session = sessionSchema.parse(
+          JSON.parse(this.protection.decrypt(Buffer.from(value.encrypted, "base64"))),
+        );
+    } catch {
+      // An app rename can select a different OS-protected key. Treat an unreadable
+      // login as signed out so a fresh authorization can replace it. Preserve the
+      // encrypted blob until then, along with cached designs and the sync outbox.
+      this.session = undefined;
+    }
   }
   private async persist(session: Session, epoch: number) {
     if (!this.available)

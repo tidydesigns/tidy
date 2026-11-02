@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { connect } from "node:net";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CloudAuth, cloudOrigin, type CredentialProtection } from "./cloud-auth";
@@ -60,32 +60,35 @@ async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
       return Response.json({ id: "alice", organizations: [] });
     throw new Error(`Unexpected auth request: ${url}`);
   }) as typeof fetch;
-  const auth = new CloudAuth(
-    "https://example.test",
-    state,
-    protection,
-    async (url) => {
-      authorization = new URL(url);
-      expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
-      const callback = new URL(authorization.searchParams.get("redirect_uri")!);
-      await beforeCallback?.(callback);
-      expect(callback.hostname).toBe("127.0.0.1");
-      const wrong = new URL(callback);
-      wrong.searchParams.set("state", "wrong-state");
-      wrong.searchParams.set("code", "single-use-code");
-      expect((await fetch(wrong)).status).toBe(400);
-      callback.searchParams.set("state", authorization.searchParams.get("state")!);
-      callback.searchParams.set("code", "single-use-code");
-      expect((await fetch(callback)).status).toBe(200);
-    },
-    fetcher,
-  );
+  const make = (credentialProtection = protection) =>
+    new CloudAuth(
+      "https://example.test",
+      state,
+      credentialProtection,
+      async (url) => {
+        authorization = new URL(url);
+        expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+        const callback = new URL(authorization.searchParams.get("redirect_uri")!);
+        await beforeCallback?.(callback);
+        expect(callback.hostname).toBe("127.0.0.1");
+        const wrong = new URL(callback);
+        wrong.searchParams.set("state", "wrong-state");
+        wrong.searchParams.set("code", "single-use-code");
+        expect((await fetch(wrong)).status).toBe(400);
+        callback.searchParams.set("state", authorization.searchParams.get("state")!);
+        callback.searchParams.set("code", "single-use-code");
+        expect((await fetch(callback)).status).toBe(200);
+      },
+      fetcher,
+    );
+  const auth = make();
   await auth.initialize();
   return {
     auth,
     state,
     directory,
     fetcher,
+    make,
     registrations: () => registrations,
     refreshes: () => refreshes,
     pauseRefresh: (callback: () => Promise<void>) => {
@@ -119,6 +122,81 @@ test("native login binds the callback to state and PKCE and protects persisted c
   );
   await anotherOrigin.initialize();
   expect(anotherOrigin.accountId).toBeUndefined();
+});
+
+test("a changed credential key allows fresh PKCE sign-in and restores the new encrypted login", async () => {
+  const f = await fixture();
+  await f.auth.signIn();
+  const stored = await f.state.read("credentials");
+  // A synthetic second key models the Keychain identity change after an app rename.
+  const newProtection: CredentialProtection = {
+    available: () => true,
+    encrypt: (value) => Buffer.from(`new-key:${protection.encrypt(value).toString("base64")}`),
+    decrypt: (value) => {
+      if (!value.toString().startsWith("new-key:")) throw Error("Wrong credential key");
+      return protection.decrypt(Buffer.from(value.toString().slice(8), "base64"));
+    },
+  };
+  const recovered = f.make(newProtection);
+  await recovered.initialize();
+  expect(recovered.available).toBe(true);
+  expect(recovered.accountId).toBeUndefined();
+  expect(await f.state.read("credentials")).toEqual(stored);
+  await expect(recovered.request("/api/desktop/account")).rejects.toMatchObject({ status: 401 });
+  expect(f.refreshes()).toBe(0);
+
+  const failed = f.make({
+    ...newProtection,
+    encrypt: () => {
+      throw Error("Protected credential storage write failed");
+    },
+  });
+  await failed.initialize();
+  await expect(failed.signIn()).rejects.toThrow("Protected credential storage write failed");
+  expect(failed.accountId).toBeUndefined();
+  expect(await f.state.read("credentials")).toEqual(stored);
+
+  await recovered.signIn();
+  expect(recovered.accountId).toBe("alice");
+  expect(f.registrations()).toBe(1);
+  const encrypted = await readFile(join(f.directory, "credentials.json"), "utf8");
+  expect(encrypted).not.toContain("access-fixture-value");
+  expect(encrypted).not.toContain("refresh-fixture-value");
+  const restored = f.make(newProtection);
+  await restored.initialize();
+  expect(restored.accountId).toBe("alice");
+});
+
+test("invalid saved sessions require fresh authorization without trusting partial account data", async () => {
+  const f = await fixture();
+  for (const plaintext of ["invalid JSON", JSON.stringify({ accountId: "alice" })]) {
+    const stored = {
+      origin: "https://example.test",
+      encrypted: protection.encrypt(plaintext).toString("base64"),
+    };
+    await f.state.write("credentials", stored);
+    const recovered = f.make();
+    await recovered.initialize();
+    expect(recovered.accountId).toBeUndefined();
+    expect(await f.state.read("credentials")).toEqual(stored);
+    await expect(recovered.request("/api/desktop/account")).rejects.toMatchObject({ status: 401 });
+  }
+  expect(f.refreshes()).toBe(0);
+  expect(f.registrations()).toBe(0);
+});
+
+test("credential recovery still rejects symlinks and requires protected storage", async () => {
+  const f = await fixture();
+  const outside = join(f.directory, "outside.json");
+  await writeFile(outside, JSON.stringify({ origin: "https://example.test", encrypted: "test" }));
+  await symlink(outside, join(f.directory, "credentials.json"));
+  await expect(f.make().initialize()).rejects.toThrow("not symbolic links");
+
+  const unprotected = f.make({ ...protection, available: () => false });
+  await unprotected.initialize();
+  expect(unprotected.available).toBe(false);
+  expect(unprotected.accountId).toBeUndefined();
+  await expect(unprotected.signIn()).rejects.toThrow("protected credential storage");
 });
 
 test("malformed loopback targets return 400 without interrupting the valid PKCE login", async () => {
