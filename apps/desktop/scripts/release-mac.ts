@@ -117,8 +117,8 @@ try {
   if (resume) {
     // Reuse only a matching, previously notarized app. Never silently skip signing.
     for (const [key, expected] of [
-      ["CFBundleDisplayName", appName],
-      ["CFBundleName", appName],
+      ["CFBundleDisplayName", "Tidy"],
+      ["CFBundleName", "Tidy"],
       ["CFBundleShortVersionString", manifest.version.split("-")[0]],
       ["CFBundleVersion", manifest.desktopBuildNumber],
     ]) {
@@ -130,6 +130,14 @@ try {
       if (actual.trim() !== expected)
         throw new Error(`Cannot resume: ${key} differs from package.json.`);
     }
+    const displayName = await run("plutil", [
+      "-extract",
+      "CFBundleDisplayName",
+      "raw",
+      join(app, "Contents/Resources/en.lproj/InfoPlist.strings"),
+    ]);
+    if (displayName.trim() !== appName)
+      throw new Error("Cannot resume: localized display name differs from package.json.");
     console.info("Resuming from the existing notarized app.");
   } else {
     // packageDesktop applies the security fuses first; signing must be the final bundle mutation.

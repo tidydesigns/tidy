@@ -62,6 +62,10 @@ export async function packageDesktop() {
       dir: stagingDirectory,
       name: appName,
       executableName: "Tidy",
+      extendInfo: {
+        CFBundleDevelopmentRegion: "en",
+        LSHasLocalizedDisplayName: true,
+      },
       icon:
         process.platform === "darwin"
           ? join(appDirectory, "resources", desktopMacIcon(manifest.version, "icns"))
@@ -83,12 +87,24 @@ export async function packageDesktop() {
           ? join(path, `${appName}.app`)
           : join(path, process.platform === "win32" ? "Tidy.exe" : "Tidy");
       if (process.platform === "darwin") {
-        // Packager derives the display name from executableName; keep them distinct.
-        execFileSync("/usr/libexec/PlistBuddy", [
-          "-c",
-          `Set :CFBundleDisplayName ${appName}`,
-          join(executable, "Contents/Info.plist"),
-        ]);
+        // Existing auto-updates keep Tidy.app. Matching its base filename lets
+        // macOS use the localized release-channel name for the Dock and Finder.
+        for (const [key, value] of [
+          ["CFBundleName", "Tidy"],
+          ["CFBundleDisplayName", "Tidy"],
+        ]) {
+          execFileSync("/usr/libexec/PlistBuddy", [
+            "-c",
+            `Set :${key} ${value}`,
+            join(executable, "Contents/Info.plist"),
+          ]);
+        }
+        const localization = join(executable, "Contents/Resources/en.lproj");
+        await mkdir(localization, { recursive: true });
+        await writeFile(
+          join(localization, "InfoPlist.strings"),
+          `"CFBundleName" = "Tidy";\n"CFBundleDisplayName" = ${JSON.stringify(appName)};\n`,
+        );
         // Keep the full SemVer in app.asar while giving macOS numeric bundle versions.
         const frameworks = join(executable, "Contents/Frameworks");
         const helpers = (await readdir(frameworks))

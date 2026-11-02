@@ -51,6 +51,15 @@ The bundle identifier, native executable, update asset filenames and existing
 profiles and credentials. The signing, resume and archive checks use the same
 version-derived bundle name as packaging.
 
+The base `CFBundleName` and `CFBundleDisplayName` remain `Tidy`, with the
+release-channel display name in English `InfoPlist.strings` and
+`LSHasLocalizedDisplayName` enabled. This allows macOS to show
+`Tidy (Beta)` for existing installations whose auto-updates retain the original
+`Tidy.app` path, as well as fresh `Tidy (Beta).app` installations. If an existing
+Dock shortcut still shows the previous name after updating, quit Tidy, remove
+that shortcut from the Dock, and reopen the installed app before keeping it in
+the Dock again.
+
 The desktop manifest owns the human-selected base version. For example,
 `0.1.0-beta.1` plus workflow run `41` and offset `1` produces
 `0.1.0-beta.42`, build `42`, and tag `desktop-v0.1.0-beta.42`. Only the disposable
