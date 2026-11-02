@@ -236,10 +236,20 @@ test("live permission updates retain compatible tool authority and refresh a cha
     permissionMode: "provider-auto",
   });
   expect((await call(tools, "tidy_context", {})).writable).toBe(true);
+  const completed = Promise.withResolvers<void>();
+  const unsubscribe = f.service.subscribeRenderer((event) => {
+    if (
+      event.type === "thread" &&
+      event.thread.id === parent.id &&
+      event.thread.status === "completed"
+    )
+      completed.resolve();
+  });
+  cleanups.push(async () => {
+    unsubscribe();
+  });
   f.runs[0].complete();
-  await until(
-    async () => (await f.service.readThread(f.project.id, parent.id)).status === "completed",
-  );
+  await completed.promise;
   await f.service.sendMessage({
     projectId: f.project.id,
     threadId: parent.id,
