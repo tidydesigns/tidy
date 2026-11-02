@@ -49,7 +49,10 @@ import {
   switchRepositoryBranch,
 } from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
-import { createdPullRequest } from "../../shared/models/thread-pull-requests";
+import {
+  createdPullRequest,
+  pullRequestDetectionVersion,
+} from "../../shared/models/thread-pull-requests";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { threadHistoryContext } from "../../shared/models/thread-context";
 import {
@@ -1503,6 +1506,7 @@ export class WorkspaceService {
       designIds: input.designIds,
       messages: [],
       pullRequests: [],
+      pullRequestDetectionVersion,
       status: "idle",
       updatedAt: new Date().toISOString(),
     };

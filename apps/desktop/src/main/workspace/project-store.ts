@@ -29,7 +29,10 @@ import type {
   Thread,
   ThreadSummary,
 } from "../../shared/contracts/desktop";
-import { threadPullRequests } from "../../shared/models/thread-pull-requests";
+import {
+  pullRequestDetectionVersion,
+  threadPullRequests,
+} from "../../shared/models/thread-pull-requests";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
 import { ThreadWorktrees } from "../repository/thread-worktrees";
@@ -496,6 +499,7 @@ export class ProjectStore {
       await this.read(await this.storagePath(projectId, "threads", threadId)),
     );
     thread.pullRequests = threadPullRequests(thread);
+    thread.pullRequestDetectionVersion = pullRequestDetectionVersion;
     return this.authorizeThread({ thread, projectId, threadId });
   }
 
@@ -597,6 +601,8 @@ export class ProjectStore {
 
   writeThread(thread: Thread) {
     const value = threadSchema.parse(thread);
+    value.pullRequests = threadPullRequests(value);
+    value.pullRequestDetectionVersion = pullRequestDetectionVersion;
     const portable = { ...value };
     delete portable.sessionId;
     if (portable.settings) {

@@ -1165,6 +1165,8 @@ test("thread checkpoints capture call-time data and keep authority out of worker
   await pending;
   const path = await store.storagePath(project.id, "threads", value.id);
   const portable = storedThreadSchema.parse(expected);
+  portable.pullRequests = [];
+  portable.pullRequestDetectionVersion = 1;
   delete portable.sessionId;
   portable.settings = { model: "fixture-codex" };
   expect(await readFile(path, "utf8")).toBe(JSON.stringify(portable, null, 2));

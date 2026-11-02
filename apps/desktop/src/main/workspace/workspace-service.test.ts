@@ -3062,6 +3062,63 @@ test.each([false, true])(
   },
 );
 
+test.each([0, 70_000])(
+  "automatic completion recovers legacy empty PR lists from multiline creation logs (%i padding)",
+  async (padding) => {
+    const { service, store, project, runs } = await fixture();
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Ship",
+      designIds: [],
+    });
+    const completion = finished(service, thread.id);
+    runs[0].complete();
+    await completion;
+    const stored = await store.readThread(project.id, thread.id);
+    delete stored.pullRequestDetectionVersion;
+    stored.pullRequests = [];
+    stored.messages[0].text += "x".repeat(padding);
+    const url = "https://github.com/owner/repo/pull/42";
+    stored.toolActivities = [
+      {
+        id: randomUUID(),
+        afterMessageId: stored.messages[0].id,
+        kind: "command",
+        toolName: "Shell",
+        title: "Prepare PR description and create PR",
+        input:
+          "python3 - <<'PY'\nprint('prepare description')\nPY\n\ngh pr create --body-file /tmp/body.md",
+        status: "completed",
+        exitCode: 0,
+        output: `${url}\n`,
+        startedAt: new Date().toISOString(),
+      },
+    ];
+    // Write the old portable format directly, before recovery on read/write can run.
+    const path = join(project.path, ".tidy", "threads", `${thread.id}.json`);
+    await writeFile(path, JSON.stringify(stored));
+    const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+    const lookups: string[] = [];
+    await service.autoCompleteThreads(project.id, defaultThreadCompletion, async (href) => {
+      lookups.push(href);
+      return {
+        state: "merged",
+        baseBranch: "main",
+        defaultBranch: "main",
+        endedAt: "2026-01-01T00:00:00Z",
+      };
+    });
+    expect(lookups).toEqual([url]);
+    const done = JSON.parse(await readFile(path, "utf8"));
+    expect(done.doneReason).toBe("merged");
+    expect(done.doneAt).toBeDefined();
+    expect(done.pullRequests).toEqual([url]);
+    expect(done.pullRequestDetectionVersion).toBe(1);
+    expect(done.revision).toBe(stored.revision + 1);
+  },
+);
+
 test("automatic completion persists its reason, emits an update, and respects a manual reopen", async () => {
   const { service, store, project, runs } = await fixture();
   const thread = await service.startThread({

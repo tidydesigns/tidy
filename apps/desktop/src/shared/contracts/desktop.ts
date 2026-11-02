@@ -100,6 +100,8 @@ export const storedThreadSchema = z.object({
   toolActivities: z.array(toolActivitySchema).max(MAX_TOOL_ACTIVITIES).optional(),
   toolActivityTruncated: z.boolean().optional(),
   pullRequests: threadPullRequestsSchema.optional(),
+  /** Version of creation-log recovery already applied to the persisted PR list. */
+  pullRequestDetectionVersion: z.literal(1).optional(),
   error: z.string().max(4000).optional(),
   errorKind: harnessFailureKindSchema.optional(),
   updatedAt: z.string().datetime(),
