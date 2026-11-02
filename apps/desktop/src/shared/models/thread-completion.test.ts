@@ -63,6 +63,22 @@ test("inactivity is opt-in and reopening resets its clock and ignores old PR eve
   expect(
     threadCompletionReason(thread, defaults, [{ ...merged, endedAt: "invalid" }], now),
   ).toBeUndefined();
+  expect(
+    threadCompletionReason(
+      reopened,
+      defaults,
+      [merged, { ...merged, endedAt: "2026-11-02T11:30:00Z" }],
+      now,
+    ),
+  ).toBe("merged");
+  expect(
+    threadCompletionReason(
+      reopened,
+      { ...defaults, pullRequests: "any" },
+      [merged, { ...merged, state: "open", endedAt: null }],
+      now,
+    ),
+  ).toBeUndefined();
 });
 
 test("active work, queued messages, approvals, failures, and empty threads stay open", () => {

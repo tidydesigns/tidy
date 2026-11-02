@@ -25,7 +25,7 @@ export function threadCompletionReason(
 ): ThreadDoneReason | undefined {
   const cutoff = thread.autoDoneAfter ? Date.parse(thread.autoDoneAfter) : -Infinity;
   const reasons = requests.map((pr): ThreadDoneReason | undefined => {
-    if (!pr?.endedAt || !(Date.parse(pr.endedAt) > cutoff)) return;
+    if (!pr?.endedAt || !Number.isFinite(Date.parse(pr.endedAt))) return;
     if (pr.state === "closed" && preferences.closed) return "closed";
     if (pr.state !== "merged" || !preferences.merged) return;
     if (
@@ -39,6 +39,9 @@ export function threadCompletionReason(
   });
   if (
     reasons.length &&
+    requests.some(
+      (pr, index) => reasons[index] && pr?.endedAt && Date.parse(pr.endedAt) > cutoff,
+    ) &&
     (preferences.pullRequests === "all" ? reasons.every(Boolean) : reasons.some(Boolean))
   )
     return reasons.includes("merged") ? "merged" : "closed";
