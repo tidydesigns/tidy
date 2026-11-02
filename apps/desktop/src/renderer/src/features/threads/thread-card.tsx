@@ -234,72 +234,74 @@ export function ThreadCard({
           {relativeThreadTime(thread.updatedAt, now)}
         </time>
       </Button>
-      <div className="thread-card-trailing pointer-events-none absolute top-8 right-2 left-7 grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-2">
-        {api && latestPullRequest && (
-          <span
-            className="thread-pull-requests pointer-events-auto col-start-1 flex min-w-0 max-w-full justify-self-start items-center gap-1 text-[11px] leading-[18px] text-muted-ink tabular-nums"
-            aria-label="Thread pull requests"
-            onPointerDown={(event) => event.stopPropagation()}
-            onFocus={() => {
-              clearTimeout(timer.current);
-              setOpen(true);
-            }}
-          >
-            <ChatLink
-              href={latestPullRequest}
-              api={api}
-              projectId={thread.projectId}
-              className="[&>span]:decoration-1 [&>span]:underline-offset-2 focus-visible:[&>span]:underline pointer-fine:hover:[&>span]:underline"
+      {(Boolean(api && latestPullRequest) || status !== "idle") && (
+        <div className="thread-card-trailing pointer-events-none">
+          {api && latestPullRequest && (
+            <span
+              className="thread-pull-requests pointer-events-auto flex min-w-0 max-w-full justify-self-start items-center gap-1 text-[11px] leading-[18px] text-muted-ink tabular-nums"
+              aria-label="Thread pull requests"
+              onPointerDown={(event) => event.stopPropagation()}
+              onFocus={() => {
+                clearTimeout(timer.current);
+                setOpen(true);
+              }}
             >
-              {`#${latestPullRequest.split("/").at(-1)}`}
-            </ChatLink>
-            {thread.pullRequests && thread.pullRequests.length > 1 && (
-              <span
-                className="shrink-0"
-                aria-label={`${thread.pullRequests.length - 1} more pull requests`}
+              <ChatLink
+                href={latestPullRequest}
+                api={api}
+                projectId={thread.projectId}
+                className="[&>span]:decoration-1 [&>span]:underline-offset-2 focus-visible:[&>span]:underline pointer-fine:hover:[&>span]:underline"
               >
-                +{thread.pullRequests.length - 1}
-              </span>
-            )}
-          </span>
-        )}
-        {status !== "idle" && (
-          <Status
-            onClick={
-              canOpenChildApproval
-                ? () => {
-                    close();
-                    onOpenChildApproval?.();
-                  }
-                : undefined
-            }
-            className={`thread-card-status thread-state-${status} ${canOpenChildApproval ? "pointer-events-auto cursor-pointer border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2" : "pointer-events-none"} col-start-2 flex shrink-0 items-center justify-self-end gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
-            role={canOpenChildApproval ? undefined : "status"}
-            aria-label={
-              canOpenChildApproval ? `Open agent approval for ${thread.title}` : statusLabel
-            }
-            title={statusLabel}
-          >
-            <span className="thread-status-symbol" aria-hidden="true">
-              {status === "completed" ? (
-                <svg viewBox="0 0 16 16">
-                  <circle cx="8" cy="8" r="7" fill="currentColor" stroke="none" />
-                  <path className="thread-ready-check" d="m4.8 8 2.1 2.1 4.2-4.3" fill="none" />
-                </svg>
-              ) : status === "running" ? (
-                <span />
-              ) : (
-                <svg viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" />
-                  <path d="M8 4.5v4" />
-                  <circle cx="8" cy="11" r="0.7" fill="currentColor" stroke="none" />
-                </svg>
+                {`#${latestPullRequest.split("/").at(-1)}`}
+              </ChatLink>
+              {thread.pullRequests && thread.pullRequests.length > 1 && (
+                <span
+                  className="shrink-0"
+                  aria-label={`${thread.pullRequests.length - 1} more pull requests`}
+                >
+                  +{thread.pullRequests.length - 1}
+                </span>
               )}
             </span>
-            {status !== "completed" && statusLabel}
-          </Status>
-        )}
-      </div>
+          )}
+          {status !== "idle" && (
+            <Status
+              onClick={
+                canOpenChildApproval
+                  ? () => {
+                      close();
+                      onOpenChildApproval?.();
+                    }
+                  : undefined
+              }
+              className={`thread-card-status thread-state-${status} ${canOpenChildApproval ? "pointer-events-auto cursor-pointer border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2" : "pointer-events-none"} flex shrink-0 items-center justify-self-end gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
+              role={canOpenChildApproval ? undefined : "status"}
+              aria-label={
+                canOpenChildApproval ? `Open agent approval for ${thread.title}` : statusLabel
+              }
+              title={statusLabel}
+            >
+              <span className="thread-status-symbol" aria-hidden="true">
+                {status === "completed" ? (
+                  <svg viewBox="0 0 16 16">
+                    <circle cx="8" cy="8" r="7" fill="currentColor" stroke="none" />
+                    <path className="thread-ready-check" d="m4.8 8 2.1 2.1 4.2-4.3" fill="none" />
+                  </svg>
+                ) : status === "running" ? (
+                  <span />
+                ) : (
+                  <svg viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" />
+                    <path d="M8 4.5v4" />
+                    <circle cx="8" cy="11" r="0.7" fill="currentColor" stroke="none" />
+                  </svg>
+                )}
+              </span>
+              {status !== "completed" && statusLabel}
+            </Status>
+          )}
+        </div>
+      )}
       <Button
         className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:text-[light-dark(#292929,#ffffff)] ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
         onPointerEnter={close}

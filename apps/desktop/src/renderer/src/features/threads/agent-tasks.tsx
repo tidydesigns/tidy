@@ -106,6 +106,18 @@ const TaskLinks = memo(function TaskLinks({
       (task.state === "running" && summaries.get(task.childThreadId)?.pendingApprovalCount),
   );
   const [expanded, setExpanded] = useState(Boolean(active || attention));
+  const [historyLimit, setHistoryLimit] = useState(25);
+  const current = destinations.filter(({ task }) =>
+    ["queued", "running", "cancel_requested"].includes(task.state),
+  );
+  const history = destinations
+    .filter(({ task }) => !["queued", "running", "cancel_requested"].includes(task.state))
+    .sort(
+      (a, b) =>
+        b.task.sequence - a.task.sequence || b.task.createdAt.localeCompare(a.task.createdAt),
+    );
+  const visible = [...current, ...history.slice(0, historyLimit)];
+  const remaining = Math.max(0, history.length - historyLimit);
   return (
     <details
       className="agent-tasks"
@@ -141,7 +153,7 @@ const TaskLinks = memo(function TaskLinks({
       </summary>
       {expanded && (
         <div className="agent-task-list">
-          {destinations.map(({ task, queued }) => (
+          {visible.map(({ task, queued }) => (
             <div key={task.childThreadId}>
               <TaskRow
                 key={task.id}
@@ -162,6 +174,21 @@ const TaskLinks = memo(function TaskLinks({
               )}
             </div>
           ))}
+          {remaining > 0 && (
+            <Button
+              className="agent-task-more"
+              onClick={() => setHistoryLimit((limit) => limit + 25)}
+            >
+              Show {Math.min(25, remaining)} more{" "}
+              {independent
+                ? remaining === 1
+                  ? "thread"
+                  : "threads"
+                : remaining === 1
+                  ? "agent"
+                  : "agents"}
+            </Button>
+          )}
         </div>
       )}
     </details>

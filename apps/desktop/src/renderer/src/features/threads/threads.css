@@ -505,6 +505,15 @@
     pointer-events: auto;
   }
 }
+@media (hover: none), (pointer: coarse) {
+  .thread-done {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .thread-time {
+    visibility: hidden;
+  }
+}
 .thread-status-symbol,
 .thread-status-symbol > span {
   display: block;
@@ -659,6 +668,17 @@
   }
 }
 
+.thread-card-trailing {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: -26px 8px 8px 28px;
+}
+.thread-card-trailing .thread-card-status {
+  margin-inline-start: auto;
+}
 .thread-pull-requests .chat-web-link {
   display: inline-flex;
   min-width: 0;
@@ -673,8 +693,14 @@
   flex-shrink: 0;
 }
 .thread-pull-requests .chat-web-link > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.thread-pull-requests .chat-web-link:focus > span {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 .thread-preview-pull-requests .chat-web-link {

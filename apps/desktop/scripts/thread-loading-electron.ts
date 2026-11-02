@@ -20,6 +20,7 @@ void app.whenReady().then(async () => {
   });
   try {
     await window.loadFile(html);
+    window.webContents.focus();
     window.webContents.enableDeviceEmulation({
       screenPosition: "desktop",
       screenSize: { width: 1100, height: 800 },

@@ -4770,6 +4770,14 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
             />,
           ),
         );
+      const revealLoaded = async () => {
+        for (let page = 0; page < 10; page++) {
+          const more = host.querySelector<HTMLButtonElement>(".agent-task-more");
+          if (!more) return;
+          more.click();
+          await settle();
+        }
+      };
       render();
       await until(() => Boolean(host.querySelector(".agent-tasks")), "Latest assignments");
       required(
@@ -4783,7 +4791,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         ),
         "Earlier assignments",
       ).click();
-      await until(() => host.querySelectorAll(".agent-task").length === 52, "Loaded history");
+      await until(() => Boolean(host.textContent?.includes("52 agents")), "Loaded history count");
+      await revealLoaded();
+      check(host.querySelectorAll(".agent-task").length === 52, "Loaded history");
       render(false);
       await settle();
       render();
@@ -4836,9 +4846,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       );
       render();
       await until(
-        () => host.querySelectorAll(".agent-task").length === 102,
+        () => Boolean(host.textContent?.includes("102 agents")),
         "Newest assignments merged with retained history",
       );
+      await revealLoaded();
       required(
         [...host.querySelectorAll<HTMLButtonElement>("button")].find(
           (button) => button.textContent === "Show earlier assignments",
@@ -4846,9 +4857,262 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Gap in assignments created while away",
       ).click();
       await until(
-        () => host.querySelectorAll(".agent-task").length === 112,
+        () => Boolean(host.textContent?.includes("112 agents")),
+        "Intervening assignment count",
+      );
+      await revealLoaded();
+      check(
+        host.querySelectorAll(".agent-task").length === 112,
         "Intervening assignments remain reachable",
       );
+    },
+  );
+
+  await run(
+    "task history pages preserve active identities and cancellation recovery",
+    async (root) => {
+      const child = makeThread({ count: 2 });
+      child.title = "Aleksandra Wiśniewska-Kowalczyk — accessibility review";
+      const tasks: ThreadTask[] = Array.from({ length: 1000 }, (_, index) => ({
+        id: crypto.randomUUID(),
+        childThreadId: crypto.randomUUID(),
+        sequence: index,
+        label: `Release accessibility review ${index + 1}`,
+        state: "completed",
+        kind: "initial",
+        harness: "codex",
+        createdAt: timestamp,
+      }));
+      tasks[999] = {
+        ...tasks[999],
+        state: "failed",
+        sequence: 2000,
+        error: "Permission changed before launch",
+      };
+      const running: ThreadTask = {
+        ...tasks[0],
+        id: crypto.randomUUID(),
+        childThreadId: child.id,
+        label: child.title,
+        state: "running",
+      };
+      tasks.push(running, {
+        ...running,
+        id: crypto.randomUUID(),
+        state: "queued",
+        kind: "followup",
+      });
+      const request = deferred<void>();
+      const previousWidth = host.style.width;
+      host.style.width = "128px";
+      try {
+        flushSync(() =>
+          root.render(
+            <AgentTasks
+              tasks={tasks}
+              summaries={
+                new Map([[child.id, { ...summarizeThread(child), pendingApprovalCount: 1 }]])
+              }
+              projectId={projectId}
+              onOpenThread={() => {}}
+              onCancel={() => request.promise}
+            />,
+          ),
+        );
+        await settle();
+        check(
+          host.querySelectorAll(".agent-task").length === 26,
+          "History was not bounded to 25 destinations",
+        );
+        check(
+          host
+            .querySelector('.agent-task[data-state="failed"]')
+            ?.textContent?.includes(tasks[999].label),
+          "Recent failure was hidden behind older history",
+        );
+        const active = required(
+          host.querySelector<HTMLButtonElement>(`[aria-label="${child.title} · Needs approval"]`),
+          "Active approval identity",
+        );
+        const name = required(
+          active.querySelector<HTMLElement>(".agent-task-label"),
+          "Visible task name",
+        );
+        const state = required(
+          active.querySelector<HTMLElement>(".agent-task-state"),
+          "Visible approval status",
+        );
+        const stop = required(
+          host.querySelector<HTMLButtonElement>(`[aria-label="Stop ${child.title}"]`),
+          "Active stop action",
+        );
+        check(name.getBoundingClientRect().width > 20, "Narrow task identity disappeared");
+        check(
+          state.getBoundingClientRect().bottom <= stop.getBoundingClientRect().top,
+          "Narrow approval status overlapped Stop",
+        );
+        check(
+          !required(host.querySelector<HTMLDetailsElement>(".agent-task-queue"), "Secondary queue")
+            .open,
+          "Queue expanded by default",
+        );
+        stop.click();
+        await settle();
+        required(
+          host.querySelector<HTMLButtonElement>(".agent-task-more"),
+          "Next history page",
+        ).click();
+        await settle();
+        check(
+          host.querySelectorAll(".agent-task").length === 51,
+          "Next page did not add 25 history destinations",
+        );
+        check(
+          stop.isConnected && stop.disabled && active.textContent?.includes("Stopping"),
+          "Paging reset optimistic cancellation",
+        );
+        request.reject(new Error("Synthetic cancellation failure"));
+        await settle();
+        const retry = required(
+          host.querySelector<HTMLButtonElement>(`[aria-label="Retry stopping ${child.title}"]`),
+          "Cancellation retry",
+        );
+        required(
+          host.querySelector<HTMLButtonElement>(".agent-task-more"),
+          "Another history page",
+        ).click();
+        await settle();
+        check(retry.isConnected && !retry.disabled, "Paging discarded cancellation recovery");
+        check(
+          host.querySelectorAll(".agent-task").length === 76,
+          "History paging lost its boundary",
+        );
+        check(
+          host.querySelectorAll(".model-provider-icon").length === 76,
+          "Queued assignments duplicated provider identity",
+        );
+      } finally {
+        host.style.width = previousWidth;
+        request.resolve();
+      }
+    },
+  );
+
+  await run(
+    "sidebar keeps full PR identifiers and child approval on separate wrapped lines",
+    async (root) => {
+      const thread = makeThread({ count: 2 });
+      thread.pullRequests = Array.from(
+        { length: 20 },
+        (_, index) =>
+          `https://github.com/example/platform/pull/${index === 19 ? "9007199254740991" : index + 1}`,
+      );
+      const previousWidth = host.style.width;
+      host.style.width = "244px";
+      let approvals = 0;
+      try {
+        flushSync(() =>
+          root.render(
+            <ThreadCard
+              thread={summarizeThread(thread)}
+              api={nativeAPI}
+              selected
+              loaded
+              now={Date.now()}
+              pending={false}
+              childApprovalCount={2}
+              onSelect={() => {}}
+              onDone={() => {}}
+              onOpenChildApproval={() => {
+                approvals++;
+              }}
+            />,
+          ),
+        );
+        await settle();
+        const link = required(
+          host.querySelector<HTMLAnchorElement>(".thread-pull-requests a"),
+          "Latest PR link",
+        );
+        const number = required(link.querySelector<HTMLElement>("span"), "Full numeric identifier");
+        const approval = required(
+          host.querySelector<HTMLButtonElement>(".thread-card-status"),
+          "Child approval action",
+        );
+        const a = link.getBoundingClientRect(),
+          b = approval.getBoundingClientRect();
+        check(number.scrollWidth <= number.clientWidth + 1, "Numeric PR identifier was clipped");
+        check(link.textContent?.includes("#9007199254740991"), "Latest PR identifier changed");
+        check(
+          a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom,
+          "PR and approval actions overlapped",
+        );
+        check(
+          host.querySelectorAll(".thread-pull-requests").length === 1,
+          "PR destination was duplicated",
+        );
+        approval.click();
+        check(approvals === 1, "Wrapped approval action was unreachable");
+        let doneCalls = 0;
+        for (const variant of [
+          { urls: [], approvals: 0 },
+          { urls: ["https://github.com/example/platform/pull/260"], approvals: 0 },
+          { urls: [], approvals: 2 },
+          { urls: ["https://github.com/example/platform/pull/260"], approvals: 2 },
+          { urls: thread.pullRequests ?? [], approvals: 2 },
+        ]) {
+          flushSync(() =>
+            root.render(
+              <ThreadCard
+                thread={{ ...summarizeThread(thread), status: "idle", pullRequests: variant.urls }}
+                api={nativeAPI}
+                selected
+                loaded
+                now={Date.now()}
+                pending={false}
+                childApprovalCount={variant.approvals}
+                onSelect={() => {}}
+                onDone={() => {
+                  doneCalls++;
+                }}
+                onOpenChildApproval={() => {}}
+              />,
+            ),
+          );
+          await settle();
+          const card = required(host.querySelector<HTMLElement>(".thread-item"), "Sidebar row");
+          const select = required(
+            host.querySelector<HTMLButtonElement>(".thread-select"),
+            "Thread destination",
+          );
+          const metadata = host.querySelector<HTMLElement>(".thread-card-trailing");
+          const done = required(
+            host.querySelector<HTMLButtonElement>(".thread-done"),
+            "Done action",
+          );
+          check(
+            card.getBoundingClientRect().height >= select.getBoundingClientRect().height,
+            "Metadata shrank the normal thread row",
+          );
+          if (metadata) {
+            check(
+              metadata.getBoundingClientRect().bottom <= card.getBoundingClientRect().bottom,
+              "Wrapped metadata escaped its row",
+            );
+            check(
+              done.getBoundingClientRect().bottom <= metadata.getBoundingClientRect().top + 1,
+              "Done overlapped metadata",
+            );
+          } else
+            check(!variant.urls.length && !variant.approvals, "Actionable metadata disappeared");
+          done.focus();
+          check(document.activeElement === done, "Done was not keyboard reachable");
+          done.click();
+        }
+        check(doneCalls === 5, "Metadata variants blocked Done");
+      } finally {
+        host.style.width = previousWidth;
+      }
     },
   );
 
@@ -5154,6 +5418,71 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(opened.length === 1, "Stopping work navigated away from the current thread");
     },
   );
+
+  await run("touch sidebar Done and Reopen remain visible and hit-testable", async (root) => {
+    if (!matchMedia("(hover: none), (pointer: coarse)").matches) return;
+    const thread = makeThread({ count: 2 });
+    thread.pullRequests = ["https://github.com/example/platform/pull/9007199254740991"];
+    const previousWidth = host.style.width;
+    host.style.width = "244px";
+    let actions = 0,
+      selections = 0;
+    try {
+      for (const doneAt of [undefined, timestamp]) {
+        flushSync(() =>
+          root.render(
+            <ThreadCard
+              thread={{ ...summarizeThread(thread), doneAt }}
+              api={nativeAPI}
+              selected
+              loaded
+              now={Date.now()}
+              pending={false}
+              childApprovalCount={2}
+              onSelect={() => {
+                selections++;
+              }}
+              onDone={() => {
+                actions++;
+              }}
+              onOpenChildApproval={() => {}}
+            />,
+          ),
+        );
+        await settle();
+        const done = required(
+          host.querySelector<HTMLButtonElement>(".thread-done"),
+          "Touch completion action",
+        );
+        const style = getComputedStyle(done);
+        check(
+          style.opacity === "1" && style.pointerEvents === "auto",
+          "Touch action required hover or keyboard focus",
+        );
+        const time = required(host.querySelector<HTMLElement>(".thread-time"), "Timestamp");
+        check(
+          getComputedStyle(time).visibility === "hidden",
+          "Timestamp overlapped the touch action",
+        );
+        const box = done.getBoundingClientRect();
+        const target = document
+          .elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+          ?.closest<HTMLButtonElement>(".thread-done");
+        check(target === done, "Touch action failed hit testing");
+        check(
+          done.textContent?.includes(doneAt ? "Reopen" : "Done"),
+          "Completion action showed the wrong state",
+        );
+        target.click();
+      }
+      check(
+        actions === 2 && selections === 0,
+        "Touch completion action selected the thread instead",
+      );
+    } finally {
+      host.style.width = previousWidth;
+    }
+  });
 
   await run("sidebar approval status and touch actions retain separate hit areas", async (root) => {
     const previousWidth = host.style.width;
