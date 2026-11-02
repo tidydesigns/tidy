@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type {
+  MobileBuildScope,
   MobileDevice,
   MobileInput,
   MobileState,
@@ -14,7 +15,13 @@ afterEach(async () => {
   for (const service of services.splice(0)) await service.close();
 });
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
-async function fixture(options: { delayedConnection?: boolean; delayedBuild?: boolean } = {}) {
+async function fixture(
+  options: {
+    delayedConnection?: boolean;
+    delayedBuild?: boolean;
+    targetRoot?: (scope: MobileBuildScope) => Promise<string>;
+  } = {},
+) {
   const projectId = randomUUID();
   const device: MobileDevice = {
     id: "test-device",
@@ -36,6 +43,7 @@ async function fixture(options: { delayedConnection?: boolean; delayedBuild?: bo
     paused = 0,
     appStops = 0;
   const inputs: MobileInput["event"][] = [];
+  const runRoots: string[] = [];
   let emitted = 0;
   let emit: ((frame: DeviceFrame) => void) | undefined;
   const bridge: DeviceBridge = {
@@ -80,6 +88,7 @@ async function fixture(options: { delayedConnection?: boolean; delayedBuild?: bo
       ios: async () => bridge,
       android: async () => (options.delayedConnection ? connection.promise : bridge),
       run: async (input) => {
+        runRoots.push(input.root);
         input.output("Building…\n");
         if (options.delayedBuild) await build.promise;
         input.running();
@@ -91,6 +100,7 @@ async function fixture(options: { delayedConnection?: boolean; delayedBuild?: bo
         };
       },
     },
+    options.targetRoot,
   );
   services.push(service);
   const state = await service.command({ kind: "connect", projectId, deviceId: device.id });
@@ -105,6 +115,7 @@ async function fixture(options: { delayedConnection?: boolean; delayedBuild?: bo
     connection,
     build,
     inputs,
+    runRoots,
     revoke() {
       allowed = false;
     },
@@ -256,4 +267,34 @@ test("unchanged frames do not transfer again, while a rotation with identical by
     sequence: 2,
     rotation: 90,
   });
+});
+
+test("mobile builds use the selected thread worktree without resolving it for every frame", async () => {
+  const threadId = randomUUID();
+  let resolutions = 0;
+  const f = await fixture({
+    targetRoot: async (scope) => {
+      resolutions++;
+      return scope.threadId === threadId ? "/project-worktree" : "/project";
+    },
+  });
+  const scope = { projectId: f.projectId, threadId };
+  await f.service.state(scope);
+  const before = resolutions;
+  await f.service.state(scope);
+  expect(resolutions).toBe(before);
+  await f.service.command({ ...scope, kind: "run", sessionId: f.sessionId, targetId: f.target.id });
+  await tick();
+  expect(f.runRoots).toEqual(["/project-worktree"]);
+  const afterRun = resolutions;
+  const frame = f.service.frame({ projectId: f.projectId, sessionId: f.sessionId, after: 0 });
+  await tick();
+  f.emit();
+  await frame;
+  await f.service.input({
+    projectId: f.projectId,
+    sessionId: f.sessionId,
+    event: { kind: "key", code: "KeyA" },
+  });
+  expect(resolutions).toBe(afterRun);
 });

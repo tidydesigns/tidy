@@ -474,6 +474,17 @@ export function App({
       onEvent: api.onEvent,
     };
   }, [api, repositoryOwnerId, repositoryThreadId]);
+  const mobileAPI = useMemo(() => {
+    const mobile = api?.mobile;
+    if (!mobile) return undefined;
+    const scope = { threadId: repositoryThreadId, threadProjectId: repositoryOwnerId };
+    return {
+      ...mobile,
+      state: (input: Parameters<typeof mobile.state>[0]) => mobile.state({ ...input, ...scope }),
+      command: (input: Parameters<typeof mobile.command>[0]) =>
+        mobile.command({ ...input, ...scope }),
+    };
+  }, [api, repositoryOwnerId, repositoryThreadId]);
   const localBrowserDrafts = useRef<BrowserDraftCache>(new Map());
   const draftBrowserIds = browserDraftCache ?? localBrowserDrafts.current;
   const browserDraftKey = draftKeyForBrowser({
@@ -3039,13 +3050,13 @@ export function App({
                       projectId={surfaceProject.id}
                       repositoryAPI={repositoryAPI ?? undefined}
                       mobile={
-                        api?.mobile
+                        mobileAPI
                           ? {
-                              api: api.mobile,
+                              api: mobileAPI,
                               connected: !machine || machine.connected,
                               onOpenLink: (url) => {
                                 void api
-                                  .openChatLink(surfaceProject.id, url)
+                                  ?.openChatLink(surfaceProject.id, url)
                                   .catch((error: unknown) =>
                                     showToast(
                                       error instanceof Error
@@ -3082,7 +3093,6 @@ export function App({
                       }}
                     />
                   )}
-
               </section>
             </>
           )}

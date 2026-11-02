@@ -136,13 +136,22 @@ type FinishJobRequest = { job: Job } & (
 );
 
 export class WorkspaceService {
-  readonly mobile = new MobileService(async (projectId) => {
-    if (this.closing) throw new Error("Tidy is closing.");
-    await this.assertProjectAccess(projectId);
-    const project = this.store.project(projectId);
-    if (project.cloud) throw new Error("Choose a connected code project for device previews.");
-    return project.path;
-  });
+  readonly mobile = new MobileService(
+    async (projectId) => {
+      if (this.closing) throw new Error("Tidy is closing.");
+      await this.assertProjectAccess(projectId);
+      const project = this.store.project(projectId);
+      if (project.cloud) throw new Error("Choose a connected code project for device previews.");
+      return project.path;
+    },
+    undefined,
+    async ({ projectId, threadId, threadProjectId }) => {
+      const project = await this.repositoryProject(threadProjectId ?? projectId, threadId);
+      if (project.id !== projectId)
+        throw new Error("This device preview belongs to another project.");
+      return project.path;
+    },
+  );
   readonly terminal = new TerminalService(async (projectId, threadId, threadProjectId) => {
     if (this.closing) throw new Error("Tidy is closing.");
     await this.assertProjectAccess(projectId);

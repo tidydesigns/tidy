@@ -47,24 +47,36 @@ export const mobileStateSchema = z.object({
   session: mobileSessionSchema.nullable(),
 });
 export const mobileScopeSchema = z.object({ projectId: z.uuid() }).strict();
+export const mobileBuildScopeSchema = mobileScopeSchema
+  .extend({
+    threadId: z.uuid().optional(),
+    threadProjectId: z.uuid().optional(),
+  })
+  .strict();
 export const mobileSessionRequestSchema = mobileScopeSchema
   .extend({ sessionId: z.uuid() })
   .strict();
+const mobileBuildSessionRequestSchema = mobileBuildScopeSchema
+  .extend({ sessionId: z.uuid() })
+  .strict();
 export const mobileCommandSchema = z.discriminatedUnion("kind", [
-  mobileScopeSchema
+  mobileBuildScopeSchema
     .extend({ kind: z.literal("connect"), deviceId: z.string().min(1).max(200) })
     .strict(),
-  mobileSessionRequestSchema.extend({ kind: z.literal("disconnect") }).strict(),
-  mobileSessionRequestSchema
-    .extend({ kind: z.literal("run"), targetId: z.string().min(1).max(500) })
+  mobileBuildSessionRequestSchema.extend({ kind: z.literal("disconnect") }).strict(),
+  mobileBuildSessionRequestSchema
+    .extend({
+      kind: z.literal("run"),
+      targetId: z.string().min(1).max(500),
+    })
     .strict(),
-  mobileSessionRequestSchema.extend({ kind: z.literal("stop") }).strict(),
-  mobileSessionRequestSchema.extend({ kind: z.literal("reload") }).strict(),
-  mobileSessionRequestSchema.extend({ kind: z.literal("home") }).strict(),
-  mobileSessionRequestSchema.extend({ kind: z.literal("back") }).strict(),
-  mobileSessionRequestSchema.extend({ kind: z.literal("rotate") }).strict(),
+  mobileBuildSessionRequestSchema.extend({ kind: z.literal("stop") }).strict(),
+  mobileBuildSessionRequestSchema.extend({ kind: z.literal("reload") }).strict(),
+  mobileBuildSessionRequestSchema.extend({ kind: z.literal("home") }).strict(),
+  mobileBuildSessionRequestSchema.extend({ kind: z.literal("back") }).strict(),
+  mobileBuildSessionRequestSchema.extend({ kind: z.literal("rotate") }).strict(),
 ]);
-export const mobileStateRequestSchema = mobileScopeSchema
+export const mobileStateRequestSchema = mobileBuildScopeSchema
   .extend({ refresh: z.boolean().optional() })
   .strict();
 export const mobileFrameRequestSchema = mobileSessionRequestSchema
@@ -102,6 +114,7 @@ export const mobileInputSchema = mobileSessionRequestSchema
   })
   .strict();
 
+export type MobileBuildScope = z.infer<typeof mobileBuildScopeSchema>;
 export type MobilePlatform = z.infer<typeof mobilePlatformSchema>;
 export type MobileDevice = z.infer<typeof mobileDeviceSchema>;
 export type MobileTarget = z.infer<typeof mobileTargetSchema>;

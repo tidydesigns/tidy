@@ -91,7 +91,8 @@ Tab leaves the interactive display and returns to Tidy's controls.
 
 Tidy discovers Expo, React Native, Flutter, shared Xcode schemes and standard
 Gradle Android apps, including apps in monorepos. Select the app and choose
-**Run** to build, install and open it on the selected device. Build progress stays
+**Run** to build, install and open it on the selected device. Coding threads use
+their own worktree for app discovery and builds. Build progress stays
 in the panel; **Output** expands a bounded build log. **Stop** cancels the run and
 its development server. Flutter supports hot reload; Expo and React Native keep
 Metro running for Fast Refresh. Native iOS runs use Debug simulator builds without

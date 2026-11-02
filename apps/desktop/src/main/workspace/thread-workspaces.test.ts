@@ -403,3 +403,31 @@ test("a skill selected before worktree creation keeps its authorized project cat
     path: join(f.root, "review-skill.md"),
   });
 });
+
+test("Devices discovers apps from the authorized thread checkout and rejects a forged owner", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  await f.finish(thread);
+  await writeFile(
+    join(f.root, "package.json"),
+    JSON.stringify({ name: "original-app", dependencies: { expo: "58" } }),
+  );
+  await writeFile(
+    join(thread.worktree!.path, "package.json"),
+    JSON.stringify({ name: "thread-app", dependencies: { expo: "58" } }),
+  );
+  const scoped = await f.service.mobile.state({ projectId: f.project.id, threadId: thread.id });
+  expect(scoped.targets.map((target) => target.name)).toEqual(["thread-app"]);
+  const original = await f.service.mobile.state({ projectId: f.project.id });
+  expect(original.targets.map((target) => target.name)).toEqual(["original-app"]);
+  const otherPath = join(f.directory, "other-mobile-project");
+  await mkdir(otherPath);
+  const other = (await f.store.open(otherPath)).project;
+  await expect(
+    f.service.mobile.state({
+      projectId: other.id,
+      threadId: thread.id,
+      threadProjectId: f.project.id,
+    }),
+  ).rejects.toThrow("another project");
+});

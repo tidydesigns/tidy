@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  MobileBuildScope,
   MobileCommand,
   MobileDevice,
   MobileFrame,
@@ -37,6 +38,7 @@ type Project = {
   root: string;
   session?: Session;
   catalog?: Promise<MobileState>;
+  catalogScope?: string;
   checked: number;
   cleanup?: Promise<unknown>;
 };
@@ -66,6 +68,7 @@ export class MobileService {
   constructor(
     private readonly authorize: (projectId: string) => Promise<string>,
     private readonly integrations = defaultIntegrations,
+    private readonly targetRoot?: (scope: MobileBuildScope) => Promise<string>,
   ) {
     this.maintenance = setInterval(() => {
       for (const project of this.projects.values()) {
@@ -99,18 +102,27 @@ export class MobileService {
     return project;
   }
 
-  async state(input: { projectId: string; refresh?: boolean }): Promise<MobileState> {
+  async state(input: MobileBuildScope & { refresh?: boolean }): Promise<MobileState> {
     const project = await this.project(input.projectId);
     if (input.refresh || !this.devices || Date.now() - this.deviceChecked > 15_000) {
       this.deviceChecked = Date.now();
       this.devices = this.integrations.devices();
     }
     const devices = this.devices;
-    if (input.refresh || !project.catalog || Date.now() - project.checked > 60_000) {
+    const catalogScope = JSON.stringify([input.threadId, input.threadProjectId]);
+    if (
+      input.refresh ||
+      !project.catalog ||
+      project.catalogScope !== catalogScope ||
+      Date.now() - project.checked > 60_000
+    ) {
       project.checked = Date.now();
-      project.catalog = this.integrations
-        .targets(project.root)
-        .then((targets) => ({ devices: [], targets, requirements: [], session: null }));
+      project.catalogScope = catalogScope;
+      project.catalog = (async () => {
+        const root = this.targetRoot ? await this.targetRoot(input) : project.root;
+        const targets = await this.integrations.targets(root);
+        return { devices: [], targets, requirements: [], session: null };
+      })();
     }
     const [catalog, discovered] = await Promise.all([project.catalog, devices]);
     return { ...catalog!, ...discovered!, session: project.session?.state ?? null };
@@ -149,7 +161,7 @@ export class MobileService {
   async command(command: MobileCommand): Promise<MobileState> {
     const project = await this.project(command.projectId);
     if (command.kind === "connect") {
-      const catalog = await this.state({ projectId: command.projectId });
+      const catalog = await this.state(command);
       const device = catalog.devices.find((device) => device.id === command.deviceId);
       if (!device) throw new Error("This device is unavailable. Refresh the device list.");
       const requirement = catalog.requirements.find(
@@ -259,7 +271,8 @@ export class MobileService {
         this.track(
           (session.task = (async () => {
             await stopping;
-            const targets = await this.integrations.targets(project.root);
+            const root = this.targetRoot ? await this.targetRoot(command) : project.root;
+            const targets = await this.integrations.targets(root);
             const target = targets.find(
               (target) =>
                 target.id === command.targetId &&
@@ -269,7 +282,7 @@ export class MobileService {
               throw new Error("The app target moved. Refresh Devices and choose an app again.");
             if (!active()) throw new Error("This app run ended.");
             return this.integrations.run({
-              root: project.root,
+              root,
               target,
               device: session.device,
               serial: session.bridge!.serial,
@@ -316,7 +329,7 @@ export class MobileService {
         } else await session.bridge[command.kind]();
       }
     }
-    return this.state({ projectId: command.projectId });
+    return this.state(command);
   }
 
   async frame(input: {
