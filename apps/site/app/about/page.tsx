@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CloudFooter } from "../../components/brand/cloud-footer";
 import { CloudArtwork } from "../../components/brand/cloud-artwork";
+import { BrandIcon } from "../../components/brand/brand-icon";
 import { FounderCards } from "../../components/editorial/founder-cards";
 import { StructuredData } from "../../components/structured-data";
 import { founders } from "../../content/founders";
@@ -13,7 +14,7 @@ import styles from "../../components/editorial/editorial.module.css";
 export const metadata = pageMetadata(
   "/about",
   "About Tidy",
-  "Sean and Tadhg Dowdall are building Tidy, an open-source design canvas and Mac app for working with designs, code and coding agents.",
+  "Sean and Tadhg Dowdall are building Tidy, an open-source workspace for designs, local projects and coding threads with Claude Code and Codex.",
 );
 
 export default async function AboutPage() {
@@ -45,10 +46,11 @@ export default async function AboutPage() {
       <main id="main-content" tabIndex={-1} className={styles.page}>
         <header className={`${styles.intro} ${styles.aboutIntro}`}>
           <div>
-            <h1>An open-source design tool.</h1>
+            <h1>A workspace for design and development.</h1>
             <p className={styles.lead}>
-              Tidy has a design canvas in the browser and a Mac app that connects your designs,
-              local code and coding agents.
+              Tidy brings your designs, local projects and coding agents together. Use the browser
+              canvas, or run Claude Code and Codex threads alongside your code and designs in the
+              Mac app.
             </p>
           </div>
           <div className={styles.aboutArtwork} aria-hidden="true">
@@ -56,20 +58,20 @@ export default async function AboutPage() {
           </div>
         </header>
         <section className={styles.story} aria-labelledby="why-tidy">
-          <h2 id="why-tidy">Where we’re going.</h2>
+          <h2 id="why-tidy">How we work.</h2>
           <div>
             <p>
-              We want to make it easier to use an editable design as the reference while writing
-              code. We’re working on how agents read and change the canvas, and how you review their
-              work.
+              Open a local project, attach a design to a coding thread, and ask an agent to build or
+              change the implementation. Run threads in parallel, review their changes, and use the
+              canvas and terminal in the same workspace.
             </p>
             <p>
               Tidy’s source code is available under the Apache 2.0 license. Development is public on
               GitHub.
             </p>
             <a className={styles.textLink} href={repositoryUrl}>
+              <BrandIcon name="github" />
               <span>View the source on GitHub</span>
-              <span aria-hidden="true">↗</span>
             </a>
           </div>
         </section>

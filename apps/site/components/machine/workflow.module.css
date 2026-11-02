@@ -147,9 +147,6 @@
   line-height: 1.4;
   text-decoration: none;
 }
-.sourceLinks a > span:last-child {
-  margin-left: auto;
-}
 .sourceLinks a:hover > span:not([aria-hidden]) {
   text-decoration: underline;
   text-underline-offset: 3px;

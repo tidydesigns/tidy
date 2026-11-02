@@ -124,19 +124,18 @@ export function Workflow() {
             <a href={repositoryUrl}>
               <BrandIcon name="github" />
               <span>Star on GitHub</span>
-              <span aria-hidden="true">↗</span>
             </a>
             <a href={`${repositoryUrl}/fork`}>
+              <BrandIcon name="github" />
               <span>Fork the project</span>
-              <span aria-hidden="true">↗</span>
             </a>
             <a href={`${repositoryUrl}/blob/main/CONTRIBUTING.md`}>
+              <BrandIcon name="github" />
               <span>Contribute</span>
-              <span aria-hidden="true">↗</span>
             </a>
             <a href={`${repositoryUrl}#self-hosting`}>
+              <BrandIcon name="github" />
               <span>Self-host Tidy</span>
-              <span aria-hidden="true">↗</span>
             </a>
           </div>
         </div>

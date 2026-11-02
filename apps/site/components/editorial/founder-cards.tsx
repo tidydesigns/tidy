@@ -31,8 +31,8 @@ export function FounderCards() {
                 <span>GitHub</span>
               </a>
               <a href={founder.linkedin} aria-label={`${founder.name} on LinkedIn`}>
+                <BrandIcon name="linkedin" />
                 <span>LinkedIn</span>
-                <span aria-hidden="true">↗</span>
               </a>
             </div>
           </div>

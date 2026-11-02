@@ -27,7 +27,7 @@ export function PostList({ posts, headingLevel = 2 }: { posts: BlogPost[]; headi
               </span>
             </div>
             <span className={styles.arrow} aria-hidden="true">
-              ↗
+              →
             </span>
           </Link>
         </article>
