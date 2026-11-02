@@ -582,6 +582,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         );
       }
       flushSync(() => root.render(<Probe />));
+      await settle();
       const chat = required(host.querySelector<HTMLElement>("[data-chat]"), "Conversation");
       const trigger = required(chat.querySelector<HTMLButtonElement>("button"), "Panel toggle");
       const width = chat.getBoundingClientRect().width;
