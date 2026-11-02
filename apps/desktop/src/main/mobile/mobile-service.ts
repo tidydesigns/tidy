@@ -7,7 +7,7 @@ import type {
   MobileSession,
   MobileState,
 } from "../../shared/contracts/mobile";
-import { connectAndroid, connectIOS, type DeviceBridge } from "./bridges";
+import { connectAndroid, connectIOS, type DeviceBridge, type DeviceFrame } from "./bridges";
 import { discoverDevices, discoverTargets } from "./discovery";
 import { IOSRuntime } from "./runtime";
 import { runMobileApp, type RunningApp } from "./runner";
@@ -24,6 +24,7 @@ type Session = {
   bridge?: DeviceBridge;
   stopCapture?: () => void;
   frame?: MobileFrame;
+  lastFrame?: DeviceFrame;
   sequence: number;
   demand: number;
   waiters: Set<() => void>;
@@ -125,6 +126,7 @@ export class MobileService {
   private pauseCapture(session: Session) {
     session.stopCapture?.();
     session.stopCapture = undefined;
+    session.lastFrame = undefined;
     if (session.touch && session.bridge) {
       const touch = session.touch;
       session.touch = undefined;
@@ -331,6 +333,17 @@ export class MobileService {
       session.stopCapture = session.bridge.capture(
         (frame) => {
           if (project.session !== session || frame.data.length > 2 * 1024 * 1024) return;
+          const previous = session.lastFrame;
+          if (
+            previous &&
+            previous.width === frame.width &&
+            previous.height === frame.height &&
+            previous.mime === frame.mime &&
+            (previous.rotation ?? 0) === (frame.rotation ?? 0) &&
+            previous.data.equals(frame.data)
+          )
+            return;
+          session.lastFrame = frame;
           session.frame = {
             ...frame,
             rotation: frame.rotation ?? 0,

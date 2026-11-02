@@ -1,3 +1,4 @@
+import WebSocket from "ws";
 import { createRequire } from "node:module";
 import { readdir, realpath } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
@@ -115,7 +116,8 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
       const bundler = start(
         node,
         [cli, "start", "--port", String(port), ...(target.kind === "expo" ? ["--localhost"] : [])],
-        { CI: "1", BROWSER: "none" },
+        // Metro must watch files for Fast Refresh. Piped stdio already prevents CLI prompts.
+        { CI: "false", BROWSER: "none" },
       );
       void bundler.done.catch((error: unknown) => {
         if (!signal.aborted) failed(error);
@@ -147,16 +149,7 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
       }
       const args =
         target.kind === "expo"
-          ? [
-              cli,
-              `run:${device.platform}`,
-              "--device",
-              serial,
-              "--no-bundler",
-              "--no-install",
-              "--port",
-              String(port),
-            ]
+          ? [cli, `run:${device.platform}`, "--device", serial, "--no-bundler"]
           : [
               cli,
               device.platform === "ios" ? "run-ios" : "run-android",
@@ -166,14 +159,17 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
               "--port",
               String(port),
             ];
-      await run(node, args, { CI: "1", BROWSER: "none", ANDROID_SERIAL: serial });
-      reload = async () => {
-        const response = await fetch(`http://127.0.0.1:${port}/reload`, {
-          method: "POST",
-          signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
-        });
-        if (!response.ok) throw new Error("The development server could not reload this app.");
-      };
+      // Expo disallows --port with --no-bundler. Its launch URL override points
+      // the native app at our existing loopback-only Metro, without a second server.
+      await run(node, args, {
+        CI: "1",
+        BROWSER: "none",
+        ANDROID_SERIAL: serial,
+        ...(target.kind === "expo"
+          ? { EXPO_PACKAGER_PROXY_URL: `http://127.0.0.1:${port}`, RCT_METRO_PORT: String(port) }
+          : {}),
+      });
+      reload = () => reloadMetro(port, signal);
       running();
     } else if (target.kind === "xcode") {
       const entries = await readdir(cwd, { withFileTypes: true });
@@ -303,4 +299,50 @@ export async function runMobileApp(options: RunOptions): Promise<RunningApp> {
     await terminate?.().catch(() => {});
     throw error;
   }
+}
+
+/** Metro 0.88 / Expo 58 use the version 2 command socket; /reload can return an HTML page. */
+export function reloadMetro(port: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/message`, {
+      handshakeTimeout: 5000,
+      maxPayload: 64 * 1024,
+    });
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      socket.removeAllListeners();
+      socket.on("error", () => {});
+      socket.terminate();
+      if (error) reject(error);
+      else resolve();
+    };
+    const abort = () => finish(new Error("App run stopped."));
+    const timer = setTimeout(
+      () => finish(new Error("Metro did not acknowledge the reload. Run the app again.")),
+      5000,
+    );
+    signal.addEventListener("abort", abort, { once: true });
+    socket.once("error", (error) => finish(error));
+    socket.once("close", () =>
+      finish(new Error("The development server disconnected before reloading.")),
+    );
+    socket.once("open", () =>
+      socket.send(JSON.stringify({ version: 2, method: "reload" }), (error) => {
+        if (error) finish(error);
+      }),
+    );
+    socket.on("message", (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.version === 2 && message.method === "reload") finish();
+      } catch {
+        /* Ignore unrelated Metro messages. */
+      }
+    });
+  });
 }

@@ -36,6 +36,7 @@ async function fixture(options: { delayedConnection?: boolean; delayedBuild?: bo
     paused = 0,
     appStops = 0;
   const inputs: MobileInput["event"][] = [];
+  let emitted = 0;
   let emit: ((frame: DeviceFrame) => void) | undefined;
   const bridge: DeviceBridge = {
     serial: "emulator-5554",
@@ -107,8 +108,14 @@ async function fixture(options: { delayedConnection?: boolean; delayedBuild?: bo
     revoke() {
       allowed = false;
     },
-    emit() {
-      emit?.({ data: Buffer.from([1, 2, 3]), mime: "image/png", width: 100, height: 200 });
+    emit(frame: Partial<DeviceFrame> = {}) {
+      emit?.({
+        data: Buffer.from([++emitted, 2, 3]),
+        mime: "image/png",
+        width: 100,
+        height: 200,
+        ...frame,
+      });
     },
     stats: () => ({ closed, captures, paused, appStops }),
     state: () => service.state({ projectId }),
@@ -232,4 +239,21 @@ test("hidden previews stop capture and release touches while retaining the devic
   f.emit();
   await resumed;
   expect(f.stats().captures).toBe(2);
+});
+
+test("unchanged frames do not transfer again, while a rotation with identical bytes does", async () => {
+  const f = await fixture();
+  const input = { projectId: f.projectId, sessionId: f.sessionId, after: 0 };
+  const waiting = f.service.frame(input);
+  await tick();
+  const data = Buffer.from([9, 8, 7]);
+  f.emit({ data });
+  expect(await waiting).toMatchObject({ sequence: 1 });
+  f.emit({ data: Buffer.from(data) });
+  expect(await f.service.frame({ ...input, after: 1 })).toBeNull();
+  f.emit({ data, rotation: 90 });
+  expect(await f.service.frame({ ...input, after: 1 })).toMatchObject({
+    sequence: 2,
+    rotation: 90,
+  });
 });
