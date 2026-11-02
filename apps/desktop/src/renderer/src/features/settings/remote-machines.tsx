@@ -104,6 +104,13 @@ function RemoteMachineRow({
         </div>
       </div>
       {message && <p className="remote-machine-detail">{message}</p>}
+      {status?.kind === "connected" && status.backendUpdate && (
+        <p className="remote-machine-detail" role="status">
+          {status.backendUpdate.kind === "ready"
+            ? "Backend is up to date."
+            : `${status.backendUpdate.kind === "failed" ? "Backend update failed" : "Backend update was deferred"}. Still using the previous backend. ${status.backendUpdate.message}`}
+        </p>
+      )}
       {status?.kind === "connected" && status.warning && (
         <p className="remote-machine-detail">{status.warning}</p>
       )}

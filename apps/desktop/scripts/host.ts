@@ -55,6 +55,7 @@ try {
     try {
       const token = await sessions.issue(clientId);
       let runtime = await ready();
+      let updateWarning: string | undefined;
       if (
         runtime &&
         !process.argv.includes("--reconnect") &&
@@ -88,8 +89,12 @@ try {
           }
           if (runtime)
             throw new Error("The previous backend is still shutting down. Retry shortly.");
-        } else if (response.status !== 409)
-          throw new Error("The existing backend needs a manual restart before updating.");
+        } else if (response.status === 409) {
+          const refusal = z
+            .object({ error: z.string().min(1).max(1024) })
+            .parse(await response.json());
+          updateWarning = refusal.error;
+        } else throw new Error("The existing backend needs a manual restart before updating.");
       }
       if (!runtime) {
         const activation = await selectHostActivation(directory, {
@@ -141,6 +146,7 @@ try {
           ...runtime,
           clientId,
           token,
+          ...(updateWarning ? { updateWarning } : {}),
           updatePending:
             runtime.managed &&
             shouldUpdateHost({ current: runtime, candidate: { buildId, sourceTimestamp } }),

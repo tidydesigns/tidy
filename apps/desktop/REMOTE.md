@@ -114,8 +114,12 @@ opens an SSH local forward, verifies the backend instance, authenticates with th
 and exchanges a short-lived, single-use ticket for its WebSocket connection.
 
 Automatic recovery preserves compatible running builds. Choose **Update backend** in Settings
-to install and activate a newer source build. Active runs, browser tabs and in-flight requests
-prevent an update; the connection status includes a deferred-update warning. Externally managed
+to stage, verify and activate a newer source build. Active runs, browser tabs, terminals and
+in-flight requests prevent an update; Settings reports the refusal and that the previous backend
+is still in use. If installation or startup fails, Tidy attempts to reconnect to the verified
+existing backend and shows the upgrade error. A successful upgrade reports that the backend is
+up to date. Choose **Update backend** again to retry a failed or deferred upgrade. Authentication,
+identity, protocol and cancellation failures do not trigger fallback. Externally managed
 backends are left running. A backend that is alive but unresponsive is also left running
 rather than killed speculatively. The launcher never restarts agents to fix a client
 connection.

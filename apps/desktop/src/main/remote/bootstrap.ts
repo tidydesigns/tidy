@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { ptyPackages } from "../terminal/pty-packages";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { preparedHostSchema } from "../../shared/remote";
+import { preparedHostSchema, type PreparedHost } from "../../shared/remote";
 import { installedHostScript } from "./installed-host";
 import { installHostScript } from "./install-host";
 import { shouldUpdateHost } from "./host-service";
-import { RemoteFailure } from "./errors";
+import { RemoteFailure, remoteFailure } from "./errors";
 import { shellQuote, type SshSession } from "./ssh";
 
 type HostDirectories = { runtime: string; state: string };
@@ -187,31 +187,76 @@ export async function prepareHost({
         "The desktop backend metadata is invalid. Rebuild or reinstall the desktop app, then retry.",
       );
   }
-  let output = await ssh.execute({
-    script: reconnectScript({ buildId, clientId, expectedHostId, update }),
-    signal,
-    progress,
-    timeout: 120_000,
-  });
-  if (output.trim() === "TIDY_INSTALL_REQUIRED") {
-    signal.throwIfAborted();
-    output = await ssh.execute({
-      script: bootstrapScript({ bundle, clientId, expectedHostId, update }),
-      input: bundle,
-      timeout: 900_000,
+  const connect = async (mode: "connect" | "upgrade" | "recover") => {
+    const applyUpdate = mode === "upgrade";
+    let output = await ssh.execute({
+      script: reconnectScript({ buildId, clientId, expectedHostId, update: applyUpdate }),
       signal,
       progress,
+      timeout: 120_000,
     });
-  }
-  const line = output.trim().split(/\r?\n/).at(-1);
-  if (!line) throw new Error("The remote machine did not return a backend address.");
-  const host = preparedHostSchema.parse(JSON.parse(line));
-  return {
-    ...host,
-    updatePending:
-      host.managed &&
-      (sourceTimestamp === undefined
-        ? host.buildId !== buildId || host.updatePending === true
-        : shouldUpdateHost({ current: host, candidate: { buildId, sourceTimestamp } })),
+    if (output.trim() === "TIDY_INSTALL_REQUIRED") {
+      signal.throwIfAborted();
+      if (mode === "recover")
+        throw new RemoteFailure("setup", "The previous backend is unavailable.");
+      output = await ssh.execute({
+        script: bootstrapScript({ bundle, clientId, expectedHostId, update: applyUpdate }),
+        input: bundle,
+        timeout: 900_000,
+        signal,
+        progress,
+      });
+    }
+    const line = output.trim().split(/\r?\n/).at(-1);
+    if (!line) throw new Error("The remote machine did not return a backend address.");
+    const host = preparedHostSchema.parse(JSON.parse(line));
+    if (expectedHostId && host.hostId !== expectedHostId)
+      throw new RemoteFailure(
+        "identity",
+        "Backend identity changed. Verify this machine before reconnecting.",
+      );
+    return host;
   };
+  let host: PreparedHost;
+  let backendUpdate: PreparedHost["backendUpdate"];
+  try {
+    host = await connect(update ? "upgrade" : "connect");
+  } catch (error) {
+    signal.throwIfAborted();
+    const failure = remoteFailure(error);
+    if (!update || !expectedHostId || !["setup", "unavailable"].includes(failure.kind)) throw error;
+    try {
+      host = await connect("recover");
+    } catch (recoveryError) {
+      const recovery = remoteFailure(recoveryError);
+      throw new RemoteFailure(
+        recovery.kind,
+        `Backend update failed: ${failure.message} Reconnecting to the previous backend also failed: ${recovery.message}`,
+      );
+    }
+    backendUpdate = { kind: "failed", message: failure.message.slice(0, 2048) };
+  }
+  const updatePending =
+    host.managed &&
+    (sourceTimestamp === undefined
+      ? host.buildId !== buildId || host.updatePending === true
+      : shouldUpdateHost({ current: host, candidate: { buildId, sourceTimestamp } }));
+  if (backendUpdate?.kind === "failed" && host.buildId === buildId)
+    backendUpdate = { kind: "ready" };
+  if (update && !backendUpdate) {
+    backendUpdate = !host.managed
+      ? {
+          kind: "deferred",
+          message: "This backend is managed externally. Ask its operator to update it.",
+        }
+      : updatePending
+        ? {
+            kind: "deferred",
+            message:
+              host.updateWarning ??
+              "Finish active runs and close preview browser tabs and terminals, then try again.",
+          }
+        : { kind: "ready" };
+  }
+  return { ...host, updatePending, backendUpdate };
 }

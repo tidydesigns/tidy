@@ -54,7 +54,11 @@ export const terminalOutputSchema = z.discriminatedUnion("kind", [
     data: z.string().max(32_000),
   }),
   z.object({ kind: z.literal("exit"), sessionId: z.uuid(), exitCode: z.number().int().nullable() }),
-  z.object({ kind: z.literal("error"), message: z.string().max(1000) }),
+  z.object({
+    kind: z.literal("error"),
+    message: z.string().max(1000),
+    code: z.literal("backend-update-required").optional(),
+  }),
   z.object({ kind: z.literal("disconnected"), message: z.string().max(1000) }),
 ]);
 export type TerminalOutput = z.infer<typeof terminalOutputSchema>;

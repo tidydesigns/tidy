@@ -52,8 +52,9 @@ export function remoteTerminal(
       if (!capabilities?.includes(scope.terminalId ? "terminal-tabs-v1" : "terminal-v1")) {
         receive({
           kind: "error",
+          code: "backend-update-required",
           message:
-            "Update Tidy's backend on this machine to use terminals. Finish active work and reconnect the machine.",
+            "To use terminals, finish active runs and close preview browser tabs, then choose Update backend in Settings → Remote machines.",
         });
         return;
       }

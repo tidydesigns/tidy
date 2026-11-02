@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sshFailure } from "./errors";
+import { RemoteFailure, sshFailure } from "./errors";
 import { bootstrapScript, prepareHost, reconnectScript } from "./bootstrap";
 import { type SshSession, shellQuote } from "./ssh";
 import { installHostScript } from "./install-host";
@@ -728,18 +728,29 @@ test("source ordering offers updates only when the desktop can replace the remot
         pid: 1,
         port: 1234,
         managed,
+        updateWarning: "Close preview browser tabs before updating.",
         token: "a".repeat(64),
         clientId,
       };
       const result = await prepareHost({
         bundlePath,
         clientId,
+        update: true,
         signal: AbortSignal.timeout(5000),
         progress: () => {},
         ssh: { execute: async () => JSON.stringify(host) },
       });
-      expect(result.updatePending).toBe(
-        managed && (sourceTimestamp === undefined || sourceTimestamp < 2),
+      const pending = managed && (sourceTimestamp === undefined || sourceTimestamp < 2);
+      expect(result.updatePending).toBe(pending);
+      expect(result.backendUpdate).toEqual(
+        !managed
+          ? {
+              kind: "deferred",
+              message: "This backend is managed externally. Ask its operator to update it.",
+            }
+          : pending
+            ? { kind: "deferred", message: host.updateWarning }
+            : { kind: "ready" },
       );
     }
 });
@@ -865,4 +876,60 @@ test("a cold verified archive publishes a reusable shared runtime without tempor
     expect(result.stderr).toContain("TIDY_PHASE:installing\n");
   }
   expect(await readFile(join(f.home, "downloads"), "utf8")).toBe("download");
+});
+
+test("upgrade failures reuse the verified backend without bypassing connection failures", async () => {
+  const f = await fixture();
+  const bundlePath = join(f.home, "desktop-bundle");
+  await writeFile(bundlePath, bundle);
+  const host = {
+    protocol: 3,
+    buildId: "b".repeat(64),
+    hostId: fixtureHostId,
+    instanceId: fixtureInstanceId,
+    pid: 1,
+    port: 1234,
+    managed: true,
+    token: "a".repeat(64),
+    clientId,
+  };
+  for (const kind of [
+    "setup",
+    "unavailable",
+    "authentication",
+    "identity",
+    "protocol",
+    "cancelled",
+  ] as const) {
+    const calls: Parameters<SshSession["execute"]>[0][] = [];
+    const failure = new RemoteFailure(kind, "Upgrade could not finish.");
+    const result = prepareHost({
+      bundlePath,
+      clientId,
+      expectedHostId: fixtureHostId,
+      update: true,
+      signal: AbortSignal.timeout(5000),
+      progress() {},
+      ssh: {
+        execute: async (input) => {
+          calls.push(input);
+          if (calls.length === 1) return "TIDY_INSTALL_REQUIRED";
+          if (calls.length === 2) throw failure;
+          return JSON.stringify(host);
+        },
+      },
+    });
+    if (kind === "setup" || kind === "unavailable") {
+      expect(await result).toMatchObject({
+        instanceId: fixtureInstanceId,
+        updatePending: true,
+        backendUpdate: { kind: "failed", message: failure.message },
+      });
+      expect(calls).toHaveLength(3);
+      expect(calls[2].input).toBeUndefined();
+    } else {
+      await expect(result).rejects.toBe(failure);
+      expect(calls).toHaveLength(2);
+    }
+  }
 });

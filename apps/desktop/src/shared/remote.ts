@@ -32,6 +32,11 @@ export const remoteFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("result"), id: z.string().uuid(), response: z.unknown() }),
   z.object({ type: z.literal("event"), event: desktopEventSchema }),
 ]);
+export const backendUpdateSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ready") }),
+  z.object({ kind: z.literal("deferred"), message: z.string().max(2048) }),
+  z.object({ kind: z.literal("failed"), message: z.string().max(2048) }),
+]);
 export const connectionStatusSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("verification"), target: z.string(), requestId: z.string().uuid() }),
   z.object({
@@ -52,6 +57,7 @@ export const connectionStatusSchema = z.discriminatedUnion("kind", [
     warning: z.string().optional(),
     updatePending: z.boolean().optional(),
     capabilities: z.array(z.string()).optional(),
+    backendUpdate: backendUpdateSchema.optional(),
   }),
   z.object({
     kind: z.literal("reconnecting"),
@@ -95,6 +101,8 @@ export const runtimeSchema = hostDescriptorSchema.omit({ activeRuns: true }).ext
   persistenceWarning: z.string().max(1024).optional(),
 });
 export const preparedHostSchema = runtimeSchema.extend({
+  backendUpdate: backendUpdateSchema.optional(),
+  updateWarning: z.string().max(1200).optional(),
   updatePending: z.boolean().optional(),
   token: sessionTokenSchema,
   clientId: z.string().uuid(),
