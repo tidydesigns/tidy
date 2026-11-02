@@ -18,14 +18,50 @@ async function request<Name extends WorkspaceOperation>(
   file?: { name: string; document: unknown },
   projectPath?: string,
 ): Promise<WorkspaceResponse<Name>> {
-  const response = await fetch("/__tidy/request", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, input, file, projectPath }),
-  });
-  if (response.status === 401)
-    throw new Error("Your development session expired. Open the development link again.");
-  return parseWorkspaceResponse(name, await response.json());
+  const repositoryRead = ["repository-directory", "repository-changes", "repository-file"].includes(
+    name,
+  );
+  const controller = repositoryRead ? new AbortController() : undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const operation = async () => {
+    const response = await fetch("/__tidy/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, input, file, projectPath }),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (response.status === 401)
+      throw new Error("Your development session expired. Open the development link again.");
+    try {
+      return parseWorkspaceResponse(name, await response.json());
+    } catch (error) {
+      if (
+        ["repository-directory", "repository-changes", "repository-file"].includes(name) &&
+        error instanceof Error &&
+        error.message === "Unknown desktop request."
+      )
+        throw new Error(
+          "Repository files need a development server update. Restart the development server, then retry.",
+        );
+      throw error;
+    }
+  };
+  if (!controller) return operation();
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error("Reading repository files timed out. Check the connection, then retry."),
+          );
+          controller.abort();
+        }, 15000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function importDesign(projectId: string, folderId?: string | null) {
@@ -134,8 +170,8 @@ const api: DesktopAPI = {
   checkHarnesses: () => request("harnesses"),
   repositoryDirectory: (projectId, path) => request("repository-directory", { projectId, path }),
   repositoryChanges: (projectId) => request("repository-changes", { projectId }),
-  repositoryFile: (projectId, path, previousPath) =>
-    request("repository-file", { projectId, path, previousPath }),
+  repositoryFile: (projectId, path, previousPath, view) =>
+    request("repository-file", { projectId, path, previousPath, view }),
   repositoryContext: (projectId) => request("repository-context", { projectId }),
   switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),
   renameThread: (projectId, threadId, title) =>

@@ -76,6 +76,77 @@ test("compares staged and unstaged contents against HEAD without changing the in
   ).toEqual([1]);
 });
 
+test("raw previews include the whole working file and remain available with a broken Git index", async () => {
+  const { root, git } = await fixture();
+  const lines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+  await writeFile(join(root, "file.txt"), lines.join("\n") + "\n");
+  await git(["commit", "-am", "Long fixture"]);
+  lines[14] = "working change";
+  const text = lines.join("\n") + "\n";
+  await writeFile(join(root, "file.txt"), text);
+  const diff = await readRepositoryFile(root, "file.txt");
+  expect(diff.kind === "text" && diff.view).toBe("diff");
+  expect(diff.kind === "text" && diff.text).not.toContain("line 1\n");
+  const raw = { kind: "text", text, view: "file", comparison: "none" } as const;
+  expect(await readRepositoryFile(root, "file.txt", undefined, "file")).toEqual(raw);
+  await writeFile(join(root, ".git/index"), "broken index");
+  await expect(readRepositoryChanges(root)).rejects.toThrow();
+  expect(await readRepositoryFile(root, "file.txt", undefined, "file")).toEqual(raw);
+});
+
+test("raw previews retain path confinement and file limits without Git", async () => {
+  const { root } = await fixture();
+  await symlink(join(root, "file.txt"), join(root, "link.txt"));
+  await writeFile(join(root, "binary"), Buffer.from([0, 1, 2]));
+  await writeFile(join(root, "large"), "x".repeat(1024 * 1024 + 1));
+  await writeFile(join(root, "empty"), "");
+  await expect(readRepositoryFile(root, "../file.txt", undefined, "file")).rejects.toThrow();
+  for (const [path, reason] of [
+    ["link.txt", "symlink"],
+    ["binary", "binary"],
+    ["large", "oversized"],
+    ["missing", "missing"],
+  ] as const)
+    expect(await readRepositoryFile(root, path, undefined, "file")).toEqual({
+      kind: "unavailable",
+      reason,
+    });
+  expect(await readRepositoryFile(root, "empty", undefined, "file")).toEqual({
+    kind: "text",
+    text: "",
+    view: "file",
+    comparison: "none",
+  });
+});
+
+test("shows a tracked file's deletion when a directory replaces it", async () => {
+  const { root } = await fixture();
+  await rm(join(root, "file.txt"));
+  await mkdir(join(root, "file.txt"));
+  await writeFile(join(root, "file.txt", "child.txt"), "new child\n");
+  expect((await readRepositoryChanges(root)).changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "deleted",
+  });
+  const file = await readRepositoryFile(root, "file.txt");
+  expect(file.kind).toBe("text");
+  if (file.kind !== "text") return;
+  expect(file.view).toBe("diff");
+  expect(file.deleted).toBe(true);
+  expect(file.text).toContain("-first");
+  expect(file.text).toContain("-last");
+  expect(await readRepositoryFile(root, "file.txt", undefined, "file")).toEqual({
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+  await mkdir(join(root, "ordinary-folder"));
+  expect(await readRepositoryFile(root, "ordinary-folder")).toEqual({
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+});
+
 test("keeps hunk parsing correct when user Git configuration suppresses blank context markers", async () => {
   const { root, git } = await fixture();
   await writeFile(join(root, "file.txt"), "first\n\nlast\n");
@@ -715,6 +786,101 @@ test("keeps folder browsing available when the Git index exceeds the snapshot li
   expect(directory.ignoreUnavailable).toBe(true);
   expect(directory.entries).toContainEqual({ path: "file.txt", name: "file.txt", kind: "file" });
 });
+
+test.each(["missing-git", "broken-config", "broken-index"] as const)(
+  "keeps bounded folder browsing available with %s",
+  async (failure) => {
+    const { root } = await fixture();
+    await writeFile(join(root, ".gitignore"), "ignored.txt\n");
+    await writeFile(join(root, "ignored.txt"), "ordinary fixture\n");
+    if (failure === "broken-config")
+      await writeFile(join(root, ".git/config"), "[invalid configuration\n");
+    if (failure === "broken-index") await writeFile(join(root, ".git/index"), "invalid index\n");
+    const previousPath = process.env.PATH;
+    try {
+      if (failure === "missing-git") process.env.PATH = root;
+      const directory = await readRepositoryDirectory(root, "");
+      expect(directory.entries).toContainEqual({
+        path: "file.txt",
+        name: "file.txt",
+        kind: "file",
+      });
+      expect(directory.entries.some((entry) => entry.name === ".git")).toBe(false);
+      expect(directory.entries.length).toBeLessThanOrEqual(5000);
+      expect(directory.ignoreUnavailable).toBe(true);
+      await expect(readRepositoryDirectory(root, "../outside")).rejects.toThrow();
+      await expect(readRepositoryDirectory(root, ".git")).rejects.toThrow();
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  },
+);
+
+test("reports broken Git configuration and recovers after it is repaired", async () => {
+  const { root } = await fixture();
+  await writeFile(join(root, "file.txt"), "modified\n");
+  const config = await readFile(join(root, ".git/config"));
+  await writeFile(join(root, ".git/config"), "[invalid configuration\n");
+  await expect(readRepositoryChanges(root)).rejects.toThrow("Check its configuration");
+  expect(await readRepositoryFile(root, "file.txt", undefined, "file")).toEqual({
+    kind: "text",
+    text: "modified\n",
+    view: "file",
+    comparison: "none",
+  });
+  await writeFile(join(root, ".git/config"), config);
+  expect((await readRepositoryChanges(root)).changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "modified",
+  });
+});
+
+test.each(["rev-parse", "check-ignore"])(
+  "cancels stalled optional %s inspection",
+  async (command) => {
+    const { root } = await fixture();
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    const executable = Bun.which("git");
+    if (!executable) throw new Error("Git is required.");
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const pidFile = join(root, "git-process");
+    await writeFile(
+      join(bin, "git"),
+      `#!/bin/sh\nfor arg in "$@"; do\nif [ "$arg" = ${quote(command)} ]; then\necho $$ > ${quote(pidFile)}\nexec /bin/sleep 30\nfi\ndone\nexec ${quote(executable)} "$@"\n`,
+    );
+    await chmod(join(bin, "git"), 0o700);
+    const previousPath = process.env.PATH;
+    try {
+      process.env.PATH = bin;
+      const directory = await readRepositoryDirectory(root, "");
+      expect(directory.ignoreUnavailable).toBe(true);
+      expect(directory.entries).toContainEqual({
+        path: "file.txt",
+        name: "file.txt",
+        kind: "file",
+      });
+      const pid = Number(await readFile(pidFile, "utf8"));
+      await expect(async () => {
+        for (let attempt = 0; attempt < 50; attempt++) {
+          try {
+            process.kill(pid, 0);
+          } catch {
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        throw new Error("Optional Git inspection was not cancelled.");
+      }).not.toThrow();
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  },
+  2000,
+);
 
 test.each(["count", "payload"] as const)(
   "retains ordinary changes when filtered paths exceed the %s budget",

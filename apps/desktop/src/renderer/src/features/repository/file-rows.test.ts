@@ -1,6 +1,37 @@
 import { expect, test } from "bun:test";
-import { prepareFileRows, visibleTreeRows } from "./file-rows";
+import { prepareFileRows, unifiedFileRows, visibleTreeRows } from "./file-rows";
 import type { RepositoryDirectory } from "../../../../shared/contracts/repository-files";
+
+test("unified diffs retain removed and added blocks, line numbers and context", () => {
+  const split = prepareFileRows({
+    kind: "text",
+    view: "diff",
+    comparison: "head",
+    text: "@@ -1,4 +1,4 @@\n context\n-old one\n-old two\n+new one\n+new two\n tail\n",
+  });
+  const unified = unifiedFileRows(split);
+  expect(unified.split).toBe(false);
+  expect(unified.added).toBe(2);
+  expect(unified.removed).toBe(2);
+  expect(
+    unified.rows
+      .filter((row) => row.kind === "lines")
+      .map((row) => [
+        row.before?.text ?? null,
+        row.after?.text ?? null,
+        row.before?.number ?? row.after?.number,
+      ]),
+  ).toEqual([
+    ["context", "context", 1],
+    ["old one", null, 2],
+    ["old two", null, 3],
+    [null, "new one", 2],
+    [null, "new two", 3],
+    ["tail", "tail", 4],
+  ]);
+  expect(split.split).toBe(true);
+  expect(split.rows).toHaveLength(5);
+});
 
 test("projects only expanded descendants with explicit virtual-tree accessibility positions", () => {
   const directories = new Map<string, RepositoryDirectory>([

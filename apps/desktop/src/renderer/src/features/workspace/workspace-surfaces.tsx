@@ -47,7 +47,7 @@ export type BrowserSurface = Omit<
   ComponentProps<typeof BrowserComponent>,
   "open" | "active" | "onClose" | "embedded"
 >;
-const labels = { files: "Files", diff: "Diff", browser: "Browser" } satisfies Record<
+const labels = { files: "Files", diff: "Changes", browser: "Browser" } satisfies Record<
   Surface,
   string
 >;
@@ -77,10 +77,14 @@ export function WorkspaceSurfaces({
   request?: SurfaceRequest;
   onClose(): void;
 }) {
-  const [panel, setPanel] = useSessionState(`repository-surfaces:${projectId}`, panelSchema, {
-    tabs: [],
-    active: null,
-  });
+  const [panel, setPanel] = useSessionState<z.infer<typeof panelSchema>>(
+    `repository-surfaces:${projectId}`,
+    panelSchema,
+    {
+      tabs: repositoryAPI ? ["files"] : browser ? ["browser"] : [],
+      active: repositoryAPI ? "files" : browser ? "browser" : null,
+    },
+  );
   const [width, setWidth] = useSessionState(
     `workspace-panel-width:${projectId}`,
     z.number().int().min(0).max(4096).nullable(),
@@ -118,18 +122,36 @@ export function WorkspaceSurfaces({
     if (selected === "browser") setBrowserMounted(browserKey);
     else if (selected) setRepositoryMounted(true);
   }, [selected, browserKey]);
-  const previousFocus = useRef({ open: false, tab: panel.active });
+  const previousFocus = useRef({ open: false });
+  const tabFocusRequested = useRef(false);
+  const focusSelectedTab = useCallback(() => {
+    pane.current
+      ?.querySelector<HTMLButtonElement>(
+        selected ? `#workspace-tab-${selected}` : "#workspace-add-surface",
+      )
+      ?.focus();
+  }, [selected]);
   useLayoutEffect(() => {
-    const changed =
-      (open && !previousFocus.current.open) || panel.active !== previousFocus.current.tab;
-    previousFocus.current = { open, tab: panel.active };
-    if (active && changed)
-      pane.current
-        ?.querySelector<HTMLButtonElement>(
-          selected ? `#workspace-tab-${selected}` : "#workspace-add-surface",
-        )
-        ?.focus();
-  }, [active, open, panel.active, selected]);
+    const opening = open && !previousFocus.current.open;
+    if (opening && tabs.length === 0 && !request) {
+      if (hasRepository) openSurface("files");
+      else if (hasBrowser) openSurface("browser");
+    }
+    const changed = opening || tabFocusRequested.current;
+    previousFocus.current = { open };
+    tabFocusRequested.current = false;
+    if (active && changed) focusSelectedTab();
+  }, [
+    active,
+    open,
+    panel.active,
+    focusSelectedTab,
+    tabs.length,
+    request,
+    hasRepository,
+    hasBrowser,
+    openSurface,
+  ]);
   useLayoutEffect(() => {
     const node = pane.current,
       parent = node?.parentElement;
@@ -137,9 +159,14 @@ export function WorkspaceSurfaces({
     const update = () => {
       const maximum = Math.max(0, parent.clientWidth - Math.min(280, parent.clientWidth * 0.45));
       if (width === null) parent.style.removeProperty("--workspace-panel-width");
-      else parent.style.setProperty("--workspace-panel-width", `${Math.min(width, maximum)}px`);
+      else
+        parent.style.setProperty(
+          "--workspace-panel-width",
+          `${Math.max(Math.min(320, maximum), Math.min(width, maximum))}px`,
+        );
       separator.current?.setAttribute("aria-valuenow", String(Math.round(node.clientWidth)));
       separator.current?.setAttribute("aria-valuemax", String(Math.round(maximum)));
+      separator.current?.setAttribute("aria-valuemin", String(Math.round(Math.min(320, maximum))));
     };
     const observer = new ResizeObserver(update);
     observer.observe(parent);
@@ -148,7 +175,7 @@ export function WorkspaceSurfaces({
       observer.disconnect();
       parent.style.removeProperty("--workspace-panel-width");
     };
-  }, [width]);
+  }, [width, open, expanded]);
   const resize = (requested: number) => {
     const parent = pane.current?.parentElement;
     if (!parent) return 0;
@@ -227,7 +254,10 @@ export function WorkspaceSurfaces({
                 aria-selected={selected === surface}
                 aria-controls={`workspace-surface-${surface}`}
                 tabIndex={selected === surface || (selected === null && index === 0) ? 0 : -1}
-                onClick={() => openSurface(surface)}
+                onClick={() => {
+                  tabFocusRequested.current = true;
+                  openSurface(surface);
+                }}
                 onPointerEnter={() => {
                   void (surface === "browser" ? BrowserWorkspace : RepositoryBrowser)
                     .preload()
@@ -236,6 +266,7 @@ export function WorkspaceSurfaces({
                 onKeyDown={(event) => {
                   if (event.key === "Delete") {
                     event.preventDefault();
+                    tabFocusRequested.current = true;
                     const remaining = panel.tabs.filter((tab) => tab !== surface);
                     setPanel({
                       tabs: remaining,
@@ -253,6 +284,7 @@ export function WorkspaceSurfaces({
                           ? tabs.length - 1
                           : (index + (event.key === "ArrowLeft" ? tabs.length - 1 : 1)) %
                             tabs.length;
+                    tabFocusRequested.current = true;
                     openSurface(tabs[next]);
                   }
                 }}
@@ -264,6 +296,7 @@ export function WorkspaceSurfaces({
                 className="quiet-button workspace-icon-button"
                 aria-label={`Close ${labels[surface]} surface`}
                 onClick={() => {
+                  tabFocusRequested.current = true;
                   const remaining = panel.tabs.filter((tab) => tab !== surface);
                   setPanel({
                     tabs: remaining,
@@ -284,7 +317,10 @@ export function WorkspaceSurfaces({
           className="quiet-button workspace-icon-button"
           aria-label="Open a tab"
           title="Open a tab"
-          onClick={() => setPanel((current) => ({ ...current, active: null }))}
+          onClick={() => {
+            tabFocusRequested.current = true;
+            setPanel((current) => ({ ...current, active: null }));
+          }}
         >
           <RepositoryIcon name="plus" />
         </Button>
@@ -308,12 +344,14 @@ export function WorkspaceSurfaces({
       {selected === null && (
         <div className="workspace-surface-launcher" aria-label="Open a tab">
           <div>
-            <p>Open a tab</p>
             {(["files", "diff", "browser"] as const).filter(available).map((surface) => (
               <Button
                 key={surface}
                 className="quiet-button"
-                onClick={() => openSurface(surface)}
+                onClick={() => {
+                  tabFocusRequested.current = true;
+                  openSurface(surface);
+                }}
                 onPointerEnter={() => {
                   void (surface === "browser" ? BrowserWorkspace : RepositoryBrowser)
                     .preload()
@@ -337,7 +375,6 @@ export function WorkspaceSurfaces({
             projectId={projectId}
             active={active && (selected === "files" || selected === "diff")}
             surface={selected === "diff" ? "diff" : "files"}
-            onOpenSurface={openSurface}
           />
         </div>
       )}

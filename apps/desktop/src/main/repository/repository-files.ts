@@ -130,10 +130,21 @@ async function externalFilteredPaths(
   return filtered;
 }
 
-async function hasRepository(root: string) {
+async function hasRepository(root: string, signal?: AbortSignal) {
   await checkedPath(root, "");
-  const result = await git(root, ["rev-parse", "--show-toplevel"]);
-  if (result.code !== 0) return false;
+  const result = await git(
+    root,
+    ["rev-parse", "--show-toplevel"],
+    undefined,
+    undefined,
+    undefined,
+    "literal",
+    signal,
+  );
+  if (result.code !== 0) {
+    if (/^fatal: not a git repository \(/.test(result.stderr)) return false;
+    throw new Error("Could not inspect this Git repository. Check its configuration and retry.");
+  }
   const top = await realpath(result.text.replace(/\r?\n$/, ""));
   const delta = relative(top, await realpath(root));
   if (delta === ".." || delta.startsWith(`..${sep}`) || isAbsolute(delta))
@@ -171,36 +182,44 @@ export async function readRepositoryDirectory(
               : "unsupported",
       });
     }
-    let view: GitView | undefined;
-    let ignoreUnavailable = false;
-    if (entries.length && (await hasRepository(checked.root))) {
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const inspection = (async () => {
+      let view: GitView | undefined;
       try {
-        view = await createGitView(checked.root);
-      } catch (error) {
-        if (!(error instanceof OutputLimitError)) throw error;
-        ignoreUnavailable = true;
-      }
-    }
-    let ignored = { code: 0, text: "" };
-    try {
-      if (entries.length && !ignoreUnavailable)
-        ignored = await git(
+        if (!entries.length || !(await hasRepository(checked.root, controller.signal)))
+          return { ignored: { code: 0, text: "" }, ignoreUnavailable: false };
+        view = await createGitView(checked.root, controller.signal);
+        const ignored = await git(
           checked.root,
           ["check-ignore", "-z", "--stdin"],
           entries.map((entry) => `./${entry.path}`).join("\0") + "\0",
           undefined,
           view,
+          "literal",
+          controller.signal,
         );
-    } finally {
-      if (view) await closeGitView(view);
-    }
-    if (![0, 1, 128].includes(ignored.code))
-      throw new Error("Could not read repository ignore rules.");
-    if (
-      ignored.code === 128 &&
-      (await git(checked.root, ["rev-parse", "--is-inside-work-tree"])).code === 0
-    )
-      throw new Error("Could not read repository ignore rules.");
+        if (![0, 1].includes(ignored.code))
+          throw new Error("Could not read repository ignore rules.");
+        return { ignored, ignoreUnavailable: false };
+      } catch {
+        return { ignored: { code: 0, text: "" }, ignoreUnavailable: true };
+      } finally {
+        if (view) await closeGitView(view);
+      }
+    })();
+    const { ignored, ignoreUnavailable } = await Promise.race([
+      inspection,
+      new Promise<{ ignored: { code: number; text: string }; ignoreUnavailable: boolean }>(
+        (resolve) => {
+          deadline = setTimeout(() => {
+            controller.abort();
+            resolve({ ignored: { code: 0, text: "" }, ignoreUnavailable: true });
+          }, 250);
+        },
+      ),
+    ]);
+    clearTimeout(deadline);
     const excluded = new Set(
       ignored.code === 0 ? ignored.text.split("\0").map((path) => path.replace(/^\.\//, "")) : [],
     );
@@ -367,6 +386,7 @@ export async function readRepositoryFile(
   root: string,
   path: string,
   previousPath?: string,
+  requestedView: "file" | "diff" = "diff",
 ): Promise<RepositoryFile> {
   if (!path) throw new Error("Choose a file.");
   const unavailable = (
@@ -388,10 +408,11 @@ export async function readRepositoryFile(
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
   });
-  if (info && !info.isFile()) return unavailable("unsupported");
-  if (info && info.size > fileLimit) return unavailable("oversized");
+  if (info && !info.isFile() && !(requestedView === "diff" && info.isDirectory()))
+    return unavailable("unsupported");
+  if (info?.isFile() && info.size > fileLimit) return unavailable("oversized");
   let content: Buffer | null = null;
-  if (info) {
+  if (info?.isFile()) {
     const opened = await openRepositoryPath(checked.root, path);
     try {
       if (opened.info.size > fileLimit) return unavailable("oversized");
@@ -412,6 +433,10 @@ export async function readRepositoryFile(
     }
   }
   if (content && (content.includes(0) || !isUtf8(content))) return unavailable("binary");
+  if (requestedView === "file")
+    return content
+      ? { kind: "text", text: content.toString("utf8"), view: "file", comparison: "none" }
+      : unavailable("missing");
   if (!(await hasRepository(checked.root)))
     return content
       ? { kind: "text", text: content.toString("utf8"), view: "file", comparison: "none" }
@@ -420,6 +445,12 @@ export async function readRepositoryFile(
   const readGit = (args: string[], input?: string, limit?: number) =>
     git(checked.root, args, input, limit, view);
   try {
+    if (info?.isDirectory()) {
+      if (!view.head) return unavailable("unsupported");
+      const entry = await readGit(["ls-tree", "-z", "HEAD", "--", previousPath ?? path]);
+      if (entry.code !== 0) throw new Error("Could not read this file's HEAD entry.");
+      if (!/^100(?:644|755) blob [a-f0-9]+\t/.test(entry.text)) return unavailable("unsupported");
+    }
     const head = { code: view.head ? 0 : 128 };
     const prefix = { code: 0, text: view.prefix };
     const index = await readGit(["ls-files", "--unmerged", "-z", "--", path]);

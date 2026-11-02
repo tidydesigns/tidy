@@ -38,12 +38,14 @@ export async function git(
   limit = 2 * 1024 * 1024,
   view?: GitView,
   pathspecs: "literal" | "attributes" = "literal",
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const directory = await openRepositoryPath(cwd, "", true);
   let workTree: Awaited<ReturnType<typeof openRepositoryPath>> | undefined;
   try {
     if (view) workTree = await openRepositoryPath(view.workTree, "", true);
-    const result = await new Promise<{ code: number; text: string; utf8: boolean }>(
+    const result = await new Promise<{ code: number; text: string; utf8: boolean; stderr: string }>(
       (resolve, reject) => {
         const environment = Object.fromEntries(
           Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
@@ -100,6 +102,12 @@ export async function git(
         const chunks: Buffer[] = [];
         let size = 0;
         let failure: Error | undefined;
+        const abort = () => {
+          failure = new Error("Git inspection was cancelled.");
+          child.kill("SIGKILL");
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
         const timer = setTimeout(() => {
           failure = new Error("Git took too long. Try refreshing this repository.");
           child.kill("SIGKILL");
@@ -111,20 +119,34 @@ export async function git(
             child.kill("SIGKILL");
           } else chunks.push(chunk);
         });
-        stderr.resume();
+        const errors: Buffer[] = [];
+        let errorSize = 0;
+        stderr.on("data", (chunk: Buffer) => {
+          if (errorSize >= 4096) return;
+          const part = chunk.subarray(0, 4096 - errorSize);
+          errors.push(part);
+          errorSize += part.length;
+        });
         stdin.on("error", () => {});
         child.on("error", (error) => {
           clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
           reject(error);
         });
         child.on("close", (code) => {
           clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
           if (failure) reject(failure);
           else if (code === 129)
             reject(new Error("Could not run safe Git inspection. Update Git and retry."));
           else {
             const output = Buffer.concat(chunks);
-            resolve({ code: code ?? -1, text: output.toString("utf8"), utf8: isUtf8(output) });
+            resolve({
+              code: code ?? -1,
+              text: output.toString("utf8"),
+              utf8: isUtf8(output),
+              stderr: Buffer.concat(errors).toString("utf8"),
+            });
           }
         });
         stdin.end(input);
@@ -285,26 +307,34 @@ async function acquireIndex(source: string, format: string, directory: string) {
     throw error;
   }
 }
-export async function createGitView(root: string): Promise<GitView> {
+export async function createGitView(root: string, signal?: AbortSignal): Promise<GitView> {
   const [metadata, settings] = await Promise.all([
-    git(root, [
-      "rev-parse",
-      "--path-format=absolute",
-      "--git-path",
-      "index",
-      "--git-path",
-      "objects",
-      "--git-path",
-      "info/attributes",
-      "--git-path",
-      "info/exclude",
-      "--git-path",
-      "info/sparse-checkout",
-      "--show-object-format",
-      "--show-toplevel",
-      "--verify",
-      "HEAD",
-    ]),
+    git(
+      root,
+      [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "index",
+        "--git-path",
+        "objects",
+        "--git-path",
+        "info/attributes",
+        "--git-path",
+        "info/exclude",
+        "--git-path",
+        "info/sparse-checkout",
+        "--show-object-format",
+        "--show-toplevel",
+        "--verify",
+        "HEAD",
+      ],
+      undefined,
+      undefined,
+      undefined,
+      "literal",
+      signal,
+    ),
     git(
       root,
       [
@@ -316,8 +346,12 @@ export async function createGitView(root: string): Promise<GitView> {
       ],
       undefined,
       metadataLimit,
+      undefined,
+      "literal",
+      signal,
     ),
   ]);
+  signal?.throwIfAborted();
   const fields = metadata.text.replace(/\r?\n$/, "").split("\n");
   const [index, objects, attributes, exclude, sparse, format, workTree, head] = fields;
   if (

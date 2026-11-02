@@ -287,8 +287,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
     repositoryDirectory: (projectId, path) =>
       scopedRequest("repository-directory", { projectId, path }),
     repositoryChanges: (projectId) => scopedRequest("repository-changes", { projectId }),
-    repositoryFile: (projectId, path, previousPath) =>
-      scopedRequest("repository-file", { projectId, path, previousPath }),
+    repositoryFile: (projectId, path, previousPath, view) =>
+      scopedRequest("repository-file", { projectId, path, previousPath, view }),
     repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),
     renameThread: (projectId, threadId, title) =>

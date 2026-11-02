@@ -156,6 +156,9 @@
 .repository-review-body .repository-line-sign {
   display: none;
 }
+.repository-review-body .repository-wrapped-row[data-split="false"] .repository-line-sign {
+  display: block;
+}
 .repository-review-body .repository-wrapped-row code {
   padding-right: 12px;
 }

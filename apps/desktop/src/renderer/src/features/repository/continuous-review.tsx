@@ -5,7 +5,7 @@ import type {
   RepositoryFile,
 } from "../../../../shared/contracts/repository-files";
 import { CodeCell, codeRowKind } from "./code-cell";
-import type { FileRows } from "./file-rows";
+import { unifiedFileRows, type FileRows } from "./file-rows";
 import FileRowsWorker from "./file-rows.worker?worker";
 import { FileIcon, RepositoryIcon } from "./repository-icons";
 import {
@@ -19,6 +19,7 @@ import {
   reviewRowLayout,
 } from "./review-layout";
 import type { RepositoryAPI, RepositoryInvalidation } from "./use-repository-files";
+import { repositoryRead } from "./repository-read";
 import "./continuous-review.css";
 
 type Entry = {
@@ -32,6 +33,7 @@ type Entry = {
 type Layout = {
   change: RepositoryChange;
   entry?: Entry;
+  result?: FileRows;
   rows?: Float64Array;
   height: number;
   bodyOffset?: number;
@@ -62,6 +64,7 @@ export function ContinuousReview({
   comparison,
   refreshing,
   loading,
+  error = "",
   onRefresh,
 }: {
   api: RepositoryAPI;
@@ -75,6 +78,7 @@ export function ContinuousReview({
   comparison: string;
   refreshing: boolean;
   loading: boolean;
+  error?: string;
   onRefresh(): void;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -86,6 +90,7 @@ export function ContinuousReview({
   const [workerAttempt, setWorkerAttempt] = useState(0);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const cache = useRef(new Map<string, Entry>());
+  const unified = useRef(new WeakMap<FileRows, FileRows>());
   const errors = useRef(new Map<string, string>());
   const anchor = useRef<Anchor | null>(null);
   const pendingReveal = useRef<string | null>(null);
@@ -97,7 +102,8 @@ export function ContinuousReview({
   } | null>(null);
   const serial = useRef(0);
   const generation = useRef(0);
-  const running = useRef(false);
+  const running = useRef(new Map<symbol, { path: string; generation: number }>());
+  const parsing = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(false);
   const wanted = useRef<string[]>([]);
   const attempted = useRef(new Set<string>());
@@ -113,8 +119,13 @@ export function ContinuousReview({
       if (collapsed.has(change.path)) return { change, entry, height: reviewHeaderHeight };
       if (!entry) return { change, height: reviewPlaceholderHeight };
       if (entry.file.kind === "unavailable") return { change, entry, height: 112 };
-      const result = entry.result;
+      let result = entry.result;
       if (!result) return { change, entry, height: reviewPlaceholderHeight };
+      if (viewport.width > 0 && viewport.width < 640 && result.split) {
+        const source = result;
+        result = unified.current.get(source) ?? unifiedFileRows(source);
+        unified.current.set(source, result);
+      }
       const measurementKey = `${key}:${result.split}`;
       if (entry.measurementKey !== measurementKey) {
         entry.measured = new Map();
@@ -134,7 +145,7 @@ export function ContinuousReview({
             : "");
       const bodyOffset = reviewHeaderHeight + (notice ? 24 : 0);
       const height = bodyOffset + Math.max(24, rows[rows.length - 1]) + (effectiveWrap ? 0 : 16);
-      return { change, entry, rows, height, bodyOffset, notice, wrap: effectiveWrap };
+      return { change, entry, result, rows, height, bodyOffset, notice, wrap: effectiveWrap };
     });
     const previews = layouts.filter((item) => item.rows !== undefined);
     const fixedHeight = layouts.reduce(
@@ -157,12 +168,12 @@ export function ContinuousReview({
     });
     const width = layouts.reduce(
       (maximum, item) =>
-        item.wrap === false && item.entry?.result
+        item.wrap === false && item.result
           ? Math.max(
               maximum,
-              Math.max(item.entry.result.beforeWidth, item.entry.result.afterWidth) *
+              Math.max(item.result.beforeWidth, item.result.afterWidth) *
                 8 *
-                (item.entry.result.split ? 2 : 1) +
+                (item.result.split ? 2 : 1) +
                 240,
             )
           : maximum,
@@ -201,19 +212,23 @@ export function ContinuousReview({
   publishRef.current = publish;
   const drain = useRef<() => void>(() => {});
   drain.current = () => {
-    if (running.current || !mounted.current || !current.current.active) return;
+    if (running.current.size >= 4 || !mounted.current || !current.current.active) return;
     const context = current.current;
     const path = wanted.current.find(
       (path) =>
         cache.current.get(path)?.revision !== context.revision.id &&
         !errors.current.has(path) &&
+        ![...running.current.values()].some(
+          (request) => request.path === path && request.generation === generation.current,
+        ) &&
         !attempted.current.has(path),
     );
     if (!path) return;
     wanted.current = wanted.current.filter((candidate) => candidate !== path);
     const change = context.changes.find((change) => change.path === path);
     if (!change) return;
-    running.current = true;
+    const request = Symbol(path);
+    running.current.set(request, { path, generation: generation.current });
     attempted.current.add(path);
     const requestGeneration = generation.current;
     const valid = () =>
@@ -225,21 +240,30 @@ export function ContinuousReview({
       current.current.changes === context.changes;
     void (async () => {
       try {
-        const file = await context.api.repositoryFile(
-          context.projectId,
-          path,
-          change.previousPath ?? undefined,
+        const file = await repositoryRead(
+          context.api.repositoryFile(context.projectId, path, change.previousPath ?? undefined),
         );
         if (!valid()) return;
         let result: FileRows | undefined;
         if (file.kind === "text") {
-          const parser = worker.current;
-          if (!parser) throw new Error("Could not prepare this preview.");
-          result = await new Promise<FileRows>((resolve, reject) => {
-            const id = ++serial.current;
-            workerJob.current = { id, resolve, reject };
-            parser.postMessage({ id, file, path });
+          let finish!: () => void;
+          const previous = parsing.current;
+          parsing.current = new Promise<void>((resolve) => {
+            finish = resolve;
           });
+          try {
+            await previous;
+            if (!valid()) return;
+            const parser = worker.current;
+            if (!parser) throw new Error("Could not prepare this preview.");
+            result = await new Promise<FileRows>((resolve, reject) => {
+              const id = ++serial.current;
+              workerJob.current = { id, resolve, reject };
+              parser.postMessage({ id, file, path });
+            });
+          } finally {
+            finish();
+          }
           if (result.rows[0]?.kind === "hunk" && !result.rows[0].hidden)
             result = { ...result, rows: result.rows.slice(1) };
         }
@@ -285,10 +309,11 @@ export function ContinuousReview({
           publishRef.current();
         }
       } finally {
-        running.current = false;
+        running.current.delete(request);
         drain.current();
       }
     })();
+    drain.current();
   };
   useEffect(() => {
     mounted.current = true;
@@ -589,7 +614,7 @@ export function ContinuousReview({
       >
         {!changes.length && (
           <p className="repository-review-status" role="status">
-            {loading ? "Reading changes…" : "No changed files"}
+            {error ? "Changes unavailable" : loading ? "Reading changes…" : "No changed files"}
           </p>
         )}
         <div
@@ -602,7 +627,7 @@ export function ContinuousReview({
           {geometry.layouts.slice(range.start, range.end).map((item, offset) => {
             const index = range.start + offset;
             const { change, entry } = item;
-            const result = entry?.result;
+            const result = item.result;
             const file = entry?.file;
             const isCollapsed = collapsed.has(change.path);
             const rowRange = item.rows
@@ -612,7 +637,6 @@ export function ContinuousReview({
                   viewport.height,
                 )
               : { start: 0, end: 0 };
-            const sides = result?.split ? (["before", "after"] as const) : (["after"] as const);
             const error = errors.current.get(change.path);
             return (
               <section
@@ -715,7 +739,15 @@ export function ContinuousReview({
                                 data-split={result.split}
                                 style={{ top: item.rows?.[rowIndex] }}
                               >
-                                {sides.map((side) => (
+                                {(result.split
+                                  ? (["before", "after"] as const)
+                                  : ([
+                                      (row.kind === "lines" && row.before && !row.after) ||
+                                      (row.kind === "note" && row.side === "before")
+                                        ? "before"
+                                        : "after",
+                                    ] as const)
+                                ).map((side) => (
                                   <div
                                     key={side}
                                     className="repository-code-row"

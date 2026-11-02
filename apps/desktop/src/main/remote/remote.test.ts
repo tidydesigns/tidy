@@ -763,6 +763,40 @@ test("failed initial synchronization retries before reporting the new connection
   expect(drops).toHaveLength(3);
 }, 10000);
 
+for (const capabilities of [undefined, ["thread-naming"]]) {
+  test(`repository reads explain the backend update on hosts with ${capabilities ? "older capabilities" : "no capabilities"}`, async () => {
+    const f = await fixture();
+    const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+    const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+      const frame = parse(...args);
+      return frame.type === "hello" ? { ...frame, capabilities } : frame;
+    });
+    const requests = spyOn(f.service, "dispatch");
+    try {
+      const { client } = f.client();
+      await until(() => client.status.kind === "connected");
+      requests.mockClear();
+      const projectId = f.project.id;
+      for (const operation of [
+        () => client.operation("repository-directory", { projectId, path: "" }),
+        () => client.operation("repository-changes", { projectId }),
+        () => client.operation("repository-file", { projectId, path: "sample.txt" }),
+      ])
+        await expect(operation()).rejects.toThrow(
+          "Repository files need a backend update. Finish active runs and reconnect this machine.",
+        );
+      expect(requests).not.toHaveBeenCalled();
+      expect(client.status.kind).toBe("connected");
+      expect(await client.operation("project-snapshot", projectId)).toMatchObject({
+        project: { id: projectId },
+      });
+    } finally {
+      requests.mockRestore();
+      frames.mockRestore();
+    }
+  });
+}
+
 test("workspace reads bypass durable mutation receipts", async () => {
   const f = await fixture();
   const { client } = f.client();
@@ -793,6 +827,20 @@ test("workspace reads bypass durable mutation receipts", async () => {
   expect(
     await client.operation("repository-file", { projectId: f.project.id, path: "sample.txt" }),
   ).toEqual({ kind: "text", text: "local fixture\n", view: "file", comparison: "none" });
+  expect(
+    await client.operation("repository-file", {
+      projectId: f.project.id,
+      path: "sample.txt",
+      view: "file",
+    }),
+  ).toEqual({ kind: "text", text: "local fixture\n", view: "file", comparison: "none" });
+  await expect(
+    client.operation("repository-file", {
+      projectId: f.project.id,
+      path: "sample.txt",
+      view: "unsupported",
+    }),
+  ).rejects.toThrow("Invalid desktop request.");
   await expect(
     client.operation("repository-file", { projectId: f.project.id, path: "../outside.txt" }),
   ).rejects.toThrow();

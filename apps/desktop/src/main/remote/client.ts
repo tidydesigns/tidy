@@ -45,6 +45,7 @@ export type RemoteConnection = {
 export class RemoteClient {
   private socket?: WebSocket;
   private supportsThreadNaming = false;
+  private supportsRepositoryFiles = false;
   private connection?: RemoteConnection;
   private pending = new Map<
     string,
@@ -470,6 +471,15 @@ export class RemoteClient {
     if (this.closed || this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(new Error("Remote machine is disconnected. Wait for reconnection."));
     if (
+      !this.supportsRepositoryFiles &&
+      ["repository-directory", "repository-changes", "repository-file"].includes(name)
+    )
+      return Promise.reject(
+        new Error(
+          "Repository files need a backend update. Finish active runs and reconnect this machine.",
+        ),
+      );
+    if (
       [...this.pending.values()].filter((item) => !item.recovering).length >= 64 ||
       this.pending.size >= 128
     )
@@ -656,6 +666,7 @@ export class RemoteClient {
           if (greeted || frame.hostId !== this.hostId)
             throw new Error("Unexpected remote identity.");
           this.supportsThreadNaming = frame.capabilities?.includes("thread-naming") ?? false;
+          this.supportsRepositoryFiles = frame.capabilities?.includes("repository-files") ?? false;
           greeted = true;
           clearTimeout(this.establishmentTimer);
           this.phase("syncing");
@@ -725,6 +736,7 @@ export class RemoteClient {
     if (this.controller !== controller) return;
     this.controller = undefined;
     this.supportsThreadNaming = false;
+    this.supportsRepositoryFiles = false;
     clearTimeout(this.establishmentTimer);
     clearTimeout(this.synchronizationTimer);
     clearTimeout(this.probeState?.timer);

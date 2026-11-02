@@ -215,6 +215,7 @@ export type DesktopAPI = {
     projectId: string,
     path: string,
     previousPath?: string,
+    view?: "file" | "diff",
   ): Promise<import("./repository-files").RepositoryFile>;
   switchBranch(
     projectId: string,

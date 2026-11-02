@@ -8,59 +8,101 @@ import { useRepositoryFiles, type RepositoryAPI } from "./use-repository-files";
 import { useRepositoryScroll, rememberScroll } from "./use-repository-scroll";
 import { ContinuousReview } from "./continuous-review";
 import { FileContent } from "./repository-file-preview";
+import { RepositoryExplorer } from "./repository-explorer";
+import {
+  changedFileDirectories,
+  changeFolderSchema,
+  changeFolderExceptionLimit,
+  expandedChangeFolders,
+  toggleChangeFolder,
+} from "./repository-navigation";
 import { FileIcon, RepositoryIcon } from "./repository-icons";
 import "./repository-browser.css";
 
 const navigationSchema = z.object({
   selected: z.string().nullable(),
   expanded: z.array(z.string()).max(64),
-  view: z.enum(["files", "changes"]),
 });
 export function RepositoryBrowser({
   api,
   projectId,
   active,
   surface,
-  onOpenSurface,
 }: {
   api: RepositoryAPI;
   projectId: string;
   active: boolean;
   surface: "files" | "diff";
-  onOpenSurface(surface: "files" | "diff"): void;
 }) {
   const [navigation, setNavigation] = useSessionState(`repository:${projectId}`, navigationSchema, {
     selected: null,
     expanded: [],
-    view: "files",
   });
+  const view = surface === "diff" ? "changes" : "files";
+  const [selectedChange, setSelectedChange] = useSessionState(
+    `repository-change:${projectId}`,
+    z.string().nullable(),
+    null,
+  );
+  const [collapsedChanges, setCollapsedChanges] = useSessionState(
+    `repository-change-folders:${projectId}`,
+    changeFolderSchema,
+    { collapsed: false, exceptions: [] },
+  );
+  const [reviewMounted, setReviewMounted] = useState(surface === "diff");
+  useEffect(() => {
+    if (surface === "diff") setReviewMounted(true);
+  }, [surface]);
+  const [query, setQuery] = useState("");
+  const fileAPI = useMemo<RepositoryAPI>(
+    () => ({
+      ...api,
+      repositoryFile: (id, path, previousPath) =>
+        api.repositoryFile(id, path, previousPath, "file"),
+    }),
+    [api],
+  );
   const scrollPositions = useRepositoryScroll(projectId);
-  const expanded = useMemo(() => new Set(navigation.expanded), [navigation.expanded]);
+  const fileExpanded = useMemo(() => new Set(navigation.expanded), [navigation.expanded]);
   const repository = useRepositoryFiles({
-    api,
+    api: fileAPI,
     projectId,
     active,
-    selected: navigation.selected,
-    expanded,
-    continuous: true,
+    selected: surface === "files" ? navigation.selected : null,
+    expanded: fileExpanded,
   });
   const [focused, setFocused] = useState<string | null>(null);
   const [reveal, setReveal] = useState(0);
   const [treeError, setTreeError] = useState("");
-  const rows = useMemo<TreeRow[]>(
-    () =>
-      navigation.view === "files"
-        ? visibleTreeRows(repository.directories, expanded)
-        : (repository.changes?.changes ?? []).map((change, index, changes) => ({
-            path: change.path,
-            name: change.path.split("/").at(-1) ?? change.path,
-            kind: "file",
-            depth: 1,
-            position: index + 1,
-            siblings: changes.length,
-          })),
-    [navigation.view, repository.directories, repository.changes, expanded],
+  const changeDirectories = useMemo(
+    () => changedFileDirectories(repository.changes?.changes ?? []),
+    [repository.changes],
   );
+  const expanded = useMemo(
+    () =>
+      view === "files"
+        ? fileExpanded
+        : expandedChangeFolders(changeDirectories.keys(), collapsedChanges),
+    [view, fileExpanded, changeDirectories, collapsedChanges],
+  );
+  const selected = view === "files" ? navigation.selected : selectedChange;
+  const rows = useMemo<TreeRow[]>(() => {
+    const directories = view === "files" ? repository.directories : changeDirectories;
+    if (view === "changes" || !query.trim()) return visibleTreeRows(directories, expanded);
+    const entries = [...directories.values()]
+      .flatMap((directory) => directory.entries)
+      .filter(
+        (entry) =>
+          entry.kind !== "directory" &&
+          entry.path.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+      );
+    return entries.map((entry, index) => ({
+      ...entry,
+      depth: 1,
+      position: index + 1,
+      siblings: entries.length,
+    }));
+  }, [view, repository.directories, changeDirectories, expanded, query]);
   const statuses = useMemo(
     () => new Map(repository.changes?.changes.map((change) => [change.path, change])),
     [repository.changes],
@@ -80,30 +122,29 @@ export function RepositoryBrowser({
     return counts;
   }, [repository.changes, rows]);
   const changedFiles = repository.changes?.changes ?? [];
-  const reviewingChanges = !navigation.selected || statuses.has(navigation.selected);
   const virtual = useVirtualWindow(rows.length, 28);
   const activeRow =
     rows.find((row) => row.path === focused) ??
-    rows.find((row) => row.path === navigation.selected) ??
+    rows.find((row) => row.path === selected) ??
     rows[0];
   const activeIndex = activeRow ? rows.indexOf(activeRow) : -1;
   const treeRestoration = useRef<{ view: string; top: number; pending: boolean } | null>(null);
   useLayoutEffect(() => {
     const node = virtual.ref.current;
-    if (!active || surface !== "files" || !node) {
+    if (!active || !node) {
       treeRestoration.current = null;
       return;
     }
-    if (treeRestoration.current?.view !== navigation.view)
+    if (treeRestoration.current?.view !== view)
       treeRestoration.current = {
-        view: navigation.view,
-        top: scrollPositions.get(`tree:${navigation.view}`) ?? 0,
+        view: view,
+        top: scrollPositions.get(`tree:${view}`) ?? 0,
         pending: true,
       };
     const restoration = treeRestoration.current;
     if (!restoration.pending) return;
     const loaded =
-      navigation.view === "changes"
+      view === "changes"
         ? Boolean(repository.changes)
         : repository.directories.has("") &&
           rows.every(
@@ -117,7 +158,7 @@ export function RepositoryBrowser({
       restoration.pending = false;
     }
   }, [
-    navigation.view,
+    view,
     surface,
     active,
     rows,
@@ -138,8 +179,17 @@ export function RepositoryBrowser({
     setTreeError("");
     if (row.kind !== "directory") {
       setReveal((value) => value + 1);
-      setNavigation((current) => ({ ...current, selected: row.path }));
-      onOpenSurface("diff");
+      if (view === "changes") setSelectedChange(row.path);
+      else setNavigation((current) => ({ ...current, selected: row.path }));
+      return;
+    }
+    if (view === "changes") {
+      const next = toggleChangeFolder(collapsedChanges, row.path);
+      if (next === collapsedChanges)
+        setTreeError(
+          `Use Collapse all before changing more than ${changeFolderExceptionLimit} folders.`,
+        );
+      else setCollapsedChanges(next);
       return;
     }
     if (!expanded.has(row.path) && expanded.size >= 64) {
@@ -149,7 +199,7 @@ export function RepositoryBrowser({
     setNavigation((current) => ({
       ...current,
       expanded: expanded.has(row.path)
-        ? current.expanded.filter((path) => path !== row.path)
+        ? current.expanded.filter((path) => path !== row.path && !path.startsWith(`${row.path}/`))
         : [...current.expanded, row.path],
     }));
     void repository.preload(row.path);
@@ -194,13 +244,13 @@ export function RepositoryBrowser({
   }
   const visibleRows = rows.slice(virtual.start, virtual.end);
   useEffect(() => {
-    if (!active || surface !== "files" || navigation.view !== "files") return;
+    if (!active || view !== "files") return;
     rows
       .slice(virtual.start, virtual.end)
       .filter((row) => row.kind === "directory")
       .slice(0, 8)
       .forEach((row) => void repository.preload(row.path));
-  }, [active, surface, navigation.view, rows, virtual.start, virtual.end, repository.preload]);
+  }, [active, surface, view, rows, virtual.start, virtual.end, repository.preload]);
   const focusedMounted = activeRow && visibleRows.includes(activeRow);
   const limitedFolders = [...repository.directories].filter(
     ([path, directory]) => directory.limited && (!path || expanded.has(path)),
@@ -210,44 +260,19 @@ export function RepositoryBrowser({
       ? "Working tree vs HEAD"
       : "Working tree · no commits yet"
     : "Local files";
-  const viewControl = (
-    <div className="repository-view-options" role="group" aria-label="Repository view">
-      {(["files", "changes"] as const).map((view) => (
-        <Button
-          key={view}
-          className="quiet-button"
-          data-view={view}
-          aria-pressed={navigation.view === view}
-          onClick={() => {
-            setNavigation((current) => ({ ...current, view }));
-            setFocused(null);
-          }}
-        >
-          {view === "files" ? "All files" : "Changes"}
-          {view === "changes" && repository.changes && (
-            <span className="repository-view-count">{changedFiles.length}</span>
-          )}
-        </Button>
-      ))}
-    </div>
-  );
   const treePane = (
     <div className="repository-tree-pane">
       <div
         ref={virtual.attach}
         className="repository-tree"
         onScroll={(event) => {
-          if (active && surface === "files" && event.currentTarget.clientHeight > 0) {
+          if (active && event.currentTarget.clientHeight > 0) {
             if (treeRestoration.current) treeRestoration.current.pending = false;
-            rememberScroll(
-              scrollPositions,
-              `tree:${navigation.view}`,
-              event.currentTarget.scrollTop,
-            );
+            rememberScroll(scrollPositions, `tree:${view}`, event.currentTarget.scrollTop);
           }
         }}
         role="tree"
-        aria-label={navigation.view === "changes" ? "Changed files" : "Repository files"}
+        aria-label={view === "changes" ? "Changed files" : "Repository files"}
         tabIndex={0}
         onKeyDown={keyDown}
         onFocus={(event) => {
@@ -277,7 +302,7 @@ export function RepositoryBrowser({
                 aria-posinset={row.position}
                 aria-setsize={row.siblings}
                 aria-expanded={isExpanded}
-                aria-selected={navigation.selected === row.path}
+                aria-selected={selected === row.path}
                 aria-label={`${row.name}${status ? `, ${status.filtered ? "external filter, comparison unavailable" : status.status}` : ""}${folderChanges.has(row.path) ? `, ${folderChanges.get(row.path)} files to review` : ""}`}
                 className={`repository-tree-row ${activeRow?.path === row.path ? "focused" : ""}`}
                 data-status={status?.filtered ? undefined : status?.status}
@@ -321,10 +346,8 @@ export function RepositoryBrowser({
                 ) : (
                   <FileIcon name={row.name} />
                 )}
-                <span className="repository-entry-name">
-                  {row.path.split("/").at(-1) ?? row.name}
-                </span>
-                {navigation.view === "changes" && row.path.includes("/") && (
+                <span className="repository-entry-name">{row.name}</span>
+                {view === "files" && query.trim() && row.path.includes("/") && (
                   <span className="repository-entry-parent">
                     {row.path.slice(0, row.path.lastIndexOf("/"))}
                   </span>
@@ -353,17 +376,21 @@ export function RepositoryBrowser({
         </div>
         {!rows.length && (
           <p className="repository-empty" role="status">
-            {!repository.directories.has("") && navigation.view === "files"
-              ? "Reading files…"
-              : navigation.view === "changes"
-                ? repository.changes
-                  ? repository.changes.limited
-                    ? "Some files could not be checked"
-                    : "No changed files"
-                  : repository.error
-                    ? "Changes unavailable"
-                    : "Reading changes…"
-                : "This folder is empty"}
+            {view === "files" && query.trim()
+              ? "No matching files in loaded folders"
+              : !repository.directories.has("") && view === "files"
+                ? repository.directoryError
+                  ? "Files unavailable"
+                  : "Reading files…"
+                : view === "changes"
+                  ? repository.changes
+                    ? repository.changes.limited
+                      ? "Some files could not be checked"
+                      : "No changed files"
+                    : repository.changesError
+                      ? "Changes unavailable"
+                      : "Reading changes…"
+                  : "This folder is empty"}
           </p>
         )}
       </div>
@@ -372,7 +399,7 @@ export function RepositoryBrowser({
           Folder preview limit reached (5,000 entries or 2 MiB). Some files are omitted.
         </p>
       )}
-      {navigation.view === "files" &&
+      {view === "files" &&
         [...repository.directories].some(
           ([path, directory]) => directory.ignoreUnavailable && (!path || expanded.has(path)),
         ) && (
@@ -380,53 +407,112 @@ export function RepositoryBrowser({
             Some ignored files may be shown.
           </p>
         )}
-      {navigation.view === "changes" && repository.changes?.limited && (
+      {view === "changes" && repository.changes?.limited && (
         <p className="repository-limit" role="status">
           Some filtered files could not be checked. Ordinary changes are shown.
         </p>
       )}
     </div>
   );
+  function errorNotice(message: string) {
+    return message ? (
+      <div className="repository-notice" role="alert">
+        <span>{message}</span>
+        <Button
+          className="quiet-button"
+          onClick={() => {
+            setTreeError("");
+            void repository.refresh();
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    ) : null;
+  }
   return (
     <div className="repository-browser">
-      {(repository.error || treeError) && (
-        <div className="repository-notice" role="alert">
-          <span>{treeError || repository.error}</span>
-          <Button
-            className="quiet-button"
-            onClick={() => {
-              setTreeError("");
-              void repository.refresh();
-            }}
-          >
-            Retry
-          </Button>
+      <div
+        className="repository-panes"
+        data-preview={surface === "diff" || Boolean(navigation.selected) || undefined}
+      >
+        <div className="repository-file-pane" hidden={surface !== "diff"}>
+          {(reviewMounted || surface === "diff") && (
+            <div
+              id="workspace-surface-diff"
+              role="tabpanel"
+              aria-labelledby="workspace-tab-diff"
+              className="repository-review"
+            >
+              {errorNotice(repository.changesError)}
+              <ContinuousReview
+                api={api}
+                projectId={projectId}
+                changes={changedFiles}
+                selected={selectedChange}
+                reveal={reveal}
+                active={active && surface === "diff"}
+                revision={repository.contentRevision}
+                comparison={comparison}
+                refreshing={repository.refreshing}
+                loading={!repository.changes && !repository.changesError}
+                error={repository.changesError}
+                onRefresh={() => void repository.refresh()}
+                onSelect={(path) => {
+                  setFocused(path);
+                  setSelectedChange(path);
+                }}
+              />
+            </div>
+          )}
         </div>
-      )}
-      <div className="repository-panes">
-        <div
-          id="workspace-surface-files"
-          role="tabpanel"
-          aria-labelledby="workspace-tab-files"
-          className="repository-navigation"
-          hidden={surface !== "files"}
+        <div className="repository-file-pane" hidden={surface !== "files" || !navigation.selected}>
+          <div className="repository-file-heading">
+            <div className="repository-file-path" title={navigation.selected ?? undefined}>
+              <FileIcon name={navigation.selected ?? ""} />
+              <span className="repository-file-identity">
+                <span className="repository-file-name">{navigation.selected}</span>
+              </span>
+            </div>
+            <Button
+              className="quiet-button repository-icon-button"
+              aria-label="Close file preview"
+              title="Close file preview"
+              onClick={() => setNavigation((current) => ({ ...current, selected: null }))}
+            >
+              <RepositoryIcon name="close" />
+            </Button>
+          </div>
+          {errorNotice(repository.fileError)}
+          {navigation.selected && repository.file?.path !== navigation.selected && (
+            <p className="repository-loading" role="status">
+              {repository.fileError ? "File unavailable" : `Loading ${navigation.selected}…`}
+              {repository.file ? ` Showing ${repository.file.path}.` : ""}
+            </p>
+          )}
+          {repository.file && (
+            <FileContent
+              file={repository.file.content}
+              path={repository.file.path}
+              active={active && surface === "files"}
+              visible={surface === "files"}
+              positions={scrollPositions}
+            />
+          )}
+        </div>
+        <RepositoryExplorer
+          key={`${projectId}:${view}`}
+          projectId={projectId}
+          view={view}
+          resizable={surface === "diff" || Boolean(navigation.selected)}
         >
-          <div className="repository-navigation-header">
-            {viewControl}
-            <div className="repository-navigation-actions">
-              {navigation.view === "files" && expanded.size > 0 && (
-                <Button
-                  className="quiet-button repository-icon-button"
-                  aria-label="Collapse all folders"
-                  title="Collapse all folders"
-                  onClick={() => {
-                    setNavigation((current) => ({ ...current, expanded: [] }));
-                    setFocused(null);
-                  }}
-                >
-                  <RepositoryIcon name="collapse" />
-                </Button>
-              )}
+          <div
+            id="workspace-surface-files"
+            role="region"
+            aria-label={view === "changes" ? "Changed files navigation" : "File navigation"}
+            className="repository-navigation"
+          >
+            <div className="repository-navigation-header">
               <Button
                 className="quiet-button repository-icon-button"
                 onClick={() => void repository.refresh()}
@@ -436,106 +522,54 @@ export function RepositoryBrowser({
               >
                 <RepositoryIcon name="refresh" />
               </Button>
-            </div>
-          </div>
-          {treePane}
-        </div>
-        <div
-          id="workspace-surface-diff"
-          role="tabpanel"
-          aria-labelledby="workspace-tab-diff"
-          className="repository-file-pane"
-          hidden={surface !== "diff"}
-        >
-          {!reviewingChanges && (
-            <div className="repository-file-heading">
-              <div className="repository-file-path" title={navigation.selected ?? undefined}>
-                <FileIcon name={navigation.selected ?? ""} />
-                <span className="repository-file-identity">
-                  {navigation.selected?.includes("/") && (
-                    <span className="repository-file-parent">
-                      {navigation.selected.slice(0, navigation.selected.lastIndexOf("/") + 1)}
-                    </span>
-                  )}
-                  <span className="repository-file-name">
-                    {navigation.selected?.split("/").at(-1)}
-                  </span>
-                </span>
-              </div>
-              {changedFiles.length > 0 && (
-                <Button
-                  className="quiet-button"
-                  onClick={() => setNavigation((current) => ({ ...current, selected: null }))}
-                >
-                  All changes
-                </Button>
-              )}
-              <Button
-                className="quiet-button repository-icon-button"
-                onClick={() => void repository.refresh()}
-                aria-label="Refresh repository"
-                title={comparison}
-                aria-busy={repository.refreshing}
-              >
-                <RepositoryIcon name="refresh" />
-              </Button>
-            </div>
-          )}
-          <div className="repository-review" hidden={!reviewingChanges}>
-            {repository.changes?.limited && (
-              <p className="repository-limit" role="status">
-                Some filtered files could not be checked. Ordinary changes are shown.
-              </p>
-            )}
-            <ContinuousReview
-              api={api}
-              projectId={projectId}
-              changes={changedFiles}
-              selected={navigation.selected}
-              reveal={reveal}
-              active={active && surface === "diff" && reviewingChanges}
-              revision={repository.contentRevision}
-              comparison={comparison}
-              refreshing={repository.refreshing}
-              loading={!repository.changes}
-              onRefresh={() => void repository.refresh()}
-              onSelect={(path) => {
-                setReveal((value) => value + 1);
-                setFocused(path);
-                setNavigation((current) => ({ ...current, selected: path }));
-              }}
-            />
-          </div>
-          {!reviewingChanges && (
-            <>
-              {navigation.selected && repository.file?.path !== navigation.selected && (
-                <p className="repository-loading" role="status">
-                  Loading {navigation.selected}…
-                  {repository.file ? ` Showing ${repository.file.path} while it loads.` : ""}
-                </p>
-              )}
-              {repository.file ? (
-                <FileContent
-                  file={repository.file.content}
-                  path={repository.file.path}
-                  active={active && surface === "diff"}
-                  visible={surface === "diff"}
-                  positions={scrollPositions}
+              {view === "files" ? (
+                <input
+                  type="search"
+                  className="repository-search"
+                  aria-label="Search loaded files"
+                  placeholder="Search loaded files"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setQuery("");
+                    }
+                  }}
                 />
               ) : (
-                <p className="repository-empty">
-                  {navigation.selected ? (
-                    ""
-                  ) : (
-                    <Button className="quiet-button" onClick={() => onOpenSurface("files")}>
-                      Choose a file
-                    </Button>
-                  )}
-                </p>
+                <span
+                  className="repository-explorer-label"
+                  title={`${changedFiles.length} changed files`}
+                >
+                  <span>Changed files</span>
+                  <span>{changedFiles.length}</span>
+                </span>
               )}
-            </>
-          )}
-        </div>
+              {expanded.size > 0 && (
+                <Button
+                  className="quiet-button repository-icon-button"
+                  aria-label="Collapse all folders"
+                  title="Collapse all folders"
+                  onClick={() => {
+                    if (view === "changes")
+                      setCollapsedChanges({ collapsed: true, exceptions: [] });
+                    else setNavigation((current) => ({ ...current, expanded: [] }));
+                    setFocused(null);
+                  }}
+                >
+                  <RepositoryIcon name="collapse" />
+                </Button>
+              )}
+            </div>
+            {errorNotice(
+              treeError ||
+                (view === "changes" ? repository.changesError : repository.directoryError),
+            )}
+            {treePane}
+          </div>
+        </RepositoryExplorer>
       </div>
     </div>
   );

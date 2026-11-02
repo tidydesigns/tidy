@@ -12,7 +12,7 @@ const paths = {
   panel: "M10 2.5v11M3.5 2.5h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z",
   file: "M4 2h5l3 3v9H4ZM9 2v3h3M6 8h4M6 10.5h3",
   code: "m5.5 5-3 3 3 3m5-6 3 3-3 3M9 3 7 13",
-  diff: "M3 4h4m-2-2v4m4 6h4M8 1.5v13",
+  diff: "M9.5 1.75H4a1.25 1.25 0 0 0-1.25 1.25v10A1.25 1.25 0 0 0 4 14.25h8A1.25 1.25 0 0 0 13.25 13V5.5Zm0 0V5.5h3.75M5 8h4M7 6v4M5 12h4",
 } as const;
 
 export function RepositoryIcon({

@@ -1,9 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createElement, act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type {
   RepositoryChanges,
+  RepositoryDirectory,
   RepositoryFile,
 } from "../../../../shared/contracts/repository-files";
 import { useRepositoryFiles, type RepositoryAPI } from "./use-repository-files";
@@ -50,6 +51,7 @@ function repositoryProbe(api: RepositoryAPI) {
     return null;
   }
   return {
+    expanded,
     get current() {
       return state;
     },
@@ -318,6 +320,234 @@ test("continuous review owns changed-file reads and receives background invalida
     expect(reads).toBe(1);
     expect(probe.current?.file?.path).toBe("unchanged");
   } finally {
+    await probe.close();
+  }
+});
+
+test("refreshes file navigation while Git status is still pending", async () => {
+  const pendingStatus = deferred<RepositoryChanges>();
+  let statusReads = 0;
+  let directoryReads = 0;
+  const api: RepositoryAPI = {
+    repositoryDirectory: async () => {
+      directoryReads++;
+      return { entries: [], limited: false };
+    },
+    repositoryChanges: () =>
+      ++statusReads === 1
+        ? Promise.resolve({ repository: true, head: "head", changes: [] })
+        : pendingStatus.promise,
+    repositoryFile: async () => ({ kind: "unavailable", reason: "missing" }),
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("");
+    const before = directoryReads;
+    let refreshed: Promise<void> | undefined;
+    await act(async () => {
+      refreshed = probe.current?.refresh();
+    });
+    expect(directoryReads).toBeGreaterThan(before);
+    expect(probe.current?.directories.has("")).toBe(true);
+    await act(async () => {
+      pendingStatus.resolve({ repository: true, head: "head", changes: [] });
+      await refreshed;
+    });
+  } finally {
+    await probe.close();
+  }
+});
+
+test("keeps Git failures separate from available navigation and file content", async () => {
+  const api: RepositoryAPI = {
+    repositoryDirectory: async () => ({ entries: [], limited: false }),
+    repositoryChanges: async () => {
+      throw new Error("Git unavailable");
+    },
+    repositoryFile: async () => ({ kind: "text", view: "file", comparison: "head", text: "hello" }),
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("readme.md", true, true);
+    expect(probe.current?.changesError).toBe("Git unavailable");
+    expect(probe.current?.directoryError).toBe("");
+    expect(probe.current?.fileError).toBe("");
+    expect(probe.current?.directories.has("")).toBe(true);
+    expect(probe.current?.file?.path).toBe("readme.md");
+    expect(probe.current?.refreshing).toBe(false);
+  } finally {
+    await probe.close();
+  }
+});
+
+test("folder and file failures survive status polling and recover on retry", async () => {
+  let available = false;
+  let poll: (() => void) | undefined;
+  const clock = spyOn(Date, "now").mockReturnValue(1000);
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void) => {
+    poll = callback;
+    return 0;
+  }) as typeof setInterval);
+  const api: RepositoryAPI = {
+    repositoryDirectory: async () => {
+      if (!available) throw new Error("Folder unavailable");
+      return { entries: [], limited: false };
+    },
+    repositoryChanges: async () => ({ repository: true, head: "head", changes: [] }),
+    repositoryFile: async () => {
+      if (!available) throw new Error("File unavailable");
+      return { kind: "text", view: "file", comparison: "head", text: "recovered" };
+    },
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("readme.md");
+    expect(probe.current?.directoryError).toBe("Folder unavailable");
+    expect(probe.current?.fileError).toBe("File unavailable");
+    expect(probe.current?.changesError).toBe("");
+    clock.mockReturnValue(16000);
+    await act(async () => poll?.());
+    expect(probe.current?.directoryError).toBe("Folder unavailable");
+    expect(probe.current?.fileError).toBe("File unavailable");
+    available = true;
+    await act(async () => {
+      await probe.current?.refresh();
+    });
+    expect(probe.current?.directoryError).toBe("");
+    expect(probe.current?.fileError).toBe("");
+    expect(probe.current?.directories.has("")).toBe(true);
+    expect(probe.current?.file?.path).toBe("readme.md");
+  } finally {
+    await probe.close();
+    interval.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+test("queues visible folder preloads beyond the concurrent request limit", async () => {
+  const paths = Array.from({ length: 8 }, (_, index) => `folder-${index}`);
+  const pending = new Map(paths.map((path) => [path, deferred<RepositoryDirectory>()]));
+  const reads: string[] = [];
+  const api: RepositoryAPI = {
+    repositoryDirectory: async (_project, path) => {
+      if (!path)
+        return {
+          entries: paths.map((path) => ({ path, name: path, kind: "directory" as const })),
+          limited: false,
+        };
+      reads.push(path);
+      return pending.get(path)!.promise;
+    },
+    repositoryChanges: async () => ({ repository: true, head: "head", changes: [] }),
+    repositoryFile: async () => ({ kind: "unavailable", reason: "missing" }),
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("");
+    await act(async () => {
+      paths.forEach((path) => void probe.current?.preload(path));
+    });
+    expect(reads).toHaveLength(4);
+    await act(async () => {
+      paths
+        .slice(0, 4)
+        .forEach((path) => pending.get(path)!.resolve({ entries: [], limited: false }));
+    });
+    expect(reads).toEqual(paths);
+    await act(async () => {
+      paths.slice(4).forEach((path) => pending.get(path)!.resolve({ entries: [], limited: false }));
+    });
+    expect(paths.every((path) => probe.current?.directories.has(path))).toBe(true);
+  } finally {
+    await probe.close();
+  }
+});
+
+test("unchanged status polls retain previews and folders, with a full missed-event fallback", async () => {
+  let directoryReads = 0;
+  let fileReads = 0;
+  let statusReads = 0;
+  let poll: (() => void) | undefined;
+  const clock = spyOn(Date, "now").mockReturnValue(1000);
+  const interval = spyOn(globalThis, "setInterval");
+  interval.mockImplementation(((callback: () => void) => {
+    poll = callback;
+    return 0;
+  }) as typeof setInterval);
+  const api: RepositoryAPI = {
+    repositoryDirectory: async (_project, path) => {
+      directoryReads++;
+      return {
+        entries: path ? [] : [{ path: "src", name: "src", kind: "directory" }],
+        limited: false,
+      };
+    },
+    repositoryChanges: async () => {
+      statusReads++;
+      return { repository: true, head: "head", changes: [] };
+    },
+    repositoryFile: async () => {
+      fileReads++;
+      return { kind: "text", view: "file", comparison: "none", text: "available" };
+    },
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    probe.expanded.add("src");
+    await probe.render("a");
+    expect(directoryReads).toBe(2);
+    for (let index = 0; index < 3; index++) {
+      clock.mockReturnValue(16000 + index * 15000);
+      await act(async () => poll?.());
+    }
+    expect(statusReads).toBe(4);
+    expect(directoryReads).toBe(2);
+    expect(fileReads).toBe(1);
+    expect(probe.current?.contentRevision.id).toBe(0);
+    clock.mockReturnValue(61000);
+    await act(async () => poll?.());
+    expect(directoryReads).toBe(4);
+    expect(fileReads).toBe(2);
+    expect(probe.current?.contentRevision.id).toBe(1);
+  } finally {
+    await probe.close();
+    interval.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+test("bounded preview requests discard queued obsolete selections", async () => {
+  const pending = Array.from({ length: 4 }, () => deferred<RepositoryFile>());
+  const reads: string[] = [];
+  const content: RepositoryFile = { kind: "text", text: "ready", view: "file", comparison: "none" };
+  const api: RepositoryAPI = {
+    repositoryDirectory: async () => ({ entries: [], limited: false }),
+    repositoryChanges: async () => ({ repository: false, head: null, changes: [] }),
+    repositoryFile: async (_project, path) => {
+      reads.push(path);
+      return pending[Number(path)]?.promise ?? content;
+    },
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    for (const path of ["0", "1", "2", "3", "obsolete", "latest"]) await probe.render(path);
+    expect(reads).toEqual(["0", "1", "2", "3"]);
+    await act(async () => {
+      pending[0].resolve(content);
+      await pending[0].promise;
+    });
+    expect(reads).toEqual(["0", "1", "2", "3", "latest"]);
+    expect(probe.current?.file?.path).toBe("latest");
+    await act(async () => pending.slice(1).forEach((request) => request.resolve(content)));
+    expect(probe.current?.file?.path).toBe("latest");
+  } finally {
+    await act(async () => pending.forEach((request) => request.resolve(content)));
     await probe.close();
   }
 });

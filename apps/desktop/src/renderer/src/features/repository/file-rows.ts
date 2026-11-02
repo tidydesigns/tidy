@@ -42,6 +42,29 @@ export type FileRows = {
   afterWidth: number;
 };
 
+export function unifiedFileRows(result: FileRows): FileRows {
+  if (!result.split) return result;
+  const rows: CodeRow[] = [];
+  let removed: CodeRow[] = [];
+  let added: CodeRow[] = [];
+  const flush = () => {
+    rows.push(...removed, ...added);
+    removed = [];
+    added = [];
+  };
+  for (const row of result.rows) {
+    if (row.kind === "lines" && row.changed) {
+      if (row.before) removed.push({ ...row, after: null });
+      if (row.after) added.push({ ...row, before: null });
+    } else {
+      flush();
+      rows.push(row);
+    }
+  }
+  flush();
+  return { ...result, rows, split: false };
+}
+
 function splitsPair(text: string, index: number) {
   return (
     index > 0 &&

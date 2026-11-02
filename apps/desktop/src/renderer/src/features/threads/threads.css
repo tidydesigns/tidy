@@ -306,6 +306,9 @@
   border-top: 1px solid var(--color-border);
   margin-block: 20px;
 }
+.conversation {
+  container-type: inline-size;
+}
 .conversation-rail {
   position: absolute;
   inset: 0 auto 0 4px;
@@ -373,7 +376,7 @@
   position: absolute;
   transform: translateY(-50%);
   left: 36px;
-  width: min(320px, calc(100vw - var(--project-sidebar-width) - 60px));
+  width: min(320px, calc(100cqw - 48px));
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: 12px;

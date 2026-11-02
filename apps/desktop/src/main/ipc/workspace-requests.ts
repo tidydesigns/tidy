@@ -306,20 +306,24 @@ export function createWorkspaceRequests<Context>(
         projectId,
         path: repositoryPathSchema.min(1),
         previousPath: repositoryPathSchema.min(1).optional(),
+        view: z.enum(["file", "diff"]).optional(),
       })
       .strict(),
     (value) =>
-      readRepositoryFile(repositoryPath(value.projectId), value.path, value.previousPath).then(
-        async (result) => {
-          const parent = value.path.includes("/")
-            ? value.path.slice(0, value.path.lastIndexOf("/"))
-            : "";
-          await service.repositoryObservers
-            .observe(value.projectId, repositoryPath(value.projectId), parent)
-            .catch(() => {});
-          return result;
-        },
-      ),
+      readRepositoryFile(
+        repositoryPath(value.projectId),
+        value.path,
+        value.previousPath,
+        value.view,
+      ).then(async (result) => {
+        const parent = value.path.includes("/")
+          ? value.path.slice(0, value.path.lastIndexOf("/"))
+          : "";
+        await service.repositoryObservers
+          .observe(value.projectId, repositoryPath(value.projectId), parent)
+          .catch(() => {});
+        return result;
+      }),
   );
   handle("repository-context", z.object({ projectId }).strict(), (value) =>
     readRepositoryContext(store.project(value.projectId).path),
