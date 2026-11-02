@@ -1,20 +1,14 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { z } from "zod";
+import { readGitHub } from "./github-read";
 import { pullRequestURL, type PullRequestState } from "../../shared/contracts/pull-request";
 
-const execute = promisify(execFile);
 const responseSchema = z.object({
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   isDraft: z.boolean(),
 });
 
 async function readState(url: string): Promise<PullRequestState> {
-  const { stdout } = await execute("gh", ["pr", "view", url, "--json", "state,isDraft"], {
-    timeout: 8000,
-    maxBuffer: 16 * 1024,
-    env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_PAGER: "cat" },
-  });
+  const { stdout } = await readGitHub(["pr", "view", url, "--json", "state,isDraft"]);
   return parsePullRequestState(JSON.parse(stdout));
 }
 

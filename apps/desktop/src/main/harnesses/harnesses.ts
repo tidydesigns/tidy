@@ -4,8 +4,8 @@ import type { SkillInvocation } from "./harness-skills";
 import { execFile } from "node:child_process";
 import { access, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
-import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
+import { executablePath } from "../platform/executable-path";
 import { promisify } from "node:util";
 export { startInteractiveHarness as startHarness } from "./interactive-harness";
 import type { ApprovalRequest, ApprovalDecision } from "../../shared/contracts/permissions";
@@ -89,20 +89,7 @@ export function harnessEnvironment(harness?: HarnessId): NodeJS.ProcessEnv {
   ]) {
     if (process.env[key]) environment[key] = process.env[key];
   }
-  environment.PATH = [
-    ...new Set([
-      ...(process.env.PATH ?? "").split(delimiter),
-      join(homedir(), ".local/bin"),
-      join(homedir(), ".bun/bin"),
-      join(homedir(), ".opencode/bin"),
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-    ]),
-  ]
-    .filter((directory) => isAbsolute(directory))
-    .join(delimiter);
+  environment.PATH = executablePath();
   environment.NO_COLOR = "1";
   return environment;
 }
