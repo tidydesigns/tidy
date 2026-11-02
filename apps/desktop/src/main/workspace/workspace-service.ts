@@ -635,6 +635,7 @@ export class WorkspaceService {
         thread.projectId,
         thread.id,
         scope.writable,
+        thread.harness === "claude" && mode === "default",
         thread.executionProjectId,
         [...designIds].sort(),
       ]),
@@ -1284,6 +1285,8 @@ export class WorkspaceService {
       const permissionsChanged = previousMode !== nextMode;
       const toolScopeChanged =
         ["read-only", "plan"].includes(previousMode) !== ["read-only", "plan"].includes(nextMode);
+      const toolApprovalChanged =
+        thread.harness === "claude" && (previousMode === "default") !== (nextMode === "default");
       if (!permissionsChanged && !this.jobs.has(threadId))
         this.sessions.assertSettingsCanChange(threadId, settings);
       await this.configure(thread.harness, this.executionProject(thread).path, settings);
@@ -1317,7 +1320,8 @@ export class WorkspaceService {
           if (
             !toolScopeChanged &&
             !active?.stopped &&
-            (await this.sessions.updatePermissions(threadId, projectId, settings))
+            (await this.sessions.updatePermissions(threadId, projectId, settings)) &&
+            !toolApprovalChanged
           ) {
             this.emit({ type: "thread", thread });
             return structuredClone(thread);

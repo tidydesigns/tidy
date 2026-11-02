@@ -6,6 +6,11 @@ const record = z.record(z.string(), z.unknown());
 const object = (input: unknown) => record.parse(input ?? {});
 const claude = process.argv.includes("--input-format");
 const acp = process.argv.includes("acp");
+if (existsSync("record-startup"))
+  appendFileSync(
+    "session-startups.jsonl",
+    JSON.stringify({ pid: process.pid, args: process.argv.slice(2) }) + "\n",
+  );
 const sessionId = acp ? "ses_fixture" : "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
 function cost(amount: number) {

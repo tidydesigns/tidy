@@ -1482,6 +1482,7 @@ for (const harness of ["codex", "claude"] as const) {
       const thread = await service.startThread({
         projectId: project.id,
         harness,
+        settings: harness === "claude" ? { permissionMode: "auto" } : undefined,
         prompt: "hold",
         designIds: [],
       });
@@ -1511,8 +1512,9 @@ for (const harness of ["codex", "claude"] as const) {
           log.find((event) => event.method === "turn/settings/update")?.value.params,
         ).toMatchObject({ approvalsReviewer: "auto_review" });
       expect(() => process.kill(pid, 0)).not.toThrow();
-      // A live downgrade uses the same connection, too.
-      await service.setThreadSettings(project.id, thread.id, { permissionMode: "default" });
+      await service.setThreadSettings(project.id, thread.id, {
+        permissionMode: harness === "claude" ? "auto" : "default",
+      });
       expect(new Set((await events(cwd)).map((event) => event.pid))).toEqual(new Set([pid]));
     } finally {
       await service.close();
@@ -1661,6 +1663,82 @@ test("Stop while the provider acknowledges a live change cannot restart the thre
     await service.close();
   }
 });
+
+for (const idle of [false, true])
+  for (const [previousMode, nextMode] of [
+    ["auto", "default"],
+    ["default", "provider-auto"],
+  ] as const)
+    test(`Claude ${idle ? "idle" : "active"} canvas approval policy rebinds from ${previousMode} to ${nextMode}`, async () => {
+      const { ProjectStore } = await import("../workspace/project-store");
+      const { WorkspaceService } = await import("../workspace/workspace-service");
+      const cwd = await mkdtemp(join(directory, "claude-tool-policy-"));
+      await writeFile(join(cwd, "live-permissions"), "");
+      await writeFile(join(cwd, "record-startup"), "");
+      const store = new ProjectStore(join(cwd, "private"));
+      await store.initialize();
+      const { project } = await store.open(cwd);
+      const service = new WorkspaceService(
+        store,
+        undefined,
+        async () => executable,
+        async () => {},
+      );
+      const ready = Promise.withResolvers<void>();
+      const replacementStarted = Promise.withResolvers<void>();
+      let changing = false;
+      service.subscribe((event) => {
+        if (changing && event.type === "thread" && event.thread.activity === "Working")
+          replacementStarted.resolve();
+        if (
+          event.type === "thread" &&
+          (idle ? event.thread.status === "completed" : event.thread.activity === "Working")
+        )
+          ready.resolve();
+      });
+      const launches = async () =>
+        z.array(z.object({ pid: z.number(), args: z.array(z.string()) })).parse(
+          (await readFile(join(cwd, "session-startups.jsonl"), "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line)),
+        );
+      try {
+        const thread = await service.startThread({
+          projectId: project.id,
+          harness: "claude",
+          settings: { permissionMode: previousMode },
+          prompt: idle ? "first" : "hold",
+          designIds: [],
+        });
+        await ready.promise;
+        const before = await launches();
+        expect(before).toHaveLength(1);
+        const allowed = (args: string[]) => args[args.indexOf("--allowedTools") + 1].split(",");
+        expect(allowed(before[0].args).includes("mcp__tidy__canvas_edit")).toBe(
+          previousMode !== "default",
+        );
+        changing = true;
+        await service.setThreadSettings(project.id, thread.id, { permissionMode: nextMode });
+        if (idle)
+          await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "second" });
+        await replacementStarted.promise;
+        const after = await launches();
+        expect(after).toHaveLength(2);
+        expect(after[1].pid).not.toBe(after[0].pid);
+        expect(allowed(after[1].args).includes("mcp__tidy__canvas_edit")).toBe(
+          nextMode !== "default",
+        );
+        expect(allowed(after[1].args)).toContain("mcp__tidy__canvas_read");
+        const updated = await service.readThread(project.id, thread.id);
+        expect(updated.settings?.permissionMode).toBe(nextMode);
+        expect(updated.messages.filter((message) => message.role === "user")).toHaveLength(
+          idle ? 2 : 1,
+        );
+      } finally {
+        await service.close();
+      }
+    });
 
 test("idle live permission updates preserve a compatible native session for the next message", async () => {
   const { ProjectStore } = await import("../workspace/project-store");
