@@ -1388,3 +1388,32 @@ test("portable message provenance cannot manufacture incoming thread attribution
   await writeFile(path, JSON.stringify(value));
   expect(await f.store.readThread(project.id, value.id)).not.toHaveProperty("messageSources");
 });
+
+test("startup excludes a replaced directory without blocking healthy projects or transferring identity", async () => {
+  const f = await fixture();
+  const healthyRoot = join(f.directory, "healthy");
+  await mkdir(healthyRoot);
+  const healthy = await f.store.register(healthyRoot);
+  const original = await f.store.register(f.root);
+  const conversation = thread(original.id);
+  await f.store.writeThread(conversation);
+  await rename(f.root, join(f.directory, "original"));
+  await mkdir(join(f.root, ".tidy"), { recursive: true });
+  await writeFile(
+    join(f.root, ".tidy/project.json"),
+    JSON.stringify({ version: 1, id: original.id }),
+  );
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  expect(restarted.projects.map((project) => project.id)).toEqual([healthy.id]);
+  expect(restarted.activeProjectId).toBeNull();
+  expect(restarted.project(healthy.id).path).toBe(healthyRoot);
+  expect(() => restarted.project(original.id)).toThrow("Open this project");
+  const again = new ProjectStore(join(f.directory, "app-data"));
+  await again.initialize();
+  expect(again.projects.map((project) => project.id)).toEqual([healthy.id]);
+  const replacement = await again.register(f.root);
+  expect(replacement.id).not.toBe(original.id);
+  await expect(again.readThread(replacement.id, conversation.id)).rejects.toThrow();
+  expect((await again.register(f.root)).id).toBe(replacement.id);
+});

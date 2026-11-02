@@ -43,7 +43,7 @@ const maintain = (before) => {
     compactedTasks++;
     room--;
   }
-  const receipts = statement("SELECT key FROM operation_receipts WHERE updated_at < ? AND json_extract(value, '$.kind') = 'complete' LIMIT 100").all(cutoff);
+  const receipts = statement("SELECT key FROM operation_receipts WHERE updated_at < ? AND json_extract(value, '$.kind') IN ('complete', 'rejected') LIMIT 100").all(cutoff);
   for (const row of receipts) {
     if (!room) break;
     statement('INSERT INTO receipt_tombstones VALUES (?)').run(row.key);

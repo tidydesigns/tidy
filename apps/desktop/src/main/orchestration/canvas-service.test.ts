@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ProjectStore } from "../workspace/project-store";
+import { ProjectStore, DesignVersionConflictError } from "../workspace/project-store";
 import { CloudCompute, CloudComputeBusyError } from "../cloud/cloud-compute";
 import { CanvasService, type CanvasSnapshot } from "./canvas-service";
 import type { AgentScope } from "./contracts";
@@ -663,4 +663,90 @@ test("canvas worker saturation remains retryable and worker domain errors retain
     changes: { name: "Too much" },
   }));
   await expect(worker.prepareCanvas(locked, operations)).rejects.toMatchObject({ code: "BUSY" });
+});
+
+test("a rejected encode releases its receipt for an identical retry without inventing undo", async () => {
+  const f = await fixture();
+  const key = `canvas-${createHash("sha256").update(`${f.scope.projectId}:${f.scope.threadId}:${f.edit.request_id}`).digest("hex")}`;
+  const encode = spyOn(CloudCompute.prototype, "encodeDesign").mockRejectedValueOnce(
+    new CloudComputeBusyError(),
+  );
+  try {
+    await expect(f.service.edit(f.scope, f.edit)).rejects.toBeInstanceOf(CloudComputeBusyError);
+  } finally {
+    encode.mockRestore();
+  }
+  expect(await f.store.processState.read(key)).toMatchObject({ kind: "rejected" });
+  expect((await f.store.readDesign(f.project.id, f.file.id, false)).version).toBe(f.file.version);
+  await expect(
+    f.service.edit(f.scope, {
+      ...f.edit,
+      operations: [{ kind: "delete", node_ids: [f.file.document.nodes[0].id] }],
+    }),
+  ).rejects.toThrow("different edit");
+  await expect(
+    f.service.edit(f.scope, {
+      ...f.edit,
+      request_id: randomUUID(),
+      operations: [{ kind: "undo", request_id: f.edit.request_id }],
+    }),
+  ).rejects.toThrow("nothing to undo");
+  const result = await f.service.edit(f.scope, f.edit);
+  expect(await f.store.processState.read(key)).toMatchObject({ kind: "complete", result });
+  expect(await f.service.edit(f.scope, f.edit)).toEqual(result);
+  expect(f.changes).toHaveLength(1);
+});
+
+for (const failure of ["abort", "revocation"] as const) {
+  test(`a precommit ${failure} settles the durable pending receipt`, async () => {
+    const f = await fixture();
+    let revoked = false;
+    let receiptKey = "";
+    const service = new CanvasService({
+      store: f.store,
+      receipts: {
+        read: (key) => f.store.processState.read(key),
+        write: async (key, value) => {
+          await f.store.processState.write(key, value);
+          receiptKey = key;
+          if (
+            typeof value !== "object" ||
+            value === null ||
+            !("kind" in value) ||
+            value.kind !== "pending"
+          )
+            return;
+          if (failure === "abort") f.controller.abort(new Error("Turn stopped before commit."));
+          else revoked = true;
+        },
+      },
+      authorize: async () => {
+        if (revoked) throw new Error("Access revoked.");
+      },
+      onChange: async () => {
+        throw new Error("Rejected edit notified a change.");
+      },
+    });
+    cleanups.push(() => service.close());
+    await expect(service.edit(f.scope, f.edit)).rejects.toThrow();
+    expect(await f.store.processState.read(receiptKey)).toMatchObject({ kind: "rejected" });
+    expect((await f.store.readDesign(f.project.id, f.file.id, false)).version).toBe(f.file.version);
+  });
+}
+
+test("a known version rejection remains distinguishable from an uncertain write on retry", async () => {
+  const f = await fixture();
+  const update = spyOn(f.store, "updateDesign").mockRejectedValueOnce(
+    new DesignVersionConflictError(),
+  );
+  try {
+    await expect(f.service.edit(f.scope, f.edit)).rejects.toBeInstanceOf(
+      DesignVersionConflictError,
+    );
+  } finally {
+    update.mockRestore();
+  }
+  const key = `canvas-${createHash("sha256").update(`${f.scope.projectId}:${f.scope.threadId}:${f.edit.request_id}`).digest("hex")}`;
+  expect(await f.store.processState.read(key)).toMatchObject({ kind: "rejected" });
+  expect((await f.service.edit(f.scope, f.edit)).request_id).toBe(f.edit.request_id);
 });

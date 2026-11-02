@@ -716,7 +716,7 @@ test("rich task capacity automatically compacts old delivered results without re
   expect((await store.create(input)).id).toBe(task.id);
 });
 
-test("receipt capacity expires only old completed receipts and never forgets used request keys", async () => {
+test("receipt capacity expires old completed and rejected receipts without forgetting request keys", async () => {
   const { store, directory } = await fixture();
   const { Database } = await import("bun:sqlite");
   const database = new Database(join(directory, "private", "tasks.sqlite"));
@@ -731,7 +731,7 @@ test("receipt capacity expires only old completed receipts and never forgets use
       for (let index = 0; index < 9998; index++)
         insert.run(
           `canvas-${index.toString(16).padStart(64, "0")}`,
-          '{"kind":"complete"}',
+          JSON.stringify({ kind: index % 2 === 0 ? "complete" : "rejected" }),
           oldDate,
         );
       insert.run(pending, '{"kind":"pending"}', oldDate);
@@ -747,6 +747,9 @@ test("receipt capacity expires only old completed receipts and never forgets use
   });
   expect(
     await store.writeReceipt(old, { kind: "pending" }).catch((error: unknown) => error),
+  ).toMatchObject({ code: "RECEIPT_EXPIRED" });
+  expect(
+    await store.readReceipt(`canvas-${"1".padStart(64, "0")}`).catch((error: unknown) => error),
   ).toMatchObject({ code: "RECEIPT_EXPIRED" });
   expect(await store.readReceipt(pending)).toEqual({ kind: "pending" });
   expect(await store.readReceipt(recent)).toEqual({ kind: "complete" });

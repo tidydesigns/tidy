@@ -278,6 +278,13 @@ const receiptOwnerSchema = z
 const receiptSchema = z.discriminatedUnion("kind", [
   z
     .object({
+      kind: z.literal("rejected"),
+      fingerprint: z.string(),
+      owner: receiptOwnerSchema,
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal("pending"),
       fingerprint: z.string(),
       owner: receiptOwnerSchema,
@@ -686,8 +693,10 @@ export class CanvasService {
           "CONFLICT",
           "This edit may have completed before interruption. Inspect the design before issuing a new request.",
         );
-      await this.access(scope, request.design_id, true);
-      return receipt.result;
+      if (receipt.kind === "complete") {
+        await this.access(scope, request.design_id, true);
+        return receipt.result;
+      }
     }
     const file = await this.options.store.readDesign(scope.projectId, request.design_id, false);
     if (file.version !== request.expected_version)
@@ -704,6 +713,11 @@ export class CanvasService {
           throw new AgentOperationError("NOT_FOUND", "No undoable edit was found in this thread.");
         const receipt = receiptSchema.parse(original);
         verifyOwner(receipt, scope, request.design_id);
+        if (receipt.kind === "rejected")
+          throw new AgentOperationError(
+            "NOT_FOUND",
+            "This edit was rejected before writing. There is nothing to undo.",
+          );
         if (receipt.kind !== "complete")
           throw new AgentOperationError(
             "CONFLICT",
@@ -775,18 +789,31 @@ export class CanvasService {
       patch,
       inverse,
     });
-    await this.access(scope, request.design_id, true);
-    const result = await this.options.store.updateDesign(
-      {
-        projectId: scope.projectId,
-        designId: request.design_id,
-        expectedVersion: request.expected_version,
-        document,
-        beforeWrite: () => this.access(scope, request.design_id, true),
-        signal: scope.signal,
-      },
-      { includeAssets: false },
-    );
+    let commitAttempted = false;
+    let result: Awaited<ReturnType<ProjectStore["updateDesign"]>>;
+    try {
+      await this.access(scope, request.design_id, true);
+      result = await this.options.store.updateDesign(
+        {
+          projectId: scope.projectId,
+          designId: request.design_id,
+          expectedVersion: request.expected_version,
+          document,
+          beforeWrite: () => this.access(scope, request.design_id, true),
+          signal: scope.signal,
+        },
+        {
+          includeAssets: false,
+          onCommitAttempt: () => {
+            commitAttempted = true;
+          },
+        },
+      );
+    } catch (error) {
+      if (!commitAttempted)
+        await this.options.receipts.write(key, { kind: "rejected", fingerprint, owner });
+      throw error;
+    }
     const response = editResultSchema.parse({
       design_id: result.id,
       version: result.version,

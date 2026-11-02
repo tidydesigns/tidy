@@ -168,9 +168,19 @@ export class ProjectStore {
     } catch (error) {
       if (!missing(error)) throw new Error("The local project registry could not be read.");
     }
+    const verified: typeof this.registry.projects = [];
     for (const project of this.registry.projects)
-      if (!(await this.projectIdentity.claim(project.id, project.path)))
-        throw new Error("The private project identity does not match its registered directory.");
+      if (await this.projectIdentity.claim(project.id, project.path)) verified.push(project);
+    if (verified.length !== this.registry.projects.length) {
+      this.registry = {
+        ...this.registry,
+        projects: verified,
+        activeProjectId: verified.some((project) => project.id === this.registry.activeProjectId)
+          ? this.registry.activeProjectId
+          : null,
+      };
+      await this.writeRegistry();
+    }
   }
 
   get draftImportDirectory() {
@@ -792,7 +802,7 @@ export class ProjectStore {
       name?: string;
       folderId?: string | null;
     },
-    options: { includeAssets?: boolean } = {},
+    options: { includeAssets?: boolean; onCommitAttempt?: () => void } = {},
   ) {
     const document = input.document === undefined ? undefined : structuredClone(input.document);
     const name =
@@ -820,6 +830,7 @@ export class ProjectStore {
         const committing = await this.readDesign(input.projectId, input.designId, false);
         if (committing.version !== input.expectedVersion) throw new DesignVersionConflictError();
         input.signal?.throwIfAborted();
+        options.onCommitAttempt?.();
       });
       result = await this.readDesign(
         input.projectId,
