@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 const buildId = createHash('sha256').update(readFileSync(import.meta.filename)).digest('hex');
 process.stdout.write(JSON.stringify({ protocol: 3, buildId, sourceTimestamp: 1,
+  capabilities: ['reconnect'], reconnectOnly: process.argv.includes('--reconnect'),
   hostId: '${fixtureHostId}', instanceId: '${fixtureInstanceId}',
   pid: process.pid, port: 12345, managed: true, clientId: process.argv[3],
   token: '${"a".repeat(64)}', updatePending: false }) + '\\n');
@@ -173,6 +174,93 @@ test("reconnect reuses the running verified backend despite a changed desktop bu
   expect(JSON.parse(result.stdout).buildId).toBe(digest(bundle));
   expect((await readdir(f.runtime)).sort()).toEqual([digest(bundle), "install.lock"].sort());
   expect(result.stderr).not.toContain("installing");
+});
+
+test("desktop-owned hosts reconnect through a verified helper installed for a different build", async () => {
+  const f = await fixture();
+  await f.install();
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 3,
+      buildId: "d".repeat(64),
+      hostId: fixtureHostId,
+      managed: false,
+    }),
+  );
+  const result = f.reconnect({ expectedHostId: fixtureHostId });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout).clientId).toBe(clientId);
+  expect(JSON.parse(result.stdout).reconnectOnly).toBe(true);
+  expect(result.stderr).not.toContain("installing");
+});
+
+test("source-launched managed hosts use only helpers that advertise reconnect without maintenance", async () => {
+  const f = await fixture();
+  const legacy = Buffer.from(
+    bundle.toString().replace("capabilities: ['reconnect']", "capabilities: []"),
+  );
+  const legacyDirectory = await f.install(legacy);
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 3,
+      buildId: "d".repeat(64),
+      hostId: fixtureHostId,
+      managed: true,
+    }),
+  );
+  expect(f.reconnect().stdout.trim()).toBe("TIDY_INSTALL_REQUIRED");
+  await f.install();
+  const result = f.reconnect({ buildId: "c".repeat(64) });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout).reconnectOnly).toBe(true);
+  expect(await readFile(join(legacyDirectory, "tidy-host.mjs"))).toEqual(legacy);
+});
+
+test("installing a helper alongside a live desktop preserves reconnect mode unless updating explicitly", async () => {
+  for (const update of [false, true]) {
+    const f = await fixture();
+    await f.sharedNode();
+    await writeFile(
+      join(f.state, "runtime.json"),
+      JSON.stringify({
+        pid: process.pid,
+        protocol: 3,
+        buildId: digest(bundle),
+        hostId: fixtureHostId,
+        managed: false,
+      }),
+    );
+    const result = f.run(
+      bootstrapScript({ bundle, clientId, directories: f.directories, update }),
+      bundle,
+    );
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).reconnectOnly).toBe(!update);
+  }
+});
+
+test("a healthy host reconnects despite a damaged activation record, which still blocks explicit updates", async () => {
+  const f = await fixture();
+  await f.install();
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 3,
+      buildId: digest(bundle),
+      hostId: fixtureHostId,
+      managed: true,
+    }),
+  );
+  await writeFile(join(f.state, "activation.json"), "{damaged");
+  const result = f.reconnect({ expectedHostId: fixtureHostId });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout).buildId).toBe(digest(bundle));
+  expect(f.reconnect({ update: true }).status).not.toBe(0);
 });
 
 test("stopped hosts restart their verified accepted activation without installing", async () => {

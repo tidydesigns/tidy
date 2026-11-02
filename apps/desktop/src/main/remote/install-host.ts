@@ -78,7 +78,7 @@ const publish = (source, destination) => {
     publish(nodeStage, nodeRuntime);
   }
   if (!bundleReady()) {
-    if (current?.buildId === build && alive(current))
+    if (exists(runtime) && current?.buildId === build && alive(current))
       throw Error('The running backend installation is damaged. Its active work was left in place.');
     if (hash(path.join(stage, 'tidy-host.mjs')) !== build) throw Error('Backend checksum mismatch.');
     fs.mkdirSync(path.join(stage, 'bin'));

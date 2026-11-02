@@ -10,7 +10,6 @@ const read = name => {
 };
 try {
   const runtime = read('runtime.json');
-  const activation = read('activation.json');
   if (expected) {
     let identity;
     try { identity = fs.readFileSync(path.join(state, 'identity'), 'utf8').trim(); }
@@ -24,17 +23,33 @@ try {
     })();
   if (alive && runtime.protocol !== 3)
     throw Error('The backend protocol is incompatible with this desktop. Install compatible desktop and backend versions before reconnecting.');
+  const activation = !alive || update === 'yes' || update === 'apply' ? read('activation.json') : null;
   if (update === 'yes') {
     process.stdout.write('TIDY_INSTALL_REQUIRED\n');
   } else {
-    const build = update === 'apply' ? desired : alive ? runtime.buildId : activation?.buildId ?? runtime?.buildId ?? desired;
-    let installed = false;
-    if (typeof build === 'string' && /^[a-f0-9]{64}$/.test(build)) {
+    const candidate = update === 'apply' || update === 'installed' ? desired : alive ? runtime.buildId : activation?.buildId ?? runtime?.buildId ?? desired;
+    const builds = [candidate];
+    if (alive && update === 'no') {
+      builds.push(desired);
+      try {
+        builds.push(...fs.readdirSync(root, { withFileTypes: true })
+          .filter(entry => entry.isDirectory() && /^[a-f0-9]{64}$/.test(entry.name))
+          .slice(0, 32).map(entry => entry.name));
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    const deadline = Date.now() + 10000;
+    let damagedLive = false;
+    for (const build of new Set(builds)) {
+      if (typeof build !== 'string' || !/^[a-f0-9]{64}$/.test(build)) continue;
+      let installed = false;
+      let present = false;
       const directory = path.join(root, build);
       const entry = path.join(directory, 'tidy-host.mjs');
       const node = path.join(directory, 'bin', 'node');
       try {
-        installed = !fs.lstatSync(directory).isSymbolicLink() &&
+        const info = fs.lstatSync(directory);
+        present = true;
+        installed = info.isDirectory() && !info.isSymbolicLink() &&
           fs.readFileSync(path.join(directory, 'complete'), 'utf8').trim() === build &&
           crypto.createHash('sha256').update(fs.readFileSync(entry)).digest('hex') === build;
         if (installed) fs.accessSync(node, fs.constants.X_OK);
@@ -46,6 +61,19 @@ try {
         if (error.code !== 'ENOENT') throw error;
         installed = false;
       }
+      if (build === runtime?.buildId && present && !installed) damagedLive = true;
+      if (installed && alive && build !== runtime.buildId && update !== 'apply') {
+        if (Date.now() >= deadline) break;
+        const version = cp.spawnSync(node, [entry, 'version'], {
+          encoding: 'utf8', timeout: Math.min(5000, Math.max(1, deadline - Date.now())),
+        });
+        let descriptor;
+        try { descriptor = JSON.parse(version.stdout); } catch { continue; }
+        if (version.status !== 0 || descriptor?.protocol !== 3) continue;
+        if (runtime.managed !== false &&
+            !(Array.isArray(descriptor.capabilities) && descriptor.capabilities.includes('reconnect')))
+          continue;
+      }
       if (installed) {
         const result = cp.spawnSync(node, [entry, 'ensure', client, ...(update === 'apply' ? [] : ['--reconnect'])], {
           stdio: 'inherit', env: process.env, timeout: 105000, killSignal: 'SIGTERM',
@@ -54,7 +82,7 @@ try {
         process.exit(result.status ?? 1);
       }
     }
-    if (alive) throw Error('The running backend installation is damaged. Restore its verified runtime before reconnecting.');
+    if (alive && damagedLive) throw Error('The running backend installation is damaged. Restore its verified runtime before reconnecting.');
     process.stdout.write('TIDY_INSTALL_REQUIRED\n');
   }
 } catch (error) {

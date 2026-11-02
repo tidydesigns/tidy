@@ -69,6 +69,12 @@ upload a bundle, download Node, or wait for the installation lock. Existing iden
 authentication and ownership checks still apply. A failed health check never triggers a
 speculative replacement of a running backend.
 
+Desktop-owned and source-launched backends can reconnect through a verified helper when their
+own build is outside the runtime cache. A helper for a managed backend must advertise support
+for reconnecting without maintenance. Installing a missing helper also preserves reconnect mode;
+only an explicit backend update can request a maintenance restart. A damaged activation record
+does not prevent attaching to a healthy server, but still blocks updates and stopped-host recovery.
+
 When no usable installation exists, the desktop streams its backend bundle over SSH directly
 into private staging under the remote home directory, without a shell here-document or
 system temporary files. It validates the bundle's

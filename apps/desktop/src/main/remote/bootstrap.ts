@@ -64,11 +64,13 @@ export function bootstrapScript({
   clientId,
   directories,
   expectedHostId,
+  update = false,
 }: {
   bundle: Buffer;
   clientId: string;
   directories?: HostDirectories;
   expectedHostId?: string;
+  update?: boolean;
 }) {
   z.string().uuid().parse(clientId);
   if (expectedHostId) z.string().uuid().parse(expectedHostId);
@@ -124,7 +126,7 @@ fi
 "$node" -e ${shellQuote(installHostScript)} "$root" "$stage" "$node_stage" "$node_runtime" "$checksum" '${hash}' "$TIDY_HOST_STATE"
 trap - EXIT HUP INT TERM
 printf 'TIDY_PHASE:starting\\n' >&2
-exec "$runtime/bin/node" -e ${shellQuote(installedHostScript)} "$root" "$TIDY_HOST_STATE" '${hash}' '${clientId}' '${expectedHostId ?? ""}' apply
+exec "$runtime/bin/node" -e ${shellQuote(installedHostScript)} "$root" "$TIDY_HOST_STATE" '${hash}' '${clientId}' '${expectedHostId ?? ""}' '${update ? "apply" : "installed"}'
 `;
 }
 
@@ -169,7 +171,7 @@ export async function prepareHost({
   if (output.trim() === "TIDY_INSTALL_REQUIRED") {
     signal.throwIfAborted();
     output = await ssh.execute({
-      script: bootstrapScript({ bundle, clientId, expectedHostId }),
+      script: bootstrapScript({ bundle, clientId, expectedHostId, update }),
       input: bundle,
       timeout: 900_000,
       signal,
