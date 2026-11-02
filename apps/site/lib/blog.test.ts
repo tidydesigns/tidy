@@ -85,6 +85,35 @@ describe("blog publication", () => {
     );
   });
 
+  test("allows hash comments inside Markdown code fences", () => {
+    const examples = [
+      ["```bash", "# install dependencies", "bun install", "```"],
+      ["~~~yaml", "# configuration", "enabled: true", "~~~"],
+      ["   ```python", "# a comment", "print('hello')", "   ```"],
+      ["````markdown", "```bash", "# inner example", "```", "# still code", "~~~~", "````"],
+      ["```markdown", "```not-a-closing-fence", "# still code", "```"],
+      ["~~~bash", "# code until the end of the document"],
+    ];
+    for (const lines of examples) {
+      for (const newline of ["\n", "\r\n"]) {
+        const body = lines.join(newline);
+        assert.equal(parsePost("example", source("", body)).body, body.trim());
+      }
+    }
+  });
+
+  test("still rejects headings outside closed fences or invalid fence openings", () => {
+    const examples = [
+      ["# Actual heading", "```bash", "# code comment", "```"],
+      ["```bash", "# code comment", "```", "# Actual heading"],
+      ["~~~bash", "# code comment", "~~~~", "# Actual heading"],
+      ["```invalid`info", "# Actual heading"],
+    ];
+    for (const lines of examples) {
+      assert.throws(() => parsePost("example", source("", lines.join("\n"))), /headings at ##/);
+    }
+  });
+
   test("requires content and one page-level heading", () => {
     assert.throws(() => parsePost("example", source("", "")), /empty article/);
     assert.throws(() => parsePost("example", source("", "# Another title")), /headings at ##/);

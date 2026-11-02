@@ -41,9 +41,9 @@ the public site origin when building for deployment; it defaults to
 when publishing a new page, and give that page its own canonical metadata.
 Account and workspace URLs on the separate app domain do not belong here.
 
-The sitemap omits modification dates until accurate page update dates are
-available; a rebuild is not a content update. It also omits priority and change
-frequency, which Google ignores.
+Static pages omit modification dates. Blog posts use `updated`, or `date` if
+`updated` is not set. A rebuild is not a content update. The sitemap also omits
+priority and change frequency, which Google ignores.
 
 Run `bun run build:site` from the repository root and inspect
 `apps/site/out/robots.txt` and `apps/site/out/sitemap.xml` before release. After

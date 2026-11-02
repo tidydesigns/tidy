@@ -148,7 +148,7 @@ export default async function BlogPostPage({ params }: Props) {
         </article>
         {related.length > 0 && (
           <section className={styles.related} aria-labelledby="related-title">
-            <h2 id="related-title">Keep exploring.</h2>
+            <h2 id="related-title">Related articles</h2>
             <PostList posts={related} headingLevel={3} />
           </section>
         )}

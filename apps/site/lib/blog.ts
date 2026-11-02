@@ -27,6 +27,31 @@ function isDate(value: unknown): value is string {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+/** Ignore Markdown code fences when checking for a duplicate page title. */
+function hasPageHeading(markdown: string) {
+  let fence: string | undefined;
+  for (const line of markdown.split(/\r?\n/)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (
+        marker &&
+        marker[1][0] === fence[0] &&
+        marker[1].length >= fence.length &&
+        !marker[2].trim()
+      ) {
+        fence = undefined;
+      }
+      continue;
+    }
+    if (marker && (marker[1][0] !== "`" || !marker[2].includes("`"))) {
+      fence = marker[1];
+      continue;
+    }
+    if (/^#\s/.test(line)) return true;
+  }
+  return false;
+}
+
 export function parsePost(slug: string, source: string): BlogPost {
   const fail = (message: string): never => {
     throw new Error(`Blog post ${slug}: ${message}`);
@@ -52,7 +77,7 @@ export function parsePost(slug: string, source: string): BlogPost {
   )
     fail("cover must be a kebab-case image name");
   if (!content.trim()) fail("empty article");
-  if (/^#\s/m.test(content)) fail("start article headings at ##; the page provides the title");
+  if (hasPageHeading(content)) fail("start article headings at ##; the page provides the title");
   return {
     slug,
     title: string("title"),
