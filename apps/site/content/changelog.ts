@@ -13,8 +13,183 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-11-02",
+    features: [
+      {
+        title: "Preview mobile apps beside your conversation",
+        details:
+          "Use the Devices tab to build and run supported mobile apps in an iOS simulator or Android emulator. Interact with the preview, rotate the device and reload your app without leaving the desktop workspace. Device tools must be installed on the connected machine.",
+      },
+      {
+        title: "Separate workspaces for coding threads",
+        details:
+          "New coding threads in Git projects use their own worktree by default, keeping unfinished changes separate. Choose New worktree or Current folder in the composer; follow-ups return to the same workspace.",
+      },
+      {
+        title: "Browse files and review code changes",
+        details:
+          "Open Files and Diff beside your conversation to browse the selected thread's workspace and review staged, unstaged and new files in one continuous comparison. Resize or expand the panel when you need more room.",
+      },
+      {
+        title: "Project terminals in the desktop app",
+        details:
+          "Open terminal tabs for local or connected projects alongside your conversation. Switch tabs, expand the terminal and adjust text size from Settings or keyboard shortcuts. Terminals follow your app theme and reconnect after a window reload.",
+      },
+      {
+        title: "Automatically complete finished threads",
+        details:
+          "Threads move to Done when all linked pull requests merge into their repositories' default branches. Customise branch and pull request rules in Settings under Threads, opt into inactivity cleanup or keep completion manual. Threads with active work or failures stay open.",
+      },
+      {
+        title: "Experimental agent assignments and canvas tools",
+        details:
+          "Agents can delegate work to child conversations and read, edit and preview attached designs. Follow assignments, approvals and results inside the parent thread. Other threads accept incoming work only when you enable it.",
+      },
+      {
+        title: "Search project branches",
+        details:
+          "Find and switch branches from a compact searchable picker in the desktop composer.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Keep your place in conversations",
+        details:
+          "New replies and thread updates no longer pull you back down while you are reading earlier messages.",
+      },
+      {
+        title: "Reliable sidebar controls and drafts",
+        details:
+          "Search and new-thread controls remain available in the sidebar, and new drafts stay visible after navigating away and back.",
+      },
+      {
+        title: "More reliable remote reconnects and updates",
+        details:
+          "Reconnecting to a machine reuses its installed backend instead of repeating setup. Backend upgrades recover more reliably and report whether the update succeeded.",
+      },
+      {
+        title: "Recover cloud sign-in after updates",
+        details:
+          "The desktop app guides you back through cloud sign-in when an update changes how stored credentials are read.",
+      },
+    ],
+  },
+  {
+    date: "2026-11-01",
+    features: [
+      {
+        title: "Keep image context when copying prompts",
+        details:
+          "Copy and paste desktop prompts with their text, attachment order and inline image positions intact. Images import in the background, with a retry action if an import fails.",
+      },
+      {
+        title: "Find unsent drafts in the sidebar",
+        details:
+          "Unsent desktop threads appear in the sidebar so you can leave a draft and return to it later.",
+      },
+      {
+        title: "Change agent access while working",
+        details:
+          "Update a thread's access during a response, with a visible resuming state when the agent needs to restart. Busy cloud threads also offer Stop and switch to move to another execution project while keeping your conversation, draft and queued messages.",
+      },
+      {
+        title: "Archive local designs and delete folders",
+        details:
+          "Archive local design files and remove local folders from the desktop file browser.",
+      },
+    ],
+    fixes: [
+      {
+        title: "More reliable live design previews",
+        details:
+          "Creating local designs and opening live previews from desktop threads work more reliably. Preview transitions stay steadier as you switch views.",
+      },
+      {
+        title: "Preview images from connected machines",
+        details: "Image attachments in remote threads open from the machine where they are stored.",
+      },
+      {
+        title: "Keep pull request details visible",
+        details:
+          "Sidebar pull request details stay visible while refreshing instead of briefly disappearing.",
+      },
+      {
+        title: "Recognise the beta app on macOS",
+        details:
+          "The beta app has its own icon and Tidy (Beta) name, making it easier to distinguish from other release channels.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-31",
+    features: [
+      {
+        title: "Pull requests beside your threads",
+        details:
+          "Pull requests created in desktop conversations appear in the sidebar so you can revisit them alongside the thread.",
+      },
+      {
+        title: "Automatic and editable thread names",
+        details:
+          "New conversations get a generated name, and you can rename a thread yourself to make it easier to find.",
+      },
+      {
+        title: "Recall messages and choose skills",
+        details:
+          "Use arrow keys in the desktop composer to recall sent messages. Type $ or / to find and insert a project skill.",
+      },
+      {
+        title: "Expand image attachments",
+        details:
+          "Open larger image previews from the desktop composer or sent messages to inspect attachments before continuing.",
+      },
+      {
+        title: "Account usage and update status in the sidebar",
+        details:
+          "Check account usage from the sidebar and keep track of app updates with a status that stays visible as you navigate.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Resume conversations after updates",
+        details:
+          "Active desktop threads can resume after app or coding-agent updates instead of losing their working session.",
+      },
+      {
+        title: "Keep pasted images attached",
+        details:
+          "Pasted images stay attached to your desktop prompt instead of disappearing before you send it.",
+      },
+      {
+        title: "Usable controls during agent runs",
+        details:
+          "Composer settings remain available while an agent is working, and workspace threads can change execution projects more reliably.",
+      },
+      {
+        title: "Easier-to-read conversation content",
+        details:
+          "Wide tables scroll and expand, links and media references are clearer, and turn markers align with the prompts you see. Queued messages and running processes transition more smoothly.",
+      },
+      {
+        title: "Open referenced files outside the project",
+        details:
+          "Desktop file previews can open files referenced by a thread even when they are outside its project folder.",
+      },
+    ],
+  },
+  {
     date: "2026-10-30",
     features: [
+      {
+        title: "Manage services started by your thread",
+        details:
+          "See running services started by a desktop thread and stop them directly from the conversation.",
+      },
+      {
+        title: "Watch recordings from connected machines",
+        details:
+          "Play remote recordings inside desktop threads without downloading them separately.",
+      },
       {
         title: "Shared browser previews in desktop threads",
         details:
@@ -46,6 +221,11 @@ export const changelog: readonly ChangelogEntry[] = [
         title: "Steadier thread cards",
         details:
           "Dragged thread cards stay within the thread list instead of overlapping nearby controls. Failure counts stay on one line in compact cards.",
+      },
+      {
+        title: "Clearer agent setup",
+        details:
+          "Onboarding gives clearer agent connection guidance and fits more consistently across screen sizes.",
       },
     ],
   },
