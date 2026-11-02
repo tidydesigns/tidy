@@ -114,6 +114,7 @@ export function TerminalSurface({
         value.setActive(visible.current);
         fit.fit();
         let replaying = false;
+        let parsed = false;
         let sequence = 0;
         let connected = false;
         let attached = false;
@@ -225,7 +226,10 @@ export function TerminalSurface({
                 sequence = output.sequence;
                 replaying = true;
                 if (output.reset) {
-                  terminal.reset();
+                  // A fresh renderer is already empty. Resetting it would free
+                  // and recreate its WASM terminal immediately after open().
+                  if (parsed) terminal.reset();
+                  parsed = false;
                   terminal.resize(output.cols, output.rows);
                   replay.reset(output.cols, output.rows);
                 }
@@ -233,6 +237,7 @@ export function TerminalSurface({
                 if (output.data) {
                   replay.write(output.data);
                   terminal.write(output.data);
+                  parsed = true;
                 }
                 replaying = false;
                 queueMicrotask(() =>
@@ -269,6 +274,7 @@ export function TerminalSurface({
                 sequence = output.sequence;
                 replay.write(output.data);
                 terminal.write(output.data);
+                parsed = true;
                 watch.current?.input({
                   kind: "ack",
                   sessionId: output.sessionId,

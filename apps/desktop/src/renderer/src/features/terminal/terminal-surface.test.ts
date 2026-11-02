@@ -24,6 +24,7 @@ function fakeInstance(theme: ITheme, size?: { cols: number; rows: number }) {
     initialCols: size?.cols ?? 80,
     data: "",
     disposed: false,
+    resets: 0,
     terminal: {
       cols: size?.cols ?? 80,
       rows: size?.rows ?? 24,
@@ -50,6 +51,7 @@ function fakeInstance(theme: ITheme, size?: { cols: number; rows: number }) {
         record.data += data;
       },
       reset() {
+        record.resets++;
         record.data = "";
       },
       dispose() {
@@ -179,6 +181,7 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     await render(terminalThemes.light);
     expect(records).toHaveLength(1);
     expect(records[0].data).toBe("initial");
+    expect(records[0].resets).toBe(0);
     await render(terminalThemes.dark);
     expect(records).toHaveLength(2);
     expect(records[0].disposed).toBe(true);
@@ -223,7 +226,22 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     expect(endCount).toBe(0);
     expect(container.querySelectorAll("canvas")).toHaveLength(1);
     await act(async () =>
-      receive({ kind: "data", sessionId: "session", sequence: 4, data: "x".repeat(600_000) }),
+      receive({
+        kind: "snapshot",
+        sessionId: "session",
+        sequence: 8,
+        cols: 120,
+        rows: 30,
+        data: "recovered",
+        reset: true,
+        exited: false,
+        exitCode: null,
+      }),
+    );
+    expect(records[3].data).toBe("recovered");
+    expect(records[3].resets).toBe(1);
+    await act(async () =>
+      receive({ kind: "data", sessionId: "session", sequence: 9, data: "x".repeat(600_000) }),
     );
     await render(terminalThemes.light, true, 18);
     expect(watchCount).toBe(2);
