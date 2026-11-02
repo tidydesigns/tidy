@@ -50,7 +50,9 @@ if (
   window.addEventListener(
     "wheel",
     (event) => {
-      if (document.querySelector(".desktop-canvas-focused, dialog[open], [popover]:popover-open"))
+      // The desktop sidebar is an open non-modal dialog even in the thread view.
+      // Only actual modals should take scrolling away from the website.
+      if (document.querySelector(".desktop-canvas-focused, dialog:modal, [popover]:popover-open"))
         return;
       if (
         event.target instanceof Element &&

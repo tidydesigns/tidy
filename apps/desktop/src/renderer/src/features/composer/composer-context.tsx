@@ -137,7 +137,7 @@ export function ComposerContext({
           />
         ) : (
           <span
-            className={codeContextClassName}
+            className={`${codeContextClassName} shrink-0 whitespace-nowrap`}
             title={
               threadMode.path ??
               (threadMode.value === "worktree"
