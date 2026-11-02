@@ -36,14 +36,14 @@ export function RepositoryExplorer({
   return (
     <aside
       ref={element}
-      className="repository-explorer"
+      className={`repository-explorer relative flex min-h-0 min-w-0 ${resizable ? "flex-[0_0_auto] border-l border-(--repository-hairline)" : "flex-1"}`}
       data-resizable={resizable || undefined}
       style={resizable ? { width, flexBasis: width } : undefined}
       aria-label="File explorer"
     >
       {resizable && (
         <div
-          className="repository-explorer-resize"
+          className="repository-explorer-resize absolute inset-y-0 -left-[3px] z-5 w-[6px] cursor-col-resize touch-none hover:bg-border focus-visible:bg-border focus-visible:outline-none"
           role="separator"
           aria-label="Resize file explorer"
           aria-orientation="vertical"

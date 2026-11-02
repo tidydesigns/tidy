@@ -442,7 +442,7 @@ export function RepositoryBrowser({
               id="workspace-surface-diff"
               role="tabpanel"
               aria-labelledby="workspace-tab-diff"
-              className="repository-review"
+              className="repository-review flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
             >
               {errorNotice(repository.changesError)}
               <ContinuousReview
@@ -525,7 +525,7 @@ export function RepositoryBrowser({
               {view === "files" ? (
                 <input
                   type="search"
-                  className="repository-search"
+                  className="repository-search w-full min-w-0 flex-1 border-0 bg-transparent px-0 py-[3px] text-[12px] text-ink outline-none focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-(--color-control-border)"
                   aria-label="Search loaded files"
                   placeholder="Search loaded files"
                   value={query}
@@ -540,11 +540,13 @@ export function RepositoryBrowser({
                 />
               ) : (
                 <span
-                  className="repository-explorer-label"
+                  className="repository-explorer-label flex min-w-0 flex-1 gap-1 text-[12px] whitespace-nowrap text-ink"
                   title={`${changedFiles.length} changed files`}
                 >
-                  <span>Changed files</span>
-                  <span>{changedFiles.length}</span>
+                  <span className="truncate">Changed files</span>
+                  <span className="shrink-0 text-muted-ink tabular-nums">
+                    {changedFiles.length}
+                  </span>
                 </span>
               )}
               {expanded.size > 0 && (

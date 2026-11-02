@@ -279,3 +279,67 @@ summary:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: -2px;
 }
+
+.project-workspace.surfaces-workspace {
+  position: relative;
+}
+.project-workspace.surfaces-workspace:not([hidden])[data-panel-open="true"] {
+  --chat-gutter: 48px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--workspace-panel-width, 52%));
+}
+.workspace-side-panel[hidden],
+.workspace-side-panel [hidden] {
+  display: none;
+}
+.project-workspace.surfaces-workspace[data-panel-open="true"] .thread-heading {
+  gap: 8px;
+  padding-inline: 12px;
+}
+.project-workspace.surfaces-workspace[data-panel-open="true"] .content-heading {
+  gap: 8px;
+}
+.project-workspace.surfaces-workspace[data-panel-open="true"] .thread-workspace {
+  container: repository-conversation / inline-size;
+}
+@container repository-conversation (max-width: 380px) {
+  .composer-context {
+    flex-wrap: wrap;
+  }
+  .composer-context > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .composer-new .composer-lip {
+    position: relative;
+    inset: auto;
+    margin: 0 12px -20px;
+  }
+}
+.surfaces-workspace:has(> .workspace-side-panel[data-expanded]):not(
+    [hidden]
+  )[data-panel-open="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.surfaces-workspace:has(> .workspace-side-panel[data-expanded]):not(
+    [hidden]
+  )[data-panel-open="true"]
+  > .thread-workspace {
+  display: none;
+}
+:root[data-titlebar="hidden"] .workspace-side-panel {
+  margin-top: calc(-1 * var(--desktop-titlebar-height));
+}
+:root[data-titlebar="hidden"] .workspace-surface-header {
+  position: relative;
+  z-index: 2;
+  app-region: drag;
+}
+.workspace-surface-header button {
+  app-region: no-drag;
+}
+@media (hover: hover) and (pointer: fine) {
+  .workspace-surface-tab:not(:hover, :focus-within):not(:has([aria-selected="true"]))
+    > .workspace-icon-button {
+    opacity: 0;
+  }
+}
