@@ -18,8 +18,6 @@ import {
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
-import { showToast } from "@tidy/ui/toast";
-import { Icon } from "@tidy/editor/components/ui/icon";
 import type {
   DesktopAPI,
   Message,
