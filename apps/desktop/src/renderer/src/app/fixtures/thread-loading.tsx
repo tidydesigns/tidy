@@ -2495,7 +2495,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     // A larger scroll exposes the Latest action after a small scroll pauses following.
     viewport.scrollTop -= 50;
     viewport.dispatchEvent(new Event("scroll"));
-    await settle();
+    await until(() => Boolean(host.querySelector(".latest-message")), "Latest action appears");
     required(host.querySelector<HTMLButtonElement>(".latest-message"), "Latest action").click();
     delayed.style.height = "600px";
     await until(
@@ -2503,7 +2503,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       "Latest action resumes following",
     );
     delayed.style.height = "200px";
-    await settle();
+    let shrinkRendered = false;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        shrinkRendered = true;
+      }),
+    );
+    await until(() => shrinkRendered, "Shrunken content renders before growing again");
     delayed.style.height = "400px";
     await until(
       () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2,
@@ -2523,8 +2529,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100 }));
     viewport.scrollTop -= 100;
     viewport.dispatchEvent(new Event("scroll"));
-    await settle();
-    check(host.querySelector(".latest-message"), "Upward scrolling did not pause following");
+    await until(
+      () => Boolean(host.querySelector(".latest-message")),
+      "Upward scrolling pauses following",
+    );
 
     viewport.scrollTop = viewport.scrollHeight;
     // An update measures the new offset before the browser handles the downward scroll.

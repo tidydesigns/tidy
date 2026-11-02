@@ -49,9 +49,19 @@ void app.whenReady().then(async () => {
     `);
     for (const name of z.array(z.string()).min(1).parse(touch))
       console.info(`PASS (touch): ${name}`);
-    await window.webContents.debugger.sendCommand("Emulation.setTouchEmulationEnabled", { enabled: false });
+    await window.webContents.debugger.sendCommand("Emulation.setTouchEmulationEnabled", {
+      enabled: false,
+    });
     for (const width of [900, 390, 320]) {
       window.setContentSize(width, 800);
+      window.webContents.enableDeviceEmulation({
+        screenPosition: "desktop",
+        screenSize: { width, height: 800 },
+        viewPosition: { x: 0, y: 0 },
+        viewSize: { width, height: 800 },
+        deviceScaleFactor: 1,
+        scale: 1,
+      });
       for (const filter of [
         "workspace sidebar adapts",
         "workspace panel preserves",

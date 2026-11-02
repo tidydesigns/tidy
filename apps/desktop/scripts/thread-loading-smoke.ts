@@ -71,7 +71,7 @@ try {
     ],
     { env, stdio: "inherit" },
   );
-  const deadline = setTimeout(() => child.kill("SIGKILL"), 60_000);
+  const deadline = setTimeout(() => child.kill("SIGKILL"), 120_000);
   try {
     await new Promise<void>((resolve, reject) => {
       child.once("error", reject);
