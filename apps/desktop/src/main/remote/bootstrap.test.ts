@@ -72,6 +72,7 @@ async function fixture() {
     const owner = spawn(
       node,
       [
+        "--expose-gc",
         "--import",
         "tsx",
         "--input-type=module",
@@ -79,8 +80,11 @@ async function fixture() {
         `
       import {lockHost, lockWorkspaceHost} from './src/main/remote/host-lock.ts';
       import {join} from 'node:path';
-      if (process.argv[2] === 'legacy') lockHost(join(process.argv[1], 'host.lock'));
-      else await lockWorkspaceHost(process.argv[1]);
+      const release = process.argv[2] === 'legacy'
+        ? lockHost(join(process.argv[1], 'host.lock'))
+        : await lockWorkspaceHost(process.argv[1]);
+      process.once('SIGTERM', () => { release(); process.exit(0); });
+      global.gc();
       process.stdout.write('owned');
       setInterval(() => {}, 1000);
     `,
@@ -509,7 +513,13 @@ test("legacy backend ownership also protects damaged installations", async () =>
       buildId: digest(bundle),
     }),
   );
-  expect(f.reconnect().stderr).toContain("running backend installation is damaged");
+  const recovery = f.reconnect();
+  expect({
+    status: recovery.status,
+    stdout: recovery.stdout,
+    stderr: recovery.stderr,
+  }).toMatchObject({ status: 1 });
+  expect(recovery.stderr).toContain("running backend installation is damaged");
   const result = f.run(bootstrapScript({ bundle, clientId, directories: f.directories }), bundle);
   expect(result.status).not.toBe(0);
   expect(await readFile(join(f.installed, "complete"), "utf8")).toBe("damaged");
