@@ -25,7 +25,9 @@ export function usePanelDialog(
     if (!open) return;
     if (!dialog.open) {
       if (modal) dialog.showModal();
-      else dialog.show();
+      // Inline panels are layout, not focus destinations. show() would focus
+      // their first control even on initial mount or a background refresh.
+      else dialog.open = true;
       if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });
     }
   }, [ref, open, modal]);
