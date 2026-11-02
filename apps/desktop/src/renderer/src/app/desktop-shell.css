@@ -25,6 +25,11 @@
   border-right: 1px solid var(--color-border);
   background: var(--desktop-navigation-surface);
 }
+:root[data-titlebar="hidden"] dialog.desktop-navigation:not(:modal)::before {
+  /* The positioned sidebar starts below the native title bar. */
+  top: calc(-1 * var(--desktop-titlebar-height));
+  pointer-events: none;
+}
 :root[data-titlebar="hidden"] .desktop-titlebar {
   position: absolute;
   inset: 0 0 auto;
