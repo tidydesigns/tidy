@@ -575,7 +575,13 @@ export function App({
     threadId: selectedWorktree ? (selectedThreadId ?? undefined) : undefined,
     onError: reportRepositoryError,
   });
-  const threadMode = repository?.repository === false ? "local" : preferredThreadMode;
+  const worktreesSupported =
+    !machine ||
+    machine.current.id === "local" ||
+    (machine.current.status?.kind === "connected" &&
+      machine.current.status.capabilities?.includes("thread-worktrees") === true);
+  const threadMode =
+    !worktreesSupported || repository?.repository === false ? "local" : preferredThreadMode;
   function changeThreadMode(value: "worktree" | "local") {
     if (!executionProject || thread) return;
     const id = executionProject.id;
@@ -2631,7 +2637,10 @@ export function App({
                         repository={repository}
                         threadMode={
                           !thread && repository?.repository
-                            ? { value: threadMode, onChange: changeThreadMode }
+                            ? {
+                                value: threadMode,
+                                onChange: worktreesSupported ? changeThreadMode : undefined,
+                              }
                             : undefined
                         }
                         machine={

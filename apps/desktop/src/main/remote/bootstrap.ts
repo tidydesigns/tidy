@@ -254,7 +254,7 @@ export async function prepareHost({
             kind: "deferred",
             message:
               host.updateWarning ??
-              "Finish active runs and close preview browser tabs and terminals, then try again.",
+              "Finish active runs and disconnect device previews and terminals, then try again.",
           }
         : { kind: "ready" };
   }

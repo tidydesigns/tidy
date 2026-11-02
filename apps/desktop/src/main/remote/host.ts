@@ -24,6 +24,7 @@ const hostCapabilities = [
   "mobile-preview-v1",
   "browser-draft-discard",
   "thread-naming",
+  "thread-worktrees",
   "repository-files",
   "terminal-v1",
   "terminal-tabs-v1",
@@ -162,16 +163,17 @@ export function createRemoteHost({
               error: "This backend already runs the same or a newer source revision.",
             });
         }
-        if (
-          service.activeRunCount > 0 ||
-          service.browser.activeCount > 0 ||
-          service.mobile.activeCount > 0 ||
-          service.terminal.activeCount > 0 ||
-          inflight > 0
-        )
+        const blockers = [
+          service.activeRunCount > 0 ? `active agent runs: ${service.activeRunCount}` : null,
+          service.mobile.activeCount > 0 ? `device previews: ${service.mobile.activeCount}` : null,
+          service.terminal.activeCount > 0
+            ? `open terminals: ${service.terminal.activeCount}`
+            : null,
+          inflight > 0 ? `requests in progress: ${inflight}` : null,
+        ].filter((value) => value !== null);
+        if (blockers.length)
           return send(409, {
-            error:
-              "Finish active runs and disconnect device previews, browser tabs and terminals before updating.",
+            error: `Update blocked by ${blockers.join("; ")}. Finish active work and disconnect these sessions, then try again.`,
           });
         if (!draining) {
           draining = true;

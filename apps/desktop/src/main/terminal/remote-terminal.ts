@@ -54,7 +54,7 @@ export function remoteTerminal(
           kind: "error",
           code: next.host.managed ? "backend-update-required" : undefined,
           message: next.host.managed
-            ? "To use terminals, finish active runs and close preview browser tabs, then choose Update backend in Settings → Remote machines."
+            ? "To use terminals, choose Update backend in Settings → Remote machines. Updating closes browser previews on this machine."
             : "This backend is managed externally. Ask its operator to update it to use terminals.",
         });
         return;

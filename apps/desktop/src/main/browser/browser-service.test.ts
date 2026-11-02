@@ -12,6 +12,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
+import { createRemoteHost } from "../remote/host";
+import { RequestReceipts } from "../remote/receipts";
+import { SessionStore } from "../remote/session-store";
 import { randomUUID } from "node:crypto";
 import { BrowserService } from "./browser-service";
 import { browserEditingCommand } from "../../renderer/src/features/browser/browser-keyboard";
@@ -1000,6 +1003,57 @@ browserTest(
   },
   30000,
 );
+
+browserTest("backend updates close browser previews across threads during shutdown", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tidy-browser-update-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const store = new ProjectStore(join(root, "state"));
+  await store.initialize();
+  const service = new WorkspaceService(store, undefined, async () => null);
+  const sessions = new SessionStore(join(root, "sessions"));
+  let closing: Promise<void> | undefined;
+  const close = () =>
+    (closing ??= (async () => {
+      await host.close();
+      await service.close();
+    })());
+  const host = createRemoteHost({
+    service,
+    sessions,
+    receipts: new RequestReceipts(join(root, "receipts")),
+    identity: {
+      hostId: randomUUID(),
+      instanceId: randomUUID(),
+      buildId: "previous",
+      sourceTimestamp: 100,
+    },
+    shutdown: () => void close(),
+  });
+  cleanups.push(close);
+  await mkdir(join(root, "project"));
+  const { project } = await store.open(join(root, "project"));
+  for (let i = 0; i < 2; i++)
+    await service.browser.command(
+      { projectId: project.id, threadId: randomUUID() },
+      { kind: "open", url: "about:blank" },
+    );
+  assert.equal(service.browser.activeCount, 2);
+  const port = await host.listen();
+  const clientId = randomUUID();
+  const response = await fetch(`http://127.0.0.1:${port}/maintenance/restart`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${await sessions.issue(clientId)}`,
+      "X-Tidy-Client": clientId,
+      "X-Tidy-Build": "newer",
+      "X-Tidy-Source-Timestamp": "200",
+    },
+  });
+  assert.equal(response.status, 200);
+  await until(() => closing !== undefined);
+  await closing;
+  assert.equal(service.browser.activeCount, 0);
+});
 
 browserTest("stopping navigation preserves a clean state for the next navigation", async () => {
   const { browser, scope, url } = await fixture();

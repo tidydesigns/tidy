@@ -498,7 +498,7 @@ export class RemoteClient {
     )
       return Promise.reject(
         new Error(
-          "Repository files need a backend update. Finish active runs and reconnect this machine.",
+          "Repository files need a backend update. Choose Update backend in Settings → Remote machines.",
         ),
       );
     if (
@@ -523,6 +523,22 @@ export class RemoteClient {
             "Thread naming needs a backend update. Update it in Settings → Remote machines, or through its operator if managed externally.",
           ),
         );
+    }
+    if (!this.capabilities.includes("thread-worktrees")) {
+      if (name === "project-thread-mode")
+        return Promise.reject(new Error("Thread workspaces need a backend update."));
+      if (
+        (name === "start-thread" || name === "warm-thread") &&
+        typeof input === "object" &&
+        input !== null &&
+        "threadMode" in input
+      ) {
+        if (input.threadMode !== undefined && input.threadMode !== "local")
+          return Promise.reject(new Error("Thread workspaces need a backend update."));
+        const legacyInput: Record<string, unknown> = { ...input };
+        delete legacyInput.threadMode;
+        input = legacyInput;
+      }
     }
     if (
       ["thread-tasks", "set-thread-work-permission", "cancel-thread-task"].includes(name) &&
@@ -748,7 +764,7 @@ export class RemoteClient {
             [
               connection.host.persistenceWarning,
               !backendUpdate && connection.host.updatePending
-                ? "A backend update is available. Finish active runs and close preview browser tabs and terminals, then choose Update backend in Settings → Remote machines."
+                ? "A backend update is available. Choose Update backend in Settings → Remote machines. Updating closes browser previews on this machine."
                 : undefined,
             ]
               .filter(Boolean)
