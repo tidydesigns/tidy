@@ -3967,86 +3967,99 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await run(
       `draft sidebar motion preserves scrolled rows with ${anchoring} anchoring`,
       async (root) => {
-        const threads = Array.from({ length: 100 }, (_, index) => ({
-          ...makeThread({ count: 1 }),
-          title: `Workspace review ${index + 1}`,
-        }));
-        const render = (text: string) =>
-          flushSync(() =>
-            root.render(
-              <div style={{ height: 240, width: 264, display: "flex" }}>
-                <ThreadSidebar
-                  projectId={projectId}
-                  threads={threads}
-                  search=""
-                  draft={{ text, selected: false, onSelect() {} }}
-                  renderThread={(thread) => <button style={{ height: 36 }}>{thread.title}</button>}
-                />
-              </div>,
-            ),
+        const originalMatchMedia = window.matchMedia;
+        window.matchMedia = (query) => {
+          const media = originalMatchMedia.call(window, query);
+          if (query === "(prefers-reduced-motion: reduce)")
+            Object.defineProperty(media, "matches", { value: false });
+          return media;
+        };
+        try {
+          const threads = Array.from({ length: 100 }, (_, index) => ({
+            ...makeThread({ count: 1 }),
+            title: `Workspace review ${index + 1}`,
+          }));
+          const render = (text: string) =>
+            flushSync(() =>
+              root.render(
+                <div style={{ height: 240, width: 264, display: "flex" }}>
+                  <ThreadSidebar
+                    projectId={projectId}
+                    threads={threads}
+                    search=""
+                    draft={{ text, selected: false, onSelect() {} }}
+                    renderThread={(thread) => (
+                      <button style={{ height: 36 }}>{thread.title}</button>
+                    )}
+                  />
+                </div>,
+              ),
+            );
+          render("");
+          await frame();
+          const scroll = required(
+            host.querySelector<HTMLElement>(".sidebar-scroll"),
+            "Scrollable sidebar",
           );
-        render("");
-        await frame();
-        const scroll = required(
-          host.querySelector<HTMLElement>(".sidebar-scroll"),
-          "Scrollable sidebar",
-        );
-        scroll.style.overflowAnchor = anchoring;
-        scroll.scrollTop = 1200;
-        scroll.dispatchEvent(new Event("scroll"));
-        await frame();
-        const row = required(
-          [...host.querySelectorAll<HTMLElement>("[data-thread-id]")].find((item) => {
-            const bounds = item.getBoundingClientRect();
-            const viewport = scroll.getBoundingClientRect();
-            return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
-          }),
-          "Visible scrolled row",
-        );
-        const before = row.getBoundingClientRect().top;
-        const previousScroll = scroll.scrollTop;
-        document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-        render("Recover this workspace prompt");
-        const animations = scroll.getAnimations({ subtree: true });
-        for (const animation of animations) {
-          animation.pause();
-          animation.currentTime = 0;
+          scroll.style.overflowAnchor = anchoring;
+          scroll.scrollTop = 1200;
+          scroll.dispatchEvent(new Event("scroll"));
+          await frame();
+          const row = required(
+            [...host.querySelectorAll<HTMLElement>("[data-thread-id]")].find((item) => {
+              const bounds = item.getBoundingClientRect();
+              const viewport = scroll.getBoundingClientRect();
+              return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+            }),
+            "Visible scrolled row",
+          );
+          const before = row.getBoundingClientRect().top;
+          const previousScroll = scroll.scrollTop;
+          document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+          render("Recover this workspace prompt");
+          const animations = scroll.getAnimations({ subtree: true });
+          for (const animation of animations) {
+            animation.pause();
+            animation.currentTime = 0;
+          }
+          check(animations.length < 12, "Draft animated offscreen thread rows");
+          const after = row.getBoundingClientRect().top;
+          check(
+            Math.abs(after - before) < 1,
+            `Draft insertion jumped the visible row: ${JSON.stringify({
+              before,
+              after,
+              previousScroll,
+              scrollTop: scroll.scrollTop,
+              offsetTop: row.offsetTop,
+              transform: getComputedStyle(row).transform,
+              reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+              animations: animations.map((animation) => ({
+                target:
+                  animation.effect instanceof KeyframeEffect
+                    ? animation.effect.target?.getAttribute("data-thread-id")
+                    : null,
+                time: animation.currentTime,
+                state: animation.playState,
+                keyframes:
+                  animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [],
+              })),
+            })}`,
+          );
+          if (anchoring === "auto") {
+            check(scroll.scrollTop > previousScroll, "Browser anchoring did not run");
+            check(animations.length === 0, "Anchored rows received a redundant animation");
+          } else check(animations.length > 0, "Unanchored visible rows did not animate");
+          for (const animation of animations) animation.finish();
+          await frame();
+          check(
+            scroll.getAnimations({ subtree: true }).length === 0,
+            "Scrolled motion did not finish",
+          );
+          check(!scroll.querySelector('[aria-hidden="true"]'), "Scrolled motion left a ghost row");
+        } finally {
+          window.matchMedia = originalMatchMedia;
         }
-        check(animations.length < 12, "Draft animated offscreen thread rows");
-        const after = row.getBoundingClientRect().top;
-        check(
-          Math.abs(after - before) < 1,
-          `Draft insertion jumped the visible row: ${JSON.stringify({
-            before,
-            after,
-            previousScroll,
-            scrollTop: scroll.scrollTop,
-            offsetTop: row.offsetTop,
-            transform: getComputedStyle(row).transform,
-            reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
-            animations: animations.map((animation) => ({
-              target:
-                animation.effect instanceof KeyframeEffect
-                  ? animation.effect.target?.getAttribute("data-thread-id")
-                  : null,
-              time: animation.currentTime,
-              state: animation.playState,
-              keyframes:
-                animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [],
-            })),
-          })}`,
-        );
-        if (anchoring === "auto") {
-          check(scroll.scrollTop > previousScroll, "Browser anchoring did not run");
-          check(animations.length === 0, "Anchored rows received a redundant animation");
-        } else check(animations.length > 0, "Unanchored visible rows did not animate");
-        for (const animation of animations) animation.finish();
-        await frame();
-        check(
-          scroll.getAnimations({ subtree: true }).length === 0,
-          "Scrolled motion did not finish",
-        );
-        check(!scroll.querySelector('[aria-hidden="true"]'), "Scrolled motion left a ghost row");
       },
     );
   }
