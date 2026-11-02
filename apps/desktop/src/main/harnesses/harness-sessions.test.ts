@@ -483,6 +483,7 @@ test("access withdrawal and project removal release scoped sessions and protect 
   const store = new ProjectStore(join(cwd, "state"));
   await store.initialize();
   const local = (await store.open(cwd)).project;
+  await store.setThreadMode(local.id, "local");
   const cloudPath = join(cwd, "cloud");
   await mkdir(cloudPath);
   const cloud = (await store.open(cloudPath, "Cloud workspace")).project;
@@ -527,15 +528,17 @@ test("access withdrawal and project removal release scoped sessions and protect 
     expect(service.reserveHarnessUpdate("codex")).toBeNull();
     await expect(service.switchBranch(local.id, "other")).rejects.toThrow("active work");
     await expect(service.removeProject(local.id)).rejects.toThrow("active work");
+    const localWorkPath = await mkdtemp(join(directory, "independent-local-"));
+    const localWork = (await store.open(localWorkPath)).project;
     const localDone = completed();
     await service.startThread({
-      projectId: local.id,
+      projectId: localWork.id,
       harness: "codex",
       prompt: "Local work",
       designIds: [],
     });
     await localDone;
-    const localPids = [...new Set((await events(cwd)).map((event) => event.pid))].filter(
+    const localPids = [...new Set((await events(localWorkPath)).map((event) => event.pid))].filter(
       (pid) => pid !== cloudPid,
     );
     expect(localPids).toHaveLength(1);
@@ -549,6 +552,8 @@ test("access withdrawal and project removal release scoped sessions and protect 
     ).rejects.toThrow("Cloud access withdrawn");
     await service.removeProject(local.id);
     expect(store.projects.some((project) => project.id === local.id)).toBe(false);
+    for (const pid of localPids) expect(() => process.kill(pid, 0)).not.toThrow();
+    await service.removeProject(localWork.id);
     for (const pid of localPids) expect(() => process.kill(pid, 0)).toThrow();
   } finally {
     await service.close();

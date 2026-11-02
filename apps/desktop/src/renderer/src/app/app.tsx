@@ -169,19 +169,6 @@ export function App({
   cloud: CloudConnection;
 }) {
   const api = machine ? workspaceAPI : window.tidy;
-  const repositoryAPI = useMemo(
-    () =>
-      api?.repositoryDirectory && api.repositoryChanges && api.repositoryFile
-        ? {
-            repositoryDirectory: api.repositoryDirectory,
-            repositorySearch: api.repositorySearch,
-            repositoryChanges: api.repositoryChanges,
-            repositoryFile: api.repositoryFile,
-            onEvent: api.onEvent,
-          }
-        : null,
-    [api],
-  );
   const cloudLibrary = useMemo(
     () => ({ state: cloud.state, account: cloud.account }),
     [cloud.state, cloud.account],
@@ -445,7 +432,34 @@ export function App({
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
+  const selectedWorktree = thread?.worktree ?? selectedSummary?.worktree;
   const surfaceProject = executionProject && !executionProject.cloud ? executionProject : null;
+  const [projectThreadModes, setProjectThreadModes] = useState<
+    Record<string, "worktree" | "local">
+  >({});
+  const preferredThreadMode =
+    draft.threadMode ??
+    (executionProject && projectThreadModes[executionProject.id]) ??
+    executionProject?.threadMode ??
+    "worktree";
+  const repositoryOwnerId = selectedWorktree ? project?.id : undefined;
+  const repositoryThreadId = selectedWorktree ? (selectedThreadId ?? undefined) : undefined;
+  const repositoryAPI = useMemo(() => {
+    if (!api?.repositoryDirectory || !api.repositoryChanges || !api.repositoryFile) return null;
+    const ownerId = repositoryOwnerId;
+    const threadId = repositoryThreadId;
+    return {
+      repositoryDirectory: (id: string, path: string) =>
+        api.repositoryDirectory!(ownerId ?? id, path, threadId),
+      repositorySearch: api.repositorySearch
+        ? (id: string, query: string) => api.repositorySearch!(ownerId ?? id, query, threadId)
+        : undefined,
+      repositoryChanges: (id: string) => api.repositoryChanges!(ownerId ?? id, threadId),
+      repositoryFile: (id: string, path: string, previousPath?: string, view?: "file" | "diff") =>
+        api.repositoryFile!(ownerId ?? id, path, previousPath, view, threadId),
+      onEvent: api.onEvent,
+    };
+  }, [api, repositoryOwnerId, repositoryThreadId]);
   const localBrowserDrafts = useRef<BrowserDraftCache>(new Map());
   const draftBrowserIds = browserDraftCache ?? localBrowserDrafts.current;
   const browserDraftKey = draftKeyForBrowser({
@@ -514,9 +528,30 @@ export function App({
     switchBranch,
   } = useRepositoryContext({
     api,
-    projectId: executionProject?.id,
+    projectId: selectedWorktree ? project?.id : executionProject?.id,
+    threadId: selectedWorktree ? (selectedThreadId ?? undefined) : undefined,
     onError: reportRepositoryError,
   });
+  const threadMode = repository?.repository === false ? "local" : preferredThreadMode;
+  function changeThreadMode(value: "worktree" | "local") {
+    if (!executionProject || thread) return;
+    const id = executionProject.id;
+    updateDraft({ threadMode: value });
+    setProjectThreadModes((current) => ({ ...current, [id]: value }));
+    void api?.setProjectThreadMode?.(id, value).catch((cause) => {
+      showToast(errorText(cause));
+    });
+  }
+  const folderBusy =
+    !selectedThreadId &&
+    threadMode === "local" &&
+    repository?.repository &&
+    snapshot?.threads.some(
+      (item) =>
+        item.status === "running" &&
+        !item.worktree &&
+        (item.executionProjectId ?? item.projectId) === executionProject?.id,
+    );
   const referenceDesignIds = useMemo(
     () =>
       location === "cloud"
@@ -775,6 +810,7 @@ export function App({
           projectId: project.id,
           threadId: thread?.id,
           executionProjectId: project.cloud ? executionProjectId : undefined,
+          threadMode: repository ? threadMode : undefined,
           harness: selectedHarness,
           settings: thread?.settings ?? draft.settings,
         })
@@ -814,6 +850,7 @@ export function App({
     draft.settings?.model,
     draft.settings?.effort,
     draft.settings?.permissionMode,
+    threadMode,
     mode,
     settingsOpen,
     switchingBranch,
@@ -1088,7 +1125,7 @@ export function App({
       return;
     const changeExecution = async (executionProjectId?: string) => {
       if (!thread) {
-        updateDraft({ executionProjectId, skill: undefined });
+        updateDraft({ executionProjectId, skill: undefined, threadMode: undefined });
         return;
       }
       if (thread.executionProjectId === executionProjectId) return;
@@ -1117,6 +1154,7 @@ export function App({
         [key]: {
           ...(current[key] ?? fallback),
           executionProjectId: opened.project.id,
+          threadMode: undefined,
           skill: undefined,
         },
       }));
@@ -1573,6 +1611,7 @@ export function App({
             threadId: id,
             messageId,
             executionProjectId: project.cloud ? draft.executionProjectId : undefined,
+            threadMode: repository ? threadMode : undefined,
             harness: draft.harness,
             prompt: submitted,
             naming: currentThreadNaming(),
@@ -2388,6 +2427,15 @@ export function App({
                       <div className="thread-context min-w-0 max-w-[390px] shrink-0 max-[700px]:ml-auto max-[700px]:max-w-full [&_.composer-context]:justify-end [&_.composer-context]:gap-4 [&_.thread-references]:m-0 [&_.thread-references]:whitespace-nowrap [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
                           repository={repository}
+                          threadMode={
+                            surfaceProject
+                              ? {
+                                  value: selectedWorktree ? "worktree" : "local",
+                                  path: selectedWorktree?.path,
+                                }
+                              : undefined
+                          }
+                          branchDisabled={Boolean(selectedWorktree)}
                           machine={machine ? { label: machine.current.label } : undefined}
                           execution={executionContext}
                           designs={snapshot.designs}
@@ -2469,6 +2517,12 @@ export function App({
                       void send();
                     }}
                   >
+                    {folderBusy && (
+                      <p role="status" className="m-0 px-3 pb-2 text-xs text-muted-ink">
+                        Another thread is using this folder. Wait for it to finish or choose New
+                        worktree.
+                      </p>
+                    )}
                     <div
                       className={`composer-lip [&_.composer-context]:overflow-x-auto [&_.composer-context]:[scrollbar-width:thin] [&_.composer-context>*]:shrink-0 @max-[400px]/composer:[&_.reference-trigger>span]:hidden @max-[400px]/composer:[&_.context-machine>span]:hidden @max-[400px]/composer:[&_.context-machine_.context-trigger>span]:hidden absolute right-3 bottom-[calc(100%_-_20px)] left-3 rounded-t-2xl border border-border bg-[light-dark(#f5f5f5,#222222)] px-2 py-[7px] pb-[25px] max-[700px]:right-2 max-[700px]:left-2 max-[700px]:px-1.5 ${thread ? "invisible pointer-events-none opacity-0" : ""}`}
                       aria-hidden={Boolean(thread)}
@@ -2476,6 +2530,11 @@ export function App({
                     >
                       <ComposerContext
                         repository={repository}
+                        threadMode={
+                          !thread && repository?.repository
+                            ? { value: threadMode, onChange: changeThreadMode }
+                            : undefined
+                        }
                         machine={
                           machine
                             ? {
@@ -2917,7 +2976,7 @@ export function App({
                 </div>
                 {surfaceProject && (repositoryAPI || api?.browser) && repositoryMounted && (
                   <WorkspaceSurfaces
-                    key={surfaceProject.id}
+                    key={`${surfaceProject.id}:${selectedWorktree?.path ?? "local"}`}
                     projectId={surfaceProject.id}
                     repositoryAPI={repositoryAPI ?? undefined}
                     open={repositoryOpen}
@@ -2954,6 +3013,11 @@ export function App({
             key={machine?.current.id ?? "local"}
             api={api}
             projects={projects}
+            threadScope={
+              selectedWorktree && selectedThreadId && project
+                ? { threadId: selectedThreadId, threadProjectId: project.id }
+                : undefined
+            }
             project={project?.cloud ? (mode === "code" ? executionProject : undefined) : project}
             available={!machine || machine.connected}
             ready={!loading}

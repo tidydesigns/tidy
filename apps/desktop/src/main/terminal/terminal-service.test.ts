@@ -295,3 +295,42 @@ test("concurrent watches respect the viewer limit and closing frees capacity", a
   replacement.close();
   for (const watch of watches) watch.close();
 });
+
+test("a terminal cannot be reattached under another thread's execution scope", async () => {
+  const f = fixture();
+  const threadId = randomUUID();
+  const scope = {
+    projectId: f.projectId,
+    terminalId: randomUUID(),
+    threadId,
+    threadProjectId: f.projectId,
+    cols: 80,
+    rows: 24,
+  };
+  const first = await f.service.watch(scope, (event) => f.events.push(event));
+  first.close();
+  await expect(f.service.watch({ ...scope, threadId: randomUUID() }, () => {})).rejects.toThrow(
+    "another thread",
+  );
+  const replay: TerminalOutput[] = [];
+  await f.service.watch(scope, (event) => replay.push(event));
+  expect(snapshot(replay).sessionId).toBe(snapshot(f.events).sessionId);
+  expect(f.counts().starts).toBe(1);
+});
+
+test("concurrent terminal opens cannot share another thread's pending shell", async () => {
+  const f = fixture();
+  const scope = {
+    projectId: f.projectId,
+    terminalId: randomUUID(),
+    threadId: randomUUID(),
+    cols: 80,
+    rows: 24,
+  };
+  const results = await Promise.allSettled([
+    f.service.watch(scope, () => {}),
+    f.service.watch({ ...scope, threadId: randomUUID() }, () => {}),
+  ]);
+  expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+  expect(f.counts().starts).toBe(1);
+});

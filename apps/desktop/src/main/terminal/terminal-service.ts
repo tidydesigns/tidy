@@ -70,6 +70,8 @@ type Session = {
   id: string;
   key: string;
   projectId: string;
+  threadId?: string;
+  threadProjectId?: string;
   pty: IPty;
   cols: number;
   rows: number;
@@ -90,7 +92,11 @@ export class TerminalService {
   private opening = new Map<string, Promise<Session>>();
   private closed = false;
   constructor(
-    private projectPath: (projectId: string) => Promise<string>,
+    private projectPath: (
+      projectId: string,
+      threadId?: string,
+      threadProjectId?: string,
+    ) => Promise<string>,
     private spawn: typeof import("@lydell/node-pty").spawn = (...args) =>
       (require("@lydell/node-pty") as typeof import("@lydell/node-pty")).spawn(...args),
   ) {}
@@ -103,17 +109,28 @@ export class TerminalService {
     const key = `${scope.projectId}:${scope.terminalId ?? "default"}`;
     const previous = this.sessions.get(key);
     if (previous) {
-      await this.projectPath(scope.projectId);
+      if (
+        previous.threadId !== scope.threadId ||
+        previous.threadProjectId !== scope.threadProjectId
+      )
+        throw new Error("This terminal belongs to another thread.");
+      await this.projectPath(scope.projectId, scope.threadId, scope.threadProjectId);
       if (this.closed || !admitted() || this.sessions.get(key) !== previous)
         throw new Error("The terminal viewer closed.");
       return previous;
     }
     const pending = this.opening.get(key);
-    if (pending) return pending;
+    if (pending) {
+      const session = await pending;
+      if (session.threadId !== scope.threadId || session.threadProjectId !== scope.threadProjectId)
+        throw new Error("This terminal belongs to another thread.");
+      await this.projectPath(scope.projectId, scope.threadId, scope.threadProjectId);
+      return session;
+    }
     if (this.sessions.size + this.opening.size >= MAX_SESSIONS)
       throw new Error("Close a terminal before opening another terminal.");
     const task = (async () => {
-      const cwd = await this.projectPath(scope.projectId);
+      const cwd = await this.projectPath(scope.projectId, scope.threadId, scope.threadProjectId);
       if (this.closed || !admitted()) throw new Error("The terminal viewer closed.");
       const env = terminalEnvironment();
       const shell =
@@ -140,6 +157,8 @@ export class TerminalService {
         id: randomUUID(),
         key,
         projectId: scope.projectId,
+        threadId: scope.threadId,
+        threadProjectId: scope.threadProjectId,
         pty,
         cols: scope.cols,
         rows: scope.rows,

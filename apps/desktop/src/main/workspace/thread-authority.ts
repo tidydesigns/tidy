@@ -1,8 +1,10 @@
+import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { permissionModeSchema } from "../../shared/contracts/permissions";
+import { threadWorktreeSchema } from "../../shared/contracts/thread-workspace";
 import { harnessIdSchema, nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import type { Thread } from "../../shared/contracts/desktop";
 import { readLocalFile } from "../platform/local-files";
@@ -14,6 +16,7 @@ const authoritySchema = z
     permissionMode: permissionModeSchema.optional(),
     executionProjectId: z.uuid().optional(),
     executionProjectPath: z.string().optional(),
+    worktree: threadWorktreeSchema.optional(),
   })
   .strict();
 type Authority = z.infer<typeof authoritySchema>;
@@ -44,7 +47,7 @@ export class ThreadAuthority {
     try {
       const value = authoritySchema.parse(
         JSON.parse(
-          (await readLocalFile(join(this.directory, `${key}.json`), 4096)).toString("utf8"),
+          (await readLocalFile(join(this.directory, `${key}.json`), 16384)).toString("utf8"),
         ),
       );
       this.cache.set(key, value);
@@ -64,6 +67,8 @@ export class ThreadAuthority {
   ) {
     const key = this.key(projectPath, thread);
     const previous = await this.read(projectPath, thread);
+    if (previous && !isDeepStrictEqual(previous.worktree, thread.worktree))
+      throw new Error("This thread's worktree changed. Start a new thread.");
     if (
       previous &&
       !changeExecution &&
@@ -75,6 +80,7 @@ export class ThreadAuthority {
       harness: thread.harness,
       executionProjectId: thread.executionProjectId,
       executionProjectPath,
+      worktree: thread.worktree,
       sessionId: thread.sessionId,
       permissionMode: thread.settings?.permissionMode,
     });

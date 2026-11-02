@@ -1,5 +1,6 @@
 import { threadDoneReasonSchema, type ThreadCompletion } from "./thread-completion";
 import { threadPullRequestsSchema, type PullRequestState } from "./pull-request";
+import { threadModeSchema, threadWorktreeSchema, type ThreadMode } from "./thread-workspace";
 import type { ThreadNaming } from "./thread-naming";
 import { harnessFailureKindSchema } from "./harness-failure";
 import type { RepositoryContext } from "./repository-context";
@@ -44,6 +45,7 @@ export const projectSchema = z.object({
   path: z.string(),
   openedAt: z.string(),
   cloud: z.boolean().optional(),
+  threadMode: threadModeSchema.optional(),
 });
 export const folderSchema = z.object({
   id: z.string().uuid(),
@@ -76,6 +78,7 @@ export const storedThreadSchema = z.object({
   projectId: id,
   /** Thread storage/design context; execution may use a separately selected local project. */
   executionProjectId: id.optional(),
+  worktree: threadWorktreeSchema.optional(),
   title: z.string().max(120),
   titleSource: z.enum(["prompt", "generated", "manual"]).optional(),
   titleRevision: z.number().int().nonnegative().optional(),
@@ -209,22 +212,29 @@ export type DesktopAPI = {
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;
   removeProject?(projectId: string): Promise<void>;
+  setProjectThreadMode?(projectId: string, mode: ThreadMode): Promise<Project>;
   checkHarnesses(): Promise<HarnessConnection[]>;
-  repositoryContext(projectId: string): Promise<RepositoryContext>;
+  repositoryContext(projectId: string, threadId?: string): Promise<RepositoryContext>;
   repositoryDirectory?(
     projectId: string,
     path: string,
+    threadId?: string,
   ): Promise<import("./repository-files").RepositoryDirectory>;
   repositorySearch?(
     projectId: string,
     query: string,
+    threadId?: string,
   ): Promise<import("./repository-search").RepositorySearch>;
-  repositoryChanges?(projectId: string): Promise<import("./repository-files").RepositoryChanges>;
+  repositoryChanges?(
+    projectId: string,
+    threadId?: string,
+  ): Promise<import("./repository-files").RepositoryChanges>;
   repositoryFile?(
     projectId: string,
     path: string,
     previousPath?: string,
     view?: "file" | "diff",
+    threadId?: string,
   ): Promise<import("./repository-files").RepositoryFile>;
   switchBranch(
     projectId: string,
@@ -268,6 +278,7 @@ export type DesktopAPI = {
     messageId?: string;
     projectId: string;
     executionProjectId?: string;
+    threadMode?: ThreadMode;
     harness: HarnessId;
     prompt: string;
     naming?: ThreadNaming;
@@ -279,7 +290,7 @@ export type DesktopAPI = {
   warmThread?(
     input: Pick<
       Parameters<DesktopAPI["startThread"]>[0],
-      "projectId" | "executionProjectId" | "harness" | "settings" | "threadId"
+      "projectId" | "executionProjectId" | "harness" | "settings" | "threadId" | "threadMode"
     >,
   ): Promise<void>;
   sendMessage(input: {

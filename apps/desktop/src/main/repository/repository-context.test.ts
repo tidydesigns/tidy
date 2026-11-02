@@ -220,6 +220,7 @@ test("serializes branch switches and blocks thread launches during a switch", as
     await expect(service.switchBranch(project.id, "main")).rejects.toThrow("branch switch");
     await expect(
       service.startThread({
+        threadMode: "local",
         projectId: project.id,
         harness: "codex",
         prompt: "Hello",
@@ -248,6 +249,7 @@ test("cannot change branches underneath an active thread", async () => {
   );
   try {
     await service.startThread({
+      threadMode: "local",
       projectId: project.id,
       harness: "codex",
       prompt: "Hello",
@@ -277,6 +279,7 @@ test("guards active nested projects in the same working tree", async () => {
   );
   try {
     await service.startThread({
+      threadMode: "local",
       projectId: nested.project.id,
       harness: "codex",
       prompt: "Hello",
@@ -331,6 +334,7 @@ test("rejects switching when an active project's root cannot be verified", async
   );
   try {
     await service.startThread({
+      threadMode: "local",
       projectId: activeProject.project.id,
       harness: "codex",
       prompt: "Hello",
@@ -375,6 +379,7 @@ test("cloud workspace threads guard their execution repository during preparatio
   service.authorizeCloudProject = async () => {};
   try {
     const starting = service.startThread({
+      threadMode: "local",
       projectId: cloud.id,
       executionProjectId: project.id,
       harness: "codex",
@@ -549,6 +554,7 @@ test("active work in an independent linked worktree does not block this checkout
   );
   try {
     await service.startThread({
+      threadMode: "local",
       projectId: other.project.id,
       harness: "codex",
       prompt: "Work",

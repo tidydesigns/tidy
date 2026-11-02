@@ -11,6 +11,8 @@ import type { WorkspaceMachine } from "../../../../shared/remote";
 
 export function ComposerContext({
   repository,
+  threadMode,
+  branchDisabled,
   designs,
   selected,
   onReferencesChange,
@@ -21,6 +23,12 @@ export function ComposerContext({
   machine,
 }: {
   repository?: RepositoryContext;
+  branchDisabled?: boolean;
+  threadMode?: {
+    value: "worktree" | "local";
+    path?: string;
+    onChange?(value: "worktree" | "local"): void;
+  };
   designs: Pick<DesignSummary, "id" | "name">[];
   selected: string[];
   onReferencesChange?: (ids: string[]) => void;
@@ -98,6 +106,45 @@ export function ComposerContext({
           menuClassName={codeMenuClassName}
         />
       )}
+      {threadMode &&
+        (threadMode.onChange ? (
+          <SelectMenu
+            label="Thread workspace"
+            value={threadMode.value}
+            disabled={disabled}
+            placement="top"
+            align="start"
+            triggerClassName={codeContextTriggerClassName}
+            menuClassName={codeMenuClassName}
+            options={[
+              {
+                value: "worktree",
+                label: "New worktree",
+                description:
+                  "Separate branch from committed HEAD. Uncommitted changes are not copied.",
+              },
+              {
+                value: "local",
+                label: "Current folder",
+                description:
+                  "Use existing files and uncommitted changes. One active thread per checkout.",
+              },
+            ]}
+            onChange={(value) => threadMode.onChange?.(value as "worktree" | "local")}
+          />
+        ) : (
+          <span
+            className={codeContextClassName}
+            title={
+              threadMode.path ??
+              (threadMode.value === "worktree"
+                ? "This thread continues in its original worktree."
+                : "This thread uses the project's existing folder.")
+            }
+          >
+            {threadMode.value === "worktree" ? "Worktree" : "Current folder"}
+          </span>
+        ))}
       {machine?.onChange && machine.options && machine.options.length > 1 ? (
         <SelectMenu
           label="Run on"
@@ -153,7 +200,7 @@ export function ComposerContext({
         <SelectMenu
           label="Project branch"
           value={repository?.branch ?? ""}
-          disabled={disabled || pending || !repository?.repository}
+          disabled={disabled || branchDisabled || pending || !repository?.repository}
           placement="top"
           align="end"
           triggerClassName={`${codeContextTriggerClassName} branch-trigger max-w-[175px] max-[700px]:max-w-[115px]`}

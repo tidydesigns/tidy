@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-export type TerminalTab = { id: string; projectId: string; title: string };
+export type TerminalTab = {
+  id: string;
+  projectId: string;
+  title: string;
+  threadId?: string;
+  threadProjectId?: string;
+};
 export type ProjectTerminals = {
   tabs: TerminalTab[];
   selected: string | null;
@@ -12,7 +18,15 @@ export const terminalStateSchema = z
     z.uuid(),
     z.object({
       tabs: z
-        .array(z.object({ id: z.uuid(), projectId: z.uuid(), title: z.string().max(100) }))
+        .array(
+          z.object({
+            id: z.uuid(),
+            projectId: z.uuid(),
+            threadId: z.uuid().optional(),
+            threadProjectId: z.uuid().optional(),
+            title: z.string().max(100),
+          }),
+        )
         .max(16),
       selected: z.uuid().nullable(),
       open: z.boolean(),
@@ -34,7 +48,7 @@ export type TerminalState = Record<string, ProjectTerminals>;
 export const emptyTerminals: ProjectTerminals = { tabs: [], selected: null, open: false, next: 1 };
 export type TerminalAction =
   | { kind: "restore"; projectId: string; tab: TerminalTab; index: number }
-  | { kind: "new"; projectId: string; id: string }
+  | { kind: "new"; projectId: string; id: string; threadId?: string; threadProjectId?: string }
   | { kind: "show" | "hide"; projectId: string }
   | { kind: "select" | "close"; projectId: string; id: string }
   | { kind: "title"; projectId: string; id: string; title: string }
@@ -62,7 +76,14 @@ export function terminalState(state: TerminalState, action: TerminalAction): Ter
       next = {
         tabs: [
           ...previous.tabs,
-          { id: action.id, projectId: action.projectId, title: `Terminal ${previous.next}` },
+          {
+            id: action.id,
+            projectId: action.projectId,
+            title: `Terminal ${previous.next}`,
+            ...(action.threadId
+              ? { threadId: action.threadId, threadProjectId: action.threadProjectId }
+              : {}),
+          },
         ],
         selected: action.id,
         open: true,

@@ -55,6 +55,7 @@ export function TerminalDock({
   api,
   projects,
   project,
+  threadScope,
   available,
   ready,
   active,
@@ -65,6 +66,7 @@ export function TerminalDock({
   api: DesktopAPI;
   projects: Project[];
   project?: Project;
+  threadScope?: { threadId: string; threadProjectId: string };
   available: boolean;
   ready: boolean;
   active: boolean;
@@ -136,7 +138,7 @@ export function TerminalDock({
       return;
     }
     setFocusTerminal(true);
-    dispatch({ kind: "new", projectId: project.id, id: crypto.randomUUID() });
+    dispatch({ kind: "new", projectId: project.id, id: crypto.randomUUID(), ...threadScope });
   };
   const toggle = () => {
     if (open) hide();
@@ -416,6 +418,8 @@ export function TerminalDock({
                 api={api.terminal!}
                 projectId={tab.projectId}
                 terminalId={tab.id}
+                threadId={tab.threadId}
+                threadProjectId={tab.threadProjectId}
                 active={open && tab.id === current.selected && tab.projectId === project?.id}
                 focusOnActivate={focusTerminal}
                 fontSize={fontSize}

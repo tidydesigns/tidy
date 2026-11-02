@@ -67,6 +67,7 @@ export const workspaceResponseSchemas = {
   "remove-project": z.null(),
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
+  "project-thread-mode": projectSchema,
   "repository-context": repositoryContextSchema,
   "repository-directory": repositoryDirectorySchema,
   "repository-search": repositorySearchSchema,

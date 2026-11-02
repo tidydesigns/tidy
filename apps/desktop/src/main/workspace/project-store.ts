@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 import { PrivateState } from "../platform/private-state";
 import {
@@ -31,6 +32,8 @@ import type {
 import { threadPullRequests } from "../../shared/models/thread-pull-requests";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
+import { ThreadWorktrees } from "../repository/thread-worktrees";
+import { threadModeSchema, type ThreadMode } from "../../shared/contracts/thread-workspace";
 import { UpdateResumes } from "./update-resumes";
 import { toolLogSize } from "../../shared/contracts/tool-activity";
 import { readLocalFile } from "../platform/local-files";
@@ -58,6 +61,7 @@ const registrySchema = z.object({
         path: z.string(),
         openedAt: z.string(),
         cloud: z.boolean().optional(),
+        threadMode: threadModeSchema.optional(),
       }),
     )
     .max(100),
@@ -88,12 +92,14 @@ export class ProjectStore {
   >();
   private authority: ThreadAuthority;
   readonly updateResumes: UpdateResumes;
+  readonly worktrees: ThreadWorktrees;
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
     private claimProject: (path: string) => () => void = () => () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
+    this.worktrees = new ThreadWorktrees(join(directory, "worktrees"));
     this.updateResumes = new UpdateResumes(directory);
     this.processState = new PrivateState(join(directory, "process-state"));
   }
@@ -189,6 +195,7 @@ export class ProjectStore {
           .parse(await this.read(metadataPath)).id;
       }
       const previous = this.projects.find((item) => item.id === project.id);
+      project.threadMode = previous?.threadMode;
       if (previous && previous.path !== path) {
         const previousPath = await realpath(previous.path).catch((error) => {
           if (missing(error)) return null;
@@ -254,6 +261,22 @@ export class ProjectStore {
     this.registry.activeProjectId = projectId;
     await this.writeRegistry();
     return snapshot;
+  }
+
+  async setThreadMode(projectId: string, mode: ThreadMode): Promise<Project> {
+    const previous = this.project(projectId);
+    const project = { ...previous, threadMode: threadModeSchema.parse(mode) };
+    this.registry.projects = this.projects.map((item) => (item.id === projectId ? project : item));
+    try {
+      await this.writeRegistry();
+    } catch (error) {
+      if (this.project(projectId) === project)
+        this.registry.projects = this.projects.map((item) =>
+          item.id === projectId ? previous : item,
+        );
+      throw error;
+    }
+    return project;
   }
 
   private async prepare(project: Project) {
@@ -470,11 +493,13 @@ export class ProjectStore {
   }
 
   async assertThreadExecution(
-    thread: Pick<Thread, "id" | "projectId" | "executionProjectId">,
+    thread: Pick<Thread, "id" | "projectId" | "executionProjectId" | "worktree">,
     allowUnbound = false,
   ) {
     const authority = await this.authority.read(this.project(thread.projectId).path, thread);
     if (!authority && allowUnbound) return;
+    if (!isDeepStrictEqual(thread.worktree, authority?.worktree))
+      throw new Error("This thread's worktree changed. Start a new thread.");
     if (
       thread.executionProjectId !== authority?.executionProjectId ||
       (authority?.executionProjectId &&

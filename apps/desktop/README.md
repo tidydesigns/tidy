@@ -15,6 +15,33 @@ Design selected initially. Both views stay mounted while switching, and each pro
 retains its selected thread, design and composer drafts during the app session.
 The tabs support arrow keys, Home and End.
 
+## Thread workspaces
+
+New coding threads in Git projects default to **New worktree**. The composer’s
+**Thread workspace** menu also offers **Current folder** and remembers the choice
+per code project. Existing threads keep their current folder; non-Git projects
+use it too. Workspace threads with a connected code project use the same modes.
+
+A new worktree has its own `feat/tidy-…` branch starting from the selected
+checkout’s committed `HEAD`. Uncommitted files, ignored environment files and
+installed dependencies are not copied. Install dependencies or configure local
+runtime settings inside that worktree as needed. Files and Changes show the
+selected thread’s checkout; new terminal tabs opened from a worktree thread start
+there too. Existing terminal tabs retain their original directory.
+
+Follow-up messages and app restarts reuse the same worktree. Completing a thread
+or removing a project never deletes its worktree or branch. A missing or moved
+worktree must be restored before continuing; Tidy never silently switches the
+thread back to the original checkout. Threads using **Current folder** cannot run
+simultaneously against the same Git checkout, including registered subdirectories.
+Separate worktrees can run concurrently, but shared databases and preview ports
+still need separate configuration. Design files, assets and folders stay in their
+original design project, shared across threads.
+
+A worktree thread’s code project is fixed; start another thread to change it.
+The project branch picker selects the base for new threads. An existing worktree
+thread displays its own branch with the picker disabled.
+
 ## Browser previews
 
 In Threads, choose **Open browser** or press **⌘⇧B** (**Ctrl⇧B** on Linux).
@@ -121,7 +148,7 @@ to run against the workspace's private local design cache, or choose a local pro
 in the composer to run its harness in that repository. Any number of local projects
 can use the same workspace. Select workspace design references before starting;
 only selected files download, and edits use their existing sync bindings. The
-project choice can be changed from the thread's **Local project** menu when its
+project choice can be changed for current-folder threads from the **Local project** menu when its
 agent and background work are idle. Changing it preserves the conversation, designs
 and attachments and starts a fresh native session in the chosen directory for the
 next message, with recent conversation supplied as context. Project skills,

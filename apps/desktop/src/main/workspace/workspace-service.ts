@@ -35,6 +35,7 @@ import { harnessNames } from "../../shared/contracts/harness-updates";
 import {
   BranchSwitchError,
   repositoryRoot,
+  readRepositoryContext,
   switchRepositoryBranch,
 } from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
@@ -124,10 +125,17 @@ type FinishJobRequest = { job: Job } & (
 );
 
 export class WorkspaceService {
-  readonly terminal = new TerminalService(async (projectId) => {
+  readonly terminal = new TerminalService(async (projectId, threadId, threadProjectId) => {
     if (this.closing) throw new Error("Tidy is closing.");
     await this.assertProjectAccess(projectId);
     if (this.closing) throw new Error("Tidy is closing.");
+    if (threadId) {
+      const ownerId = threadProjectId ?? projectId;
+      const thread = await this.readThread(ownerId, threadId);
+      if ((thread.executionProjectId ?? thread.projectId) !== projectId)
+        throw new Error("This terminal belongs to another project.");
+      return this.repositoryPath(ownerId, threadId);
+    }
     const project = this.store.project(projectId);
     if (project.cloud) throw new Error("Choose a local code project for the terminal.");
     return project.path;
@@ -307,18 +315,37 @@ export class WorkspaceService {
     return readVideoChunk({ ...input, root: project.path });
   }
 
-  private executionProject(thread: Pick<Thread, "projectId" | "executionProjectId">) {
+  private executionProject(thread: Pick<Thread, "projectId" | "executionProjectId" | "worktree">) {
     const owner = this.store.project(thread.projectId);
     const project = this.store.project(thread.executionProjectId ?? thread.projectId);
     if (thread.executionProjectId && (!owner.cloud || project.cloud))
       throw new Error("Choose a local project for this workspace thread.");
-    return project;
+    return thread.worktree ? { ...project, path: thread.worktree.path } : project;
   }
   analyticsScope?: () => (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   readonly repositoryObservers = new RepositoryObservers((projectId, path) =>
     this.emit({ type: "repository-change", projectId, path }),
   );
+  /** Resolve only registered projects and privately bound thread paths. */
+  async repositoryPath(projectId: string, threadId?: string) {
+    await this.assertProjectAccess(projectId);
+    if (!threadId) {
+      const project = this.store.project(projectId);
+      if (project.cloud) throw new Error("Choose a local code project.");
+      return project.path;
+    }
+    const thread = await this.readThread(projectId, threadId);
+    await this.store.assertThreadExecution(thread);
+    const project = this.executionProject(thread);
+    await this.assertProjectAccess(project.id);
+    if (project.cloud) throw new Error("Choose a local code project.");
+    if (thread.worktree)
+      await this.store.worktrees.validate(this.store.project(project.id).path, thread.worktree);
+    return project.path;
+  }
+
+  private checkoutRuns = new Map<string, string>();
   private repositoryChanges = new Map<string, Promise<unknown>>();
   private commands = new Map<string, Promise<unknown>>();
   private automaticQueues = new Set<string>();
@@ -367,9 +394,16 @@ export class WorkspaceService {
   async removeProject(projectId: string) {
     if (this.closing) throw new Error("Tidy is closing.");
     const project = this.store.project(projectId);
+    const backgroundProjects = await Promise.all(
+      this.sessions.backgroundContexts.map(async (context) => {
+        if (context.projectId === projectId || context.cwd === project.path) return true;
+        const thread = await this.readThread(context.projectId, context.threadId);
+        return thread.executionProjectId === projectId;
+      }),
+    );
     if (
       this.repositoryChanges.has(projectId) ||
-      this.sessions.backgroundContexts.some((context) => context.cwd === project.path) ||
+      backgroundProjects.some(Boolean) ||
       [...this.starting.values(), ...this.executionProjects.values()].includes(projectId) ||
       [...this.jobs.values()].some(
         ({ thread }) => thread.projectId === projectId || thread.executionProjectId === projectId,
@@ -413,6 +447,15 @@ export class WorkspaceService {
     if (this.updatingHarnesses.has(binding.harness)) return;
     const owner = this.store.project(input.projectId);
     const project = this.executionProject(binding);
+    if (
+      !thread &&
+      !project.cloud &&
+      (input.threadMode ?? project.threadMode ?? "worktree") === "worktree" &&
+      (await readRepositoryContext(project.path)).repository
+    )
+      return;
+    if (thread?.worktree)
+      await this.store.worktrees.validate(this.store.project(project.id).path, thread.worktree);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The execution project directory moved. Open it again.");
     const settings = harnessSettingsSchema.parse(binding.settings ?? {});
@@ -431,6 +474,9 @@ export class WorkspaceService {
       this.updatingHarnesses.has(binding.harness)
     )
       return;
+    const folderDirectory = thread?.worktree
+      ? await this.store.storagePath(owner.id, "folders")
+      : undefined;
     await this.sessions.prepare({
       kind: thread ? "thread" : "composer",
       id: thread?.id ?? input.projectId,
@@ -447,7 +493,10 @@ export class WorkspaceService {
             projectId: input.projectId,
             threadId: thread?.id ?? null,
           }),
-        additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
+        additionalDirectories:
+          owner.id !== project.id || thread?.worktree
+            ? [designDirectory, assetDirectory, ...(folderDirectory ? [folderDirectory] : [])]
+            : [],
       },
     });
   }
@@ -458,9 +507,9 @@ export class WorkspaceService {
     if (this.repositoryChanges.size) throw new BranchSwitchError("switch-in-progress");
     const operation = (async () => {
       const activeProjects = new Set([
-        ...[...this.jobs.values()].map(
-          (job) => job.thread.executionProjectId ?? job.thread.projectId,
-        ),
+        ...[...this.jobs.values()]
+          .filter((job) => !job.thread.worktree)
+          .map((job) => job.thread.executionProjectId ?? job.thread.projectId),
         ...this.starting.values(),
         ...this.executionProjects.values(),
       ]);
@@ -899,6 +948,8 @@ export class WorkspaceService {
           throw new Error("Only workspace threads can change their execution project.");
         const target = this.executionProject({ projectId, executionProjectId });
         if (thread.executionProjectId === executionProjectId) return thread;
+        if (thread.worktree)
+          throw new Error("Start a new thread to use another project with a worktree.");
         if (
           !stopActive &&
           (thread.status === "running" ||
@@ -1151,6 +1202,17 @@ export class WorkspaceService {
     try {
       if (input.threadId && (await this.store.threadExists(input.projectId, input.threadId)))
         throw new Error("This thread already exists.");
+      await this.assertProjectAccess(thread.projectId);
+      const execution = this.executionProject(thread);
+      const requestedMode = input.threadMode ?? execution.threadMode ?? "worktree";
+      if (!execution.cloud) {
+        const repository = await readRepositoryContext(execution.path);
+        if (requestedMode === "worktree" && repository.repository) {
+          thread.worktree = await this.store.worktrees.create(execution.path, thread.id);
+        } else if (input.threadMode === "worktree") {
+          throw new Error("Choose Current folder for a project without Git.");
+        }
+      }
       const started = await this.run(
         thread,
         input.prompt,
@@ -1390,6 +1452,8 @@ export class WorkspaceService {
     await this.store.assertThreadExecution(thread, thread.messages.length === 0);
     const owner = this.store.project(thread.projectId);
     const project = this.executionProject(thread);
+    if (thread.worktree)
+      await this.store.worktrees.validate(this.store.project(project.id).path, thread.worktree);
     if ((await realpath(project.path)) !== project.path)
       throw new Error(
         "The execution project directory moved. Open it again and start a new thread.",
@@ -1434,7 +1498,13 @@ export class WorkspaceService {
       this.store.storagePath(owner.id, "designs"),
       this.store.storagePath(owner.id, "assets"),
     ]);
-    const additionalDirectories = owner.id !== project.id ? [designDirectory, assetDirectory] : [];
+    const folderDirectory = thread.worktree
+      ? await this.store.storagePath(owner.id, "folders")
+      : undefined;
+    const additionalDirectories =
+      owner.id !== project.id || thread.worktree
+        ? [designDirectory, assetDirectory, ...(folderDirectory ? [folderDirectory] : [])]
+        : [];
     this.sessions.assertCompatible(thread.id, {
       projectId: owner.id,
       harness: thread.harness,
@@ -1457,13 +1527,15 @@ export class WorkspaceService {
       `The working directory is ${JSON.stringify(project.path)}.`,
       owner.cloud
         ? `You are working with designs in a synced Tidy workspace. Design files live in ${JSON.stringify(designDirectory)} and image assets in ${JSON.stringify(assetDirectory)}. Edit those original files; the desktop app syncs their changes. Conversations and repository files stay local.`
-        : "You are working in a local Tidy project. The working directory is the project root.",
+        : thread.worktree
+          ? `You are working in this thread's isolated Git worktree on branch ${thread.worktree.branch}. Continue in this worktree; do not create another worktree. It starts from commit ${thread.worktree.baseCommit}; uncommitted changes and ignored environment files from the original checkout are not copied. Design files live in ${JSON.stringify(designDirectory)} and assets in ${JSON.stringify(assetDirectory)}. Folder metadata lives in ${JSON.stringify(folderDirectory)}. Edit those original design files and folders, never worktree copies. Use separate preview ports for concurrent threads.`
+          : "You are working in a local Tidy project. The working directory is the project root.",
       "Each design JSON contains { id, name, folderId, document }; preserve id, name and folderId when editing document. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Design paths remain stable when files move between folders.",
       "Preserve optional archivedAt metadata. Designs with a non-null archivedAt are archived; keep them read-only until restored.",
       ...(!thread.sessionId && thread.messages.length
         ? [threadHistoryContext(thread.messages)]
         : []),
-      ...(!owner.cloud
+      ...(!owner.cloud && !thread.worktree
         ? [
             "Project designs live in .tidy/designs/*.json. Folder metadata lives in .tidy/folders/<id>.json; folderId is a local folder ID or null.",
           ]
@@ -1516,6 +1588,23 @@ export class WorkspaceService {
     this.preparingHarnesses.set(thread.id, thread.harness);
     this.executionProjects.set(thread.id, thread.executionProjectId ?? thread.projectId);
     try {
+      const execution = this.executionProject(thread);
+      const checkout = await repositoryRoot(execution.path);
+      if (checkout) {
+        const backgroundRoots = await Promise.all(
+          this.sessions.backgroundContexts
+            .filter((item) => item.threadId !== thread.id)
+            .map((item) => repositoryRoot(item.cwd)),
+        );
+        const active = [...this.checkoutRuns].find(
+          ([id, path]) => id !== thread.id && path === checkout,
+        );
+        if (active || backgroundRoots.includes(checkout))
+          throw new Error(
+            "Another thread is using this checkout. Wait for it to finish or start a new worktree thread.",
+          );
+        this.checkoutRuns.set(thread.id, checkout);
+      }
       return await this.runPrepared(
         thread,
         prompt,
@@ -1526,6 +1615,7 @@ export class WorkspaceService {
       );
     } finally {
       this.startingRuns.delete(thread.id);
+      if (!this.jobs.has(thread.id)) this.checkoutRuns.delete(thread.id);
       this.preparingHarnesses.delete(thread.id);
       this.executionProjects.delete(thread.id);
       this.starting.delete(thread.id);
@@ -1889,6 +1979,7 @@ export class WorkspaceService {
       if (!job.stopped) job.thread.status = "failed";
     }
     this.jobs.delete(job.thread.id);
+    this.checkoutRuns.delete(job.thread.id);
     this.emit({ type: "thread", thread: job.thread });
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
     if (request.kind === "done" && writeFailure) throw writeFailure.cause;

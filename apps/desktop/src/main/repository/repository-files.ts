@@ -32,7 +32,7 @@ export class RepositoryObservers {
   constructor(private notify: (projectId: string, path: string) => void) {}
   async observe(projectId: string, root: string, path: string) {
     if (this.closed) return;
-    const key = `${projectId}:${path}`;
+    const key = `${projectId}:${root}:${path}`;
     const previous = this.entries.get(key);
     if (previous) {
       clearTimeout(previous.expiry);

@@ -10,7 +10,7 @@ import {
 
 const execute = promisify(execFile);
 
-async function git(cwd: string, args: string[]) {
+export async function git(cwd: string, args: string[]) {
   // Terminal Git overrides must not redirect operations away from the selected project.
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !name.toUpperCase().startsWith("GIT_")),

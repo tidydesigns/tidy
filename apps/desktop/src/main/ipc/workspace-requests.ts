@@ -1,3 +1,4 @@
+import { threadModeSchema } from "../../shared/contracts/thread-workspace";
 import { searchRepositoryFiles } from "../repository/repository-search";
 import { repositorySearchQuerySchema } from "../../shared/contracts/repository-search";
 import { threadCompletionSchema } from "../../shared/contracts/thread-completion";
@@ -285,58 +286,58 @@ export function createWorkspaceRequests<Context>(
         value.stopActive,
       ),
   );
-  function repositoryPath(projectId: string) {
-    const project = store.project(projectId);
-    if (project.cloud) throw new Error("Choose a local project to browse repository files.");
-    return project.path;
-  }
+  const repositoryScope = { projectId, threadId: uuid.optional() };
+  handle("project-thread-mode", z.object({ projectId, mode: threadModeSchema }).strict(), (value) =>
+    store.setThreadMode(value.projectId, value.mode),
+  );
   handle(
     "repository-directory",
-    z.object({ projectId, path: repositoryPathSchema }).strict(),
-    (value) =>
-      readRepositoryDirectory(repositoryPath(value.projectId), value.path).then(async (result) => {
-        await service.repositoryObservers
-          .observe(value.projectId, repositoryPath(value.projectId), value.path)
-          .catch(() => {});
-        return result;
-      }),
+    z.object({ ...repositoryScope, path: repositoryPathSchema }).strict(),
+    async (value) => {
+      const root = await service.repositoryPath(value.projectId, value.threadId);
+      const result = await readRepositoryDirectory(root, value.path);
+      await service.repositoryObservers.observe(value.projectId, root, value.path).catch(() => {});
+      return result;
+    },
   );
   handle(
     "repository-search",
-    z.object({ projectId, query: repositorySearchQuerySchema }).strict(),
-    (value) => searchRepositoryFiles(repositoryPath(value.projectId), value.query),
+    z.object({ ...repositoryScope, query: repositorySearchQuerySchema }).strict(),
+    async (value) =>
+      searchRepositoryFiles(
+        await service.repositoryPath(value.projectId, value.threadId),
+        value.query,
+      ),
   );
-  handle("repository-changes", z.object({ projectId }).strict(), (value) =>
-    readRepositoryChanges(repositoryPath(value.projectId)),
+  handle("repository-changes", z.object(repositoryScope).strict(), async (value) =>
+    readRepositoryChanges(await service.repositoryPath(value.projectId, value.threadId)),
   );
   handle(
     "repository-file",
     z
       .object({
-        projectId,
+        ...repositoryScope,
         path: repositoryPathSchema.min(1),
         previousPath: repositoryPathSchema.min(1).optional(),
         view: z.enum(["file", "diff"]).optional(),
       })
       .strict(),
-    (value) =>
-      readRepositoryFile(
-        repositoryPath(value.projectId),
-        value.path,
-        value.previousPath,
-        value.view,
-      ).then(async (result) => {
-        const parent = value.path.includes("/")
-          ? value.path.slice(0, value.path.lastIndexOf("/"))
-          : "";
-        await service.repositoryObservers
-          .observe(value.projectId, repositoryPath(value.projectId), parent)
-          .catch(() => {});
-        return result;
-      }),
+    async (value) => {
+      const root = await service.repositoryPath(value.projectId, value.threadId);
+      const result = await readRepositoryFile(root, value.path, value.previousPath, value.view);
+      const parent = value.path.includes("/")
+        ? value.path.slice(0, value.path.lastIndexOf("/"))
+        : "";
+      await service.repositoryObservers.observe(value.projectId, root, parent).catch(() => {});
+      return result;
+    },
   );
-  handle("repository-context", z.object({ projectId }).strict(), (value) =>
-    readRepositoryContext(store.project(value.projectId).path),
+  handle("repository-context", z.object(repositoryScope).strict(), async (value) =>
+    readRepositoryContext(
+      value.threadId
+        ? await service.repositoryPath(value.projectId, value.threadId)
+        : store.project(value.projectId).path,
+    ),
   );
   handle(
     "switch-branch",
@@ -374,6 +375,7 @@ export function createWorkspaceRequests<Context>(
         projectId,
         threadId: uuid.optional(),
         executionProjectId: uuid.optional(),
+        threadMode: threadModeSchema.optional(),
         harness: harnessIdSchema,
         settings: harnessSettingsSchema.optional(),
       })
@@ -386,6 +388,7 @@ export function createWorkspaceRequests<Context>(
       .object({
         projectId,
         executionProjectId: uuid.optional(),
+        threadMode: threadModeSchema.optional(),
         threadId: uuid.optional(),
         messageId: uuid.optional(),
         harness: harnessIdSchema,

@@ -77,3 +77,17 @@ test("restored tab metadata validates project ownership, selection and bounded t
     state[projectId].tabs.push({ id: randomUUID(), projectId, title: "Terminal" });
   expect(terminalStateSchema.safeParse(state).success).toBe(false);
 });
+
+test("terminal tabs retain their creation thread when selection changes and state is restored", () => {
+  const projectId = randomUUID();
+  const threadId = randomUUID();
+  const state = terminalState(
+    {},
+    { kind: "new", projectId, id: randomUUID(), threadId, threadProjectId: projectId },
+  );
+  const restored = terminalStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  expect(restored[projectId].tabs[0]).toMatchObject({ threadId, threadProjectId: projectId });
+  const next = terminalState(restored, { kind: "new", projectId, id: randomUUID() });
+  expect(next[projectId].tabs[0].threadId).toBe(threadId);
+  expect(next[projectId].tabs[1].threadId).toBeUndefined();
+});

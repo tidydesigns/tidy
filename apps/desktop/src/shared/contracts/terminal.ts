@@ -11,6 +11,8 @@ export const terminalScopeSchema = terminalSizeSchema
   .extend({
     projectId: z.uuid(),
     terminalId: z.uuid().optional(),
+    threadId: z.uuid().optional(),
+    threadProjectId: z.uuid().optional(),
     resume: z
       .object({ sessionId: z.uuid(), sequence: z.number().int().nonnegative().safe() })
       .optional(),

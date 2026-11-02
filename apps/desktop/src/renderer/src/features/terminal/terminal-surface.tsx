@@ -12,6 +12,8 @@ export function TerminalSurface({
   api,
   projectId,
   terminalId,
+  threadId,
+  threadProjectId,
   active,
   focusOnActivate,
   fontSize,
@@ -21,6 +23,8 @@ export function TerminalSurface({
   api: TerminalAPI;
   projectId: string;
   terminalId: string;
+  threadId?: string;
+  threadProjectId?: string;
   onTitle(title: string): void;
   active: boolean;
   focusOnActivate: boolean;
@@ -152,6 +156,8 @@ export function TerminalSurface({
             {
               projectId,
               terminalId,
+              threadId,
+              threadProjectId,
               cols: Math.min(
                 terminalSizeLimits.maxCols,
                 Math.max(terminalSizeLimits.minCols, terminal.cols),
@@ -254,7 +260,7 @@ export function TerminalSurface({
       current?.terminal.dispose();
       instance.current = undefined;
     };
-  }, [api, projectId, terminalId, attempt, copy]);
+  }, [api, projectId, terminalId, threadId, threadProjectId, attempt, copy]);
   return (
     <div
       id={`terminal-panel-${terminalId}`}

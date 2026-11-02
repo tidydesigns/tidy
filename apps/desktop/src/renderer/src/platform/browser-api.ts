@@ -176,12 +176,17 @@ const api: DesktopAPI = {
     window.open(link.url, "_blank", "noopener,noreferrer");
   },
   checkHarnesses: () => request("harnesses"),
-  repositoryDirectory: (projectId, path) => request("repository-directory", { projectId, path }),
-  repositorySearch: (projectId, query) => request("repository-search", { projectId, query }),
-  repositoryChanges: (projectId) => request("repository-changes", { projectId }),
-  repositoryFile: (projectId, path, previousPath, view) =>
-    request("repository-file", { projectId, path, previousPath, view }),
-  repositoryContext: (projectId) => request("repository-context", { projectId }),
+  repositoryDirectory: (projectId, path, threadId) =>
+    request("repository-directory", { projectId, path, threadId }),
+  repositorySearch: (projectId, query, threadId) =>
+    request("repository-search", { projectId, query, threadId }),
+  repositoryChanges: (projectId, threadId) =>
+    request("repository-changes", { projectId, threadId }),
+  repositoryFile: (projectId, path, previousPath, view, threadId) =>
+    request("repository-file", { projectId, path, previousPath, view, threadId }),
+  setProjectThreadMode: (projectId, mode) => request("project-thread-mode", { projectId, mode }),
+  repositoryContext: (projectId, threadId) =>
+    request("repository-context", { projectId, threadId }),
   switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),
   renameThread: (projectId, threadId, title) =>
     request("rename-thread", { projectId, threadId, title }),

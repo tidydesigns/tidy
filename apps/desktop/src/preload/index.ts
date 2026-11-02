@@ -358,14 +358,18 @@ function workspaceApi(machineId?: string): DesktopAPI {
         ...(stopActive ? { stopActive } : {}),
       }),
     checkHarnesses: () => scopedRequest("harnesses"),
-    repositoryDirectory: (projectId, path) =>
-      scopedRequest("repository-directory", { projectId, path }),
-    repositorySearch: (projectId, query) =>
-      scopedRequest("repository-search", { projectId, query }),
-    repositoryChanges: (projectId) => scopedRequest("repository-changes", { projectId }),
-    repositoryFile: (projectId, path, previousPath, view) =>
-      scopedRequest("repository-file", { projectId, path, previousPath, view }),
-    repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
+    repositoryDirectory: (projectId, path, threadId) =>
+      scopedRequest("repository-directory", { projectId, path, threadId }),
+    repositorySearch: (projectId, query, threadId) =>
+      scopedRequest("repository-search", { projectId, query, threadId }),
+    repositoryChanges: (projectId, threadId) =>
+      scopedRequest("repository-changes", { projectId, threadId }),
+    repositoryFile: (projectId, path, previousPath, view, threadId) =>
+      scopedRequest("repository-file", { projectId, path, previousPath, view, threadId }),
+    setProjectThreadMode: (projectId, mode) =>
+      scopedRequest("project-thread-mode", { projectId, mode }),
+    repositoryContext: (projectId, threadId) =>
+      scopedRequest("repository-context", { projectId, threadId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),
     renameThread: (projectId, threadId, title) =>
       scopedRequest("rename-thread", { projectId, threadId, title }),

@@ -12,16 +12,19 @@ type RepositoryEntry =
 export function useRepositoryContext({
   api,
   projectId,
+  threadId,
   onError,
 }: {
   api?: Pick<DesktopAPI, "repositoryContext" | "switchBranch">;
   projectId?: string;
+  threadId?: string;
   onError(error: { projectId: string; cause: unknown }): void;
 }) {
   const [entries, setEntries] = useState<Partial<Record<string, RepositoryEntry>>>({});
   const requests = useRef(new Map<string, number>());
   const switches = useRef(new Set<string>());
-  const entry = projectId ? entries[projectId] : undefined;
+  const key = `${projectId ?? ""}:${threadId ?? ""}`;
+  const entry = projectId ? entries[key] : undefined;
   const switching = entry?.kind === "switching";
 
   useEffect(() => {
@@ -29,14 +32,14 @@ export function useRepositoryContext({
     let disposed = false;
     async function refresh() {
       if (!api || !projectId || switches.current.has(projectId)) return;
-      const version = (requests.current.get(projectId) ?? 0) + 1;
-      requests.current.set(projectId, version);
+      const version = (requests.current.get(key) ?? 0) + 1;
+      requests.current.set(key, version);
       try {
-        const context = await api.repositoryContext(projectId);
-        if (!disposed && requests.current.get(projectId) === version)
-          setEntries((current) => ({ ...current, [projectId]: { kind: "ready", context } }));
+        const context = await api.repositoryContext(projectId, threadId);
+        if (!disposed && requests.current.get(key) === version)
+          setEntries((current) => ({ ...current, [key]: { kind: "ready", context } }));
       } catch (cause) {
-        if (!disposed && requests.current.get(projectId) === version) onError({ projectId, cause });
+        if (!disposed && requests.current.get(key) === version) onError({ projectId, cause });
       }
     }
     void refresh();
@@ -45,12 +48,13 @@ export function useRepositoryContext({
       disposed = true;
       window.removeEventListener("focus", refresh);
     };
-  }, [api, projectId, switching, onError]);
+  }, [api, projectId, threadId, key, switching, onError]);
 
   async function switchBranch(branch: string) {
     const previous = entry?.context;
     if (
       !api ||
+      !!threadId ||
       !projectId ||
       switches.current.has(projectId) ||
       !previous?.repository ||
@@ -59,18 +63,18 @@ export function useRepositoryContext({
     )
       return;
     switches.current.add(projectId);
-    requests.current.set(projectId, (requests.current.get(projectId) ?? 0) + 1);
+    requests.current.set(key, (requests.current.get(key) ?? 0) + 1);
     setEntries((current) => ({
       ...current,
-      [projectId]: { kind: "switching", context: { ...previous, branch } },
+      [key]: { kind: "switching", context: { ...previous, branch } },
     }));
     try {
       const context = branchSwitchContext(await api.switchBranch(projectId, branch));
-      setEntries((current) => ({ ...current, [projectId]: { kind: "ready", context } }));
+      setEntries((current) => ({ ...current, [key]: { kind: "ready", context } }));
     } catch (cause) {
       setEntries((current) => ({
         ...current,
-        [projectId]: { kind: "ready", context: previous },
+        [key]: { kind: "ready", context: previous },
       }));
       onError({
         projectId,
