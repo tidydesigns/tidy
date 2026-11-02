@@ -4013,9 +4013,28 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           animation.currentTime = 0;
         }
         check(animations.length < 12, "Draft animated offscreen thread rows");
+        const after = row.getBoundingClientRect().top;
         check(
-          Math.abs(row.getBoundingClientRect().top - before) < 1,
-          "Draft insertion jumped the visible row",
+          Math.abs(after - before) < 1,
+          `Draft insertion jumped the visible row: ${JSON.stringify({
+            before,
+            after,
+            previousScroll,
+            scrollTop: scroll.scrollTop,
+            offsetTop: row.offsetTop,
+            transform: getComputedStyle(row).transform,
+            reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+            animations: animations.map((animation) => ({
+              target:
+                animation.effect instanceof KeyframeEffect
+                  ? animation.effect.target?.getAttribute("data-thread-id")
+                  : null,
+              time: animation.currentTime,
+              state: animation.playState,
+              keyframes:
+                animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [],
+            })),
+          })}`,
         );
         if (anchoring === "auto") {
           check(scroll.scrollTop > previousScroll, "Browser anchoring did not run");
