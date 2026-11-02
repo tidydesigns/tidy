@@ -54,7 +54,7 @@ export function ThreadPreview({
   return (
     <>
       <strong className="line-clamp-2 text-[13px] leading-[1.5] font-medium wrap-anywhere">
-        {thread.title}
+        {thread.title.trim() || "New thread"}
       </strong>
       <dl className="thread-preview-details mt-2 grid gap-1.5 text-xs leading-[1.5] text-secondary-ink">
         {thread.doneAt && thread.doneReason && (

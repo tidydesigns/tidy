@@ -47,6 +47,7 @@ export function ThreadCard({
   repository?: RepositoryContext;
   orderControls?: ThreadOrderControls;
 }) {
+  const title = thread.title.trim() || "New thread";
   const working = thread.status === "running";
   const hasPullRequests = Boolean(api && thread.pullRequests?.length);
   const latestPullRequest = thread.pullRequests?.at(-1);
@@ -216,7 +217,7 @@ export function ThreadCard({
           }}
           className={`thread-title block w-full truncate text-sm leading-5 font-medium ${thread.doneAt ? "pr-16" : "pr-12"} ${status === "idle" && !selected ? "text-[light-dark(#424242,#d4d4d4)]" : ""}`}
         >
-          {thread.title}
+          {title}
         </span>
         <span
           className="thread-harness flex h-[18px] w-3.5 items-center text-xs leading-[18px] text-muted-ink"
@@ -306,7 +307,7 @@ export function ThreadCard({
         className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:text-[light-dark(#292929,#ffffff)] ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
         onPointerEnter={close}
         onFocus={close}
-        aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${thread.title}`}
+        aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${title}`}
         disabled={pending}
         title={
           thread.doneAt
@@ -328,7 +329,7 @@ export function ThreadCard({
           id={id}
           popover="manual"
           role={hasPullRequests ? "dialog" : "tooltip"}
-          aria-label={hasPullRequests ? `${thread.title} details` : undefined}
+          aria-label={hasPullRequests ? `${title} details` : undefined}
           onPointerDown={(event) => event.stopPropagation()}
           onPointerEnter={() => clearTimeout(timer.current)}
           className={`thread-preview fixed inset-auto m-0 max-h-[calc(100vh_-_16px)] w-max max-w-[min(20rem,calc(100vw_-_16px))] overflow-auto rounded-lg border border-border bg-panel p-3 text-xs whitespace-normal text-ink shadow-[0_4px_16px_rgb(0_0_0_/_12%)] ${codeFontClassName}`}

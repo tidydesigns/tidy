@@ -23,3 +23,17 @@ test("preferences retain spaces while typing and titles reject empty or multilin
   expect(threadTitleSchema.safeParse("Title\nExplanation").success).toBe(false);
   expect(threadTitleSchema.safeParse("a".repeat(121)).success).toBe(false);
 });
+
+test("title truncation preserves complete emoji and combining sequences within the length limit", () => {
+  for (const segment of ["👩🏽‍💻", "👨‍👩‍👧‍👦", "🇮🇪", "e\u0301"]) {
+    const prefix = "x".repeat(79);
+    expect(promptThreadTitle(prefix + segment + " workspace details")).toBe(prefix.trimEnd());
+    const boundary = "x".repeat(80 - segment.length) + segment;
+    expect(promptThreadTitle(boundary + " extra details")).toBe(boundary);
+    expect(promptThreadTitle(boundary + " extra details").length).toBeLessThanOrEqual(80);
+  }
+  const prompt = "Please review the workspace navigation and preserve prompt drafts for Priya: 👩🏽‍💻";
+  expect(promptThreadTitle(prompt)).toBe(
+    "Please review the workspace navigation and preserve prompt drafts for Priya:",
+  );
+});

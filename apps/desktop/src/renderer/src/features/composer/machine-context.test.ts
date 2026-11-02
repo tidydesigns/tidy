@@ -83,6 +83,7 @@ test("copies selected designs and non-image attachments between real project sto
       contextProjectId: source.project.id,
       draft: {
         text: `Read ${attachmentReference({ id: referenceId })} before continuing`,
+        sidebarText: "Earlier draft preview",
         harness: "codex",
         designIds: [design.id],
         attachments: [{ ...attachment, referenceId }],
@@ -101,6 +102,7 @@ test("copies selected designs and non-image attachments between real project sto
   expect(draft.text).toBe(`Read [[attachment:${draft.attachments?.[0].id}]] before continuing`);
   expect(draft.text).not.toContain(referenceId);
   expect(draft.text).not.toContain(attachment.id);
+  expect(draft.sidebarText).toBeUndefined();
   expect(draft.executionProjectId).toBeUndefined();
   expect(draft.designIds[0]).not.toBe(design.id);
   expect(draft.attachments?.[0].id).not.toBe(attachment.id);

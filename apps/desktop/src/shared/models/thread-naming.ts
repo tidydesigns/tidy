@@ -6,6 +6,16 @@ export function threadPromptText(prompt: string) {
     .trim();
 }
 
+const titleSegments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 export function promptThreadTitle(prompt: string) {
-  return threadPromptText(prompt).slice(0, 80) || "New thread";
+  const text = threadPromptText(prompt);
+  if (text.length <= 80) return text || "New thread";
+  let end = 0;
+  for (const { index, segment } of titleSegments.segment(text)) {
+    const next = index + segment.length;
+    if (next > 80) break;
+    end = next;
+  }
+  return text.slice(0, end).trimEnd() || "New thread";
 }

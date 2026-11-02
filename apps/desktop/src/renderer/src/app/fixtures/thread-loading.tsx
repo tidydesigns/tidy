@@ -2,6 +2,7 @@ import { runBrowserInputTests } from "./browser-input";
 import type { Draft } from "../../features/composer/machine-context";
 import { runHarnessUsageTests } from "./harness-usage";
 import { runAppUpdateTests } from "./app-update";
+import { runDraftNavigationTests } from "./draft-navigation";
 import { ThreadVideo } from "../../features/threads/video/thread-video";
 import type { ThreadTask } from "../../../../shared/contracts/thread-tasks";
 import { ThreadWorkPermission } from "../../features/threads/thread-work-permission";
@@ -408,6 +409,8 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await runDraftNavigationTests(run, { host, nativeAPI });
 
   await run(
     "workspace sidebar adapts to narrow screens and preserves explicit toggles",
@@ -1072,6 +1075,40 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       }
     },
   );
+
+  await run("blank stored thread titles retain labels and row height", async (root) => {
+    let expectedHeight = 0;
+    for (const title of ["Workspace review", "", "  \n  ", "日本語のレビュー"]) {
+      const thread = { ...summarizeThread(makeThread()), title };
+      flushSync(() =>
+        root.render(
+          <ThreadCard
+            thread={thread}
+            selected={false}
+            loaded={false}
+            now={Date.now()}
+            pending={false}
+            onSelect={() => {}}
+            onDone={() => {}}
+          />,
+        ),
+      );
+      const expected = title.trim() || "New thread";
+      const row = required(host.querySelector<HTMLElement>(".thread-item"), "Thread row");
+      check(
+        row.querySelector(".thread-title")?.textContent === expected,
+        "Stored title has no display fallback",
+      );
+      check(
+        row.querySelector(".thread-done")?.getAttribute("aria-label") === `Mark done: ${expected}`,
+        "Action has no identifying label",
+      );
+      const height = row.getBoundingClientRect().height;
+      if (!expectedHeight) expectedHeight = height;
+      check(height === expectedHeight, "Empty stored title collapsed its row");
+      check(thread.title === title, "Rendering changed the stored title");
+    }
+  });
 
   await run(
     "thread preloads wait for hover intent and keyboard focus remains immediate",
@@ -3819,6 +3856,141 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await until(() => !dialog.matches(":popover-open"), "Escape closes after project removal");
   });
 
+  await run("draft sidebar motion stays brief, interruptible and accessible", async (root) => {
+    const threads = [makeThread({ count: 1 }), makeThread({ count: 1 })];
+    const originalMatchMedia = window.matchMedia;
+    let reduced = false;
+    window.matchMedia = (query) => {
+      const media = originalMatchMedia.call(window, query);
+      if (query === "(prefers-reduced-motion: reduce)")
+        Object.defineProperty(media, "matches", { get: () => reduced });
+      return media;
+    };
+    const render = (text: string, project = projectId) =>
+      flushSync(() =>
+        root.render(
+          <StrictMode>
+            <ThreadSidebar
+              projectId={project}
+              threads={threads}
+              search=""
+              draft={{ text, selected: false, onSelect() {} }}
+              renderThread={(thread) => <button>{thread.title}</button>}
+            />
+          </StrictMode>,
+        ),
+      );
+    const list = () => required(host.querySelector<HTMLElement>(".sidebar-list"), "Sidebar list");
+    const animations = () => list().getAnimations({ subtree: true });
+    const pointer = () =>
+      document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    try {
+      render("");
+      check(animations().length === 0, "Initial sidebar animated");
+      pointer();
+      render("A saved draft");
+      check(animations().length === 3, "Draft and displaced rows did not animate together");
+      const animation = required(animations()[0], "Draft animation");
+      check(animation.effect?.getTiming().duration === 150, "Draft motion exceeds its time budget");
+      for (const animation of animations()) animation.currentTime = 60;
+      render("");
+      const ghost = required(
+        list().querySelector<HTMLElement>('[aria-hidden="true"]'),
+        "Exiting draft",
+      );
+      check(
+        ghost.inert && ghost.style.pointerEvents === "none",
+        "Exiting draft accepts interactions",
+      );
+      check(!ghost.classList.contains("thread-select"), "Exiting draft is still selectable");
+      render("Another saved draft");
+      check(!list().contains(ghost), "Interrupted exit left a duplicate draft");
+      for (const animation of animations()) animation.finish();
+      await frame();
+      check(animations().length === 0, "Completed draft motion stayed active");
+      render("");
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      render("Keyboard draft");
+      check(animations().length === 0, "Keyboard navigation animated");
+      pointer();
+      reduced = true;
+      render("");
+      check(animations().length === 0, "Reduced motion moved sidebar rows");
+      reduced = false;
+      render("Project draft", crypto.randomUUID());
+      check(animations().length === 0, "Project switch animated unrelated rows");
+      render("");
+      check(animations().length === 0, "Project scope did not reset its baseline");
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  for (const anchoring of ["auto", "none"] as const) {
+    await run(
+      `draft sidebar motion preserves scrolled rows with ${anchoring} anchoring`,
+      async (root) => {
+        const threads = Array.from({ length: 100 }, (_, index) => ({
+          ...makeThread({ count: 1 }),
+          title: `Workspace review ${index + 1}`,
+        }));
+        const render = (text: string) =>
+          flushSync(() =>
+            root.render(
+              <div style={{ height: 240, width: 264, display: "flex" }}>
+                <ThreadSidebar
+                  projectId={projectId}
+                  threads={threads}
+                  search=""
+                  draft={{ text, selected: false, onSelect() {} }}
+                  renderThread={(thread) => <button style={{ height: 36 }}>{thread.title}</button>}
+                />
+              </div>,
+            ),
+          );
+        render("");
+        await frame();
+        const scroll = required(
+          host.querySelector<HTMLElement>(".sidebar-scroll"),
+          "Scrollable sidebar",
+        );
+        scroll.style.overflowAnchor = anchoring;
+        scroll.scrollTop = 1200;
+        scroll.dispatchEvent(new Event("scroll"));
+        await frame();
+        const row = required(
+          [...host.querySelectorAll<HTMLElement>("[data-thread-id]")].find((item) => {
+            const bounds = item.getBoundingClientRect();
+            const viewport = scroll.getBoundingClientRect();
+            return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+          }),
+          "Visible scrolled row",
+        );
+        const before = row.getBoundingClientRect().top;
+        const previousScroll = scroll.scrollTop;
+        document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+        render("Recover this workspace prompt");
+        const animations = scroll.getAnimations({ subtree: true });
+        check(animations.length < 12, "Draft animated offscreen thread rows");
+        check(
+          Math.abs(row.getBoundingClientRect().top - before) < 1,
+          "Draft insertion jumped the visible row",
+        );
+        if (anchoring === "auto") {
+          check(scroll.scrollTop > previousScroll, "Browser anchoring did not run");
+          check(animations.length === 0, "Anchored rows received a redundant animation");
+        } else check(animations.length > 0, "Unanchored visible rows did not animate");
+        for (const animation of animations) animation.finish();
+        await frame();
+        check(
+          scroll.getAnimations({ subtree: true }).length === 0,
+          "Scrolled motion did not finish",
+        );
+        check(!scroll.querySelector('[aria-hidden="true"]'), "Scrolled motion left a ghost row");
+      },
+    );
+  }
+
   for (const withExistingFile of [false, true]) {
     await run(
       `pasted images survive thread navigation, text updates and history recall (${withExistingFile ? "existing file" : "empty draft"})`,
@@ -4055,6 +4227,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         check(document.activeElement === expand, "Closing preview lost thumbnail focus");
         const draftText = draft().text;
         const composerText = editor().textContent;
+        const composerHTML = editor().innerHTML;
         const draftButton = () =>
           required(
             [...host.querySelectorAll<HTMLButtonElement>(".sidebar-list > .thread-select")].find(
@@ -4062,7 +4235,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
             ),
             "Unsent draft",
           );
-        check(draftButton().textContent?.includes("Describe these"), "Draft has no text preview");
+        check(
+          !host.querySelector(".sidebar-list > .thread-select"),
+          "Typing published the draft before navigation",
+        );
         flushSync(() =>
           required(
             host.querySelector<HTMLButtonElement>(`[data-thread-id="${previous.id}"] button`),
@@ -4070,12 +4246,35 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           ).click(),
         );
         await until(() => editor().textContent === "", "Previous thread's empty reply composer");
+        check(draftButton().textContent?.includes("Describe these"), "Draft has no text preview");
         check(draftButton().getAttribute("aria-current") !== "true", "Draft remained selected");
         flushSync(() => draftButton().click());
         check(draft().text === draftText, "Returning to the draft changed its stored text");
         check(editor().textContent === composerText, "Returning to the draft lost its text");
         check(document.activeElement === editor(), "Returning did not focus the mounted composer");
         check(draftButton().getAttribute("aria-current") === "true", "Draft is not selected");
+        const sidebarText = draftButton().textContent;
+        flushSync(() => {
+          editor().textContent = "Revised prompt";
+          editor().dispatchEvent(new InputEvent("input", { bubbles: true }));
+        });
+        check(draft().text === "Revised prompt", "Editing the resumed draft lost input");
+        check(draftButton().textContent === sidebarText, "Resumed typing changed the sidebar");
+        flushSync(() =>
+          required(
+            host.querySelector<HTMLButtonElement>(`[data-thread-id="${previous.id}"] button`),
+            "Previous conversation",
+          ).click(),
+        );
+        check(
+          draftButton().textContent?.includes("Revised prompt"),
+          "Navigation kept the old title",
+        );
+        flushSync(() => draftButton().click());
+        flushSync(() => {
+          editor().innerHTML = composerHTML;
+          editor().dispatchEvent(new InputEvent("input", { bubbles: true }));
+        });
         const ids = draft().attachments?.map((file) => file.id) ?? [];
         check(
           ids.every((id) => stored.has(id)),

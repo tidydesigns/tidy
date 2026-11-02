@@ -19,6 +19,7 @@ import type { WorkspaceMachine } from "../../../../shared/remote";
 export type Draft = {
   threadMode?: import("../../../../shared/contracts/thread-workspace").ThreadMode;
   text: string;
+  sidebarText?: string;
   harness: HarnessId;
   designIds: string[];
   cloudFileIds?: string[];
@@ -113,6 +114,7 @@ export async function copyDraft({
     snapshot: imported?.snapshot ?? null,
     draft: {
       ...source.draft,
+      sidebarText: undefined,
       text: remapAttachmentReferences({
         text: source.draft.text,
         source: source.draft.attachments ?? [],

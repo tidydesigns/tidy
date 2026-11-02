@@ -330,6 +330,7 @@ export function App({
             key,
             {
               ...value,
+              ...(key.endsWith(":new") ? { sidebarText: value.text } : {}),
               attachments: value.attachments?.map((file) =>
                 file.importState === "pending" ? { ...file, importState: "failed" as const } : file,
               ),
@@ -413,6 +414,21 @@ export function App({
   const selectedThreadId = project ? selectedThreads[project.id] : null;
   const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
+  const activeDraftKey = project && mode === "code" && !settingsOpen ? draftKey : null;
+  const activeDraftKeyRef = useRef(activeDraftKey);
+  activeDraftKeyRef.current = activeDraftKey;
+  const activeNewDraftKey = !selectedThreadId ? activeDraftKey : null;
+  const [previousNewDraftKey, setPreviousNewDraftKey] = useState(activeNewDraftKey);
+  if (previousNewDraftKey !== activeNewDraftKey) {
+    setPreviousNewDraftKey(activeNewDraftKey);
+    const previousDraft = previousNewDraftKey ? drafts[previousNewDraftKey] : undefined;
+    if (previousNewDraftKey && previousDraft) {
+      setDrafts({
+        ...drafts,
+        [previousNewDraftKey]: { ...previousDraft, sidebarText: previousDraft.text },
+      });
+    }
+  }
   useEffect(() => {
     accessChoice.current++;
     setAccessOffer(undefined);
@@ -1012,7 +1028,7 @@ export function App({
     [readThread],
   );
 
-  const newThreadText = drafts[`${project?.id}:new`]?.text ?? "";
+  const newThreadText = drafts[`${project?.id}:new`]?.sidebarText ?? "";
   const sidebarDraft = useMemo(
     () =>
       project
@@ -1548,7 +1564,10 @@ export function App({
         },
         delivery,
       );
-      setDrafts((current) => ({ ...current, [draftKey]: { ...draft, text: "", attachments: [] } }));
+      setDrafts((current) => ({
+        ...current,
+        [draftKey]: { ...draft, text: "", sidebarText: undefined, attachments: [] },
+      }));
       return;
     }
     const projectId = project.id;
@@ -1613,10 +1632,13 @@ export function App({
       [key]: {
         ...draft,
         text: "",
+        sidebarText: undefined,
         attachments: [],
         ...(!thread ? { settings: { ...draft.settings, permissionMode: undefined } } : {}),
       },
-      ...(id !== selectedThreadId ? { [pendingKey]: { ...draft, text: "", attachments: [] } } : {}),
+      ...(id !== selectedThreadId
+        ? { [pendingKey]: { ...draft, text: "", sidebarText: undefined, attachments: [] } }
+        : {}),
     }));
     focusComposerAfterSelection.current = !thread;
     setSelectedThreads((current) => ({ ...current, [projectId]: id }));
@@ -1696,25 +1718,31 @@ export function App({
           },
         };
       });
-      setDrafts((current) => ({
-        ...current,
-        [key]: {
-          ...draft,
-          ...(current[key] ?? {}),
-          text: [
-            submitted,
-            current[key]?.text,
-            ...(pendingKey !== key ? [current[pendingKey]?.text] : []),
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-          attachments: [
-            ...(draft.attachments ?? []),
-            ...(current[key]?.attachments ?? []),
-            ...(pendingKey !== key ? (current[pendingKey]?.attachments ?? []) : []),
-          ].filter((file, index, all) => all.findIndex((item) => item.id === file.id) === index),
-        },
-      }));
+      setDrafts((current) => {
+        const text = [
+          submitted,
+          current[key]?.text,
+          ...(pendingKey !== key ? [current[pendingKey]?.text] : []),
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        const navigatedAway =
+          activeDraftKeyRef.current !== key && activeDraftKeyRef.current !== pendingKey;
+        return {
+          ...current,
+          [key]: {
+            ...draft,
+            ...(current[key] ?? {}),
+            text,
+            ...(!thread && navigatedAway ? { sidebarText: text } : {}),
+            attachments: [
+              ...(draft.attachments ?? []),
+              ...(current[key]?.attachments ?? []),
+              ...(pendingKey !== key ? (current[pendingKey]?.attachments ?? []) : []),
+            ].filter((file, index, all) => all.findIndex((item) => item.id === file.id) === index),
+          },
+        };
+      });
       if (!thread)
         setSelectedThreads((current) =>
           current[projectId] === id ? { ...current, [projectId]: null } : current,
