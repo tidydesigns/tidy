@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
+import type { ITheme } from "ghostty-web";
 import {
   terminalSizeLimits,
   type TerminalAPI,
@@ -17,6 +18,7 @@ export function TerminalSurface({
   active,
   focusOnActivate,
   fontSize,
+  theme,
   onTitle,
   copy,
 }: {
@@ -29,9 +31,12 @@ export function TerminalSurface({
   active: boolean;
   focusOnActivate: boolean;
   fontSize: number;
+  theme: ITheme;
   copy?(text: string): Promise<void>;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const preview = useRef<HTMLCanvasElement | undefined>(undefined);
+  const scrollback = useRef(0);
   const instance = useRef<Instance | undefined>(undefined);
   const watch = useRef<TerminalWatch | undefined>(undefined);
   const session = useRef<string | undefined>(undefined);
@@ -64,6 +69,8 @@ export function TerminalSurface({
       if (focusOnActivate) instance.current.terminal.focus();
     }
   }, [active, focusOnActivate]);
+  // Ghostty 0.4 cannot update its WASM palette after open(). Recreate only the
+  // renderer and replay the existing PTY; the shell and its processes stay alive.
   useEffect(() => {
     let disposed = false;
     let current: Instance | undefined;
@@ -71,7 +78,7 @@ export function TerminalSurface({
     let observer: ResizeObserver | undefined;
     let resizeFrame = 0;
     void import("./terminal-runtime")
-      .then((module) => module.createTerminal())
+      .then((module) => module.createTerminal(theme))
       .then((value) => {
         if (disposed || !host.current) {
           value.terminal.dispose();
@@ -96,6 +103,7 @@ export function TerminalSurface({
         let replaying = false;
         let sequence = 0;
         let connected = false;
+        let attached = false;
         terminal.attachCustomKeyEventHandler((event) => {
           if (
             (event.metaKey || (event.ctrlKey && event.shiftKey)) &&
@@ -151,7 +159,12 @@ export function TerminalSurface({
         const attach = () => {
           watch.current?.close();
           connected = false;
-          setStatus("Connecting to terminal…");
+          if (!preview.current) setStatus("Connecting to terminal…");
+          // A fresh renderer needs the full snapshot, including after a theme
+          // change. Reconnects on that renderer can resume from its last byte.
+          const resume =
+            attached && session.current ? { sessionId: session.current, sequence } : undefined;
+          attached = true;
           watch.current = api.watch(
             {
               projectId,
@@ -166,7 +179,7 @@ export function TerminalSurface({
                 terminalSizeLimits.maxRows,
                 Math.max(terminalSizeLimits.minRows, terminal.rows),
               ),
-              resume: session.current ? { sessionId: session.current, sequence } : undefined,
+              resume,
             },
             (output) => {
               if (disposed) return;
@@ -214,6 +227,12 @@ export function TerminalSurface({
                   fit.fit();
                   if (ownsFocus()) terminal.focus();
                 }
+                if (preview.current) {
+                  terminal.scrollToLine(scrollback.current);
+                  terminal.renderer?.render(terminal.wasmTerm!, true, terminal.viewportY, terminal);
+                  preview.current.remove();
+                  preview.current = undefined;
+                }
               } else {
                 if (output.sessionId !== session.current || output.sequence <= sequence) return;
                 if (output.sequence !== sequence + 1) {
@@ -257,10 +276,20 @@ export function TerminalSurface({
       stop?.();
       watch.current?.close();
       watch.current = undefined;
+      // Keep available output visible until the replacement renderer has replayed
+      // its snapshot. Theme changes must not flash an empty terminal.
+      const canvas = host.current?.querySelector("canvas");
+      if (!preview.current && canvas) {
+        preview.current = canvas;
+        scrollback.current = current?.terminal.viewportY ?? 0;
+        canvas.classList.add("terminal-preview");
+        canvas.setAttribute("aria-hidden", "true");
+      }
       current?.terminal.dispose();
+      if (preview.current) host.current?.append(preview.current);
       instance.current = undefined;
     };
-  }, [api, projectId, terminalId, threadId, threadProjectId, attempt, copy]);
+  }, [api, projectId, terminalId, threadId, threadProjectId, attempt, copy, theme]);
   return (
     <div
       id={`terminal-panel-${terminalId}`}

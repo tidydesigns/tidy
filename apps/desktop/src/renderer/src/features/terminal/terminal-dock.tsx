@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { terminalFont } from "./terminal-font";
 import { createPortal } from "react-dom";
@@ -9,6 +9,7 @@ import type { TerminalShortcut } from "../../../../shared/contracts/terminal";
 import { terminalShortcut } from "../../../../shared/models/terminal-shortcuts";
 import { useSessionState } from "../../app/session-state";
 import { TerminalSurface } from "./terminal-surface";
+import { currentTerminalTheme, subscribeTerminalTheme } from "./terminal-theme";
 import {
   emptyTerminals,
   terminalState,
@@ -74,6 +75,7 @@ export function TerminalDock({
   fullscreen: boolean;
   onFullscreenChange(value: boolean): void;
 }) {
+  const theme = useSyncExternalStore(subscribeTerminalTheme, currentTerminalTheme);
   const [fontSize, setFontSize] = useSessionState(
     "terminal-font-size",
     z.number().int().min(terminalFont.min).max(terminalFont.max),
@@ -367,7 +369,6 @@ export function TerminalDock({
                   title={tab.title}
                   onClick={() => select(tab.id)}
                 >
-                  <Glyph kind="terminal" />
                   <span>{tab.title}</span>
                 </Button>
                 <Button
@@ -423,6 +424,7 @@ export function TerminalDock({
                 active={open && tab.id === current.selected && tab.projectId === project?.id}
                 focusOnActivate={focusTerminal}
                 fontSize={fontSize}
+                theme={theme}
                 copy={api.browser?.copy}
                 onTitle={(title) =>
                   dispatch({ kind: "title", projectId: tab.projectId, id: tab.id, title })

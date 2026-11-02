@@ -1,10 +1,10 @@
 import { terminalFont } from "./terminal-font";
 import { fitTerminal } from "./terminal-fit";
-import { Ghostty, Terminal, FitAddon } from "ghostty-web";
+import { Ghostty, Terminal, FitAddon, type ITheme } from "ghostty-web";
 import wasmURL from "ghostty-web/ghostty-vt.wasm?url";
 
 let runtime: Promise<Ghostty> | undefined;
-export async function createTerminal() {
+export async function createTerminal(theme: ITheme) {
   runtime ??= Ghostty.load(wasmURL).catch((error: unknown) => {
     runtime = undefined;
     throw error;
@@ -18,13 +18,7 @@ export async function createTerminal() {
     scrollback: 5000,
     cursorBlink: false,
     smoothScrollDuration: 0,
-    theme: {
-      background: "#18181b",
-      foreground: "#e4e4e7",
-      cursor: "#e4e4e7",
-      selectionBackground: "#3f3f46",
-      selectionForeground: "#fafafa",
-    },
+    theme,
   });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
