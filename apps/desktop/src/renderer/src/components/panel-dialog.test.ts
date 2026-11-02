@@ -49,13 +49,26 @@ test("inline panels preserve page focus while modal panels focus their contents"
     await render(true, false);
     expect(document.activeElement === outside).toBe(true);
 
+    host.querySelector("button")?.focus();
     await render(false, false);
+    expect(document.activeElement === outside).toBe(true);
+
     await render(true, true);
     expect(document.activeElement === host.querySelector("button")).toBe(true);
 
     // Responsive modal-to-inline transitions retain focus within the panel.
     await render(true, false);
     expect(document.activeElement === host.querySelector("button")).toBe(true);
+    await render(false, false);
+    expect(document.activeElement === outside).toBe(true);
+
+    // A close must not override a newer focus choice outside the panel.
+    await render(true, false);
+    const next = document.createElement("button");
+    document.body.append(next);
+    next.focus();
+    await render(false, false);
+    expect(document.activeElement === next).toBe(true);
   } finally {
     await act(async () => root.unmount());
     await window.happyDOM.close();

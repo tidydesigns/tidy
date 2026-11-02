@@ -5,6 +5,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 
 export const checksum = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+/** Reject unsafe paths, duplicates and malformed contents before any files are staged. */
 function validateFiles(files) {
   const names = new Set();
   if (!Array.isArray(files)) throw new Error("Invalid desktop demo snapshot files.");
@@ -26,6 +27,7 @@ function validateFiles(files) {
   return files;
 }
 
+/** Verify the reviewed pin and decode it within a bounded decompression budget. */
 export function unpackSnapshot(bytes, manifest) {
   if (manifest.format !== 1 || checksum(bytes) !== manifest.sha256)
     throw new Error("Desktop demo snapshot checksum or format mismatch.");
@@ -33,8 +35,10 @@ export function unpackSnapshot(bytes, manifest) {
   return validateFiles(files);
 }
 
+/** Capture every built renderer asset in a reproducible, self-contained snapshot. */
 export async function packSnapshot(directory) {
   const files = [];
+  /** Read regular files in a stable order and reject links or special files. */
   async function visit(relative = "") {
     const entries = await readdir(path.join(directory, relative), { withFileTypes: true });
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
