@@ -166,7 +166,7 @@ export class RemoteClient {
           receive({
             kind: "error",
             message:
-              "This host needs a backend update for browser previews. Finish active work and reconnect the machine.",
+              "This host needs a backend update for browser previews. Update it in Settings → Remote machines, or through its operator if managed externally.",
           });
           receive({ kind: "disconnected", message: "Browser previews need a host update." });
           return;
@@ -488,7 +488,7 @@ export class RemoteClient {
       if (name === "rename-thread" || name === "regenerate-thread-title")
         return Promise.reject(
           new Error(
-            "Thread naming needs a backend update. Finish active runs and reconnect this machine.",
+            "Thread naming needs a backend update. Update it in Settings → Remote machines, or through its operator if managed externally.",
           ),
         );
     }
@@ -522,7 +522,7 @@ export class RemoteClient {
       });
     });
   }
-  private async prepare(signal: AbortSignal): Promise<RemoteConnection> {
+  private async prepare(signal: AbortSignal, update = false): Promise<RemoteConnection> {
     if (this.options.connector)
       return this.options.connector({ signal, verify: (url) => this.verify(url) });
     if (!this.ssh) {
@@ -533,20 +533,27 @@ export class RemoteClient {
         verify: (url) => this.verify(url),
         ...(this.options.sshConfigPath ? { configPath: this.options.sshConfigPath } : {}),
       });
-      try {
-        await this.ssh.initialize();
-      } catch (error) {
-        await this.ssh.close();
+    }
+    const ssh = this.ssh;
+    try {
+      await ssh.initialize();
+      signal.throwIfAborted();
+    } catch (error) {
+      if (!signal.aborted && this.ssh === ssh) {
         this.ssh = undefined;
-        throw error;
+        await ssh.close();
       }
+      throw error;
     }
     const host = await prepareHost({
-      ssh: this.ssh,
+      ssh,
       bundlePath: this.options.bundlePath,
       clientId: this.options.machine.id,
+      expectedHostId: this.hostId ?? undefined,
+      update,
       signal,
       progress: (phase) => {
+        if (signal.aborted) return;
         const parsed = z.enum(["checking", "installing", "starting"]).safeParse(phase);
         if (parsed.success) this.phase(parsed.data);
       },
@@ -557,22 +564,22 @@ export class RemoteClient {
         "Backend identity changed. Verify the machine before removing and adding it again.",
       );
     this.phase("connecting");
-    const tunnel = await openTunnel({ ssh: this.ssh, host, signal });
+    const tunnel = await openTunnel({ ssh, host, signal });
     return { host, ...tunnel };
   }
-  start() {
+  start(update = false) {
     if (this.closed || this.controller) return;
     clearTimeout(this.retryTimer);
     const controller = new AbortController();
     this.controller = controller;
     this.phase("checking");
-    void this.connect(controller).catch((error: unknown) => {
+    void this.connect(controller, update).catch((error: unknown) => {
       if (this.closed || this.controller !== controller) return;
       this.fail(controller, remoteFailure(error));
     });
   }
-  private async connect(controller: AbortController) {
-    const connection = await this.prepare(controller.signal);
+  private async connect(controller: AbortController, update = false) {
+    const connection = await this.prepare(controller.signal, update);
     if (controller.signal.aborted) {
       connection.close();
       return;
@@ -677,7 +684,7 @@ export class RemoteClient {
             [
               connection.host.persistenceWarning,
               connection.host.updatePending
-                ? "A backend update is pending. Finish active runs, then reconnect to apply it."
+                ? "A backend update is available. Finish active runs, then choose Update backend in Settings → Remote machines."
                 : undefined,
             ]
               .filter(Boolean)
@@ -694,6 +701,7 @@ export class RemoteClient {
               this.setStatus({
                 kind: "connected",
                 target: this.options.machine.target,
+                updatePending: connection.host.updatePending,
                 ...(this.recoveryWarning ? { warning: this.recoveryWarning } : {}),
               });
             })
@@ -917,16 +925,23 @@ export class RemoteClient {
       });
     return state.promise;
   }
-  retry() {
+  retry(options?: { update: boolean }) {
     if (this.closed) return;
-    if (this.current.kind === "connected") {
+    if (this.current.kind === "connected" && !options?.update) {
       void this.probe(false, QUICK_CONNECTION_PROBE_TIMEOUT_MS);
       return;
     }
     this.attempt = 0;
     this.ssh?.resetAuthentication();
     this.online = true;
-    if (!this.controller) this.start();
+    if (this.controller)
+      this.fail(
+        this.controller,
+        new RemoteFailure("unavailable", "Restoring the remote connection…"),
+        true,
+      );
+    clearTimeout(this.retryTimer);
+    this.start(options?.update);
   }
   flush() {
     return this.cache.flush();

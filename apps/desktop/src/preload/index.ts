@@ -353,7 +353,7 @@ function remoteBridge(machineId?: string): RemoteBridge {
     discover: async () =>
       sshHostSchema.array().parse(await ipcRenderer.invoke("tidy:remote-discover")),
     forget: (id) => ipcRenderer.invoke("tidy:remote-forget", id),
-    retry: () => ipcRenderer.invoke("tidy:remote-retry", machineId),
+    retry: (options) => ipcRenderer.invoke("tidy:remote-retry", machineId, options),
     verify: (id) => ipcRenderer.invoke("tidy:remote-verify", id, machineId),
     cancelVerification: (id) =>
       ipcRenderer.invoke("tidy:remote-cancel-verification", id, machineId),

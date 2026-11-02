@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { bundleLicenseBanner } from "../../../scripts/bundle-licenses";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 // Source ordering stays stable when an older checkout is rebuilt on another machine.
 let sourceTimestamp = 0;
@@ -42,4 +43,12 @@ if (!result.success) throw new AggregateError(result.logs, "Backend build failed
 const banner = await bundleLicenseBanner(result);
 const directory = resolve(import.meta.dirname, "../out/host");
 await mkdir(directory, { recursive: true });
-await writeFile(resolve(directory, "tidy-host.js"), banner + (await result.outputs[0].text()));
+const bundle = banner + (await result.outputs[0].text());
+await writeFile(resolve(directory, "tidy-host.js"), bundle);
+await writeFile(
+  resolve(directory, "tidy-host.js.json"),
+  JSON.stringify({
+    buildId: createHash("sha256").update(bundle).digest("hex"),
+    sourceTimestamp,
+  }),
+);

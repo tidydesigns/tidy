@@ -16,7 +16,11 @@ import { RequestReceipts } from "./receipts";
 import { SessionStore } from "./session-store";
 import * as sessionStore from "./session-store";
 
-import { remoteFrameSchema, type ConnectionStatus } from "../../shared/remote";
+import {
+  hostDescriptorSchema,
+  remoteFrameSchema,
+  type ConnectionStatus,
+} from "../../shared/remote";
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
@@ -583,6 +587,57 @@ test("wake probes healthy connections and replaces the tunnel after sleep", asyn
   client.wake("resume");
   await until(() => drops.length === 2 && client.status.kind === "connected");
   expect(drops).toHaveLength(2);
+});
+
+test("retry replaces a stalled attempt and discards its late connection", async () => {
+  const f = await fixture();
+  const identity = hostDescriptorSchema.parse(await (await fetch(`${f.origin()}/health`)).json());
+  const clientId = randomUUID();
+  const token = await f.sessions.issue(clientId);
+  const first = Promise.withResolvers<void>();
+  let attempts = 0;
+  let firstSignal: AbortSignal | undefined;
+  let staleClosed = false;
+  const client = new RemoteClient({
+    machine: { id: clientId, target: "fixture", hostId: null, lastConnectedAt: null },
+    bundlePath: "unused",
+    temporaryDirectory: f.root,
+    event() {},
+    statusChanged() {},
+    connected: async () => {},
+    connector: async ({ signal }) => {
+      const attempt = ++attempts;
+      if (attempt === 1) {
+        firstSignal = signal;
+        await first.promise;
+      }
+      return {
+        host: {
+          ...identity,
+          pid: process.pid,
+          port: Number(new URL(f.origin()).port),
+          managed: true,
+          token,
+          clientId,
+        },
+        origin: f.origin(),
+        close() {
+          if (attempt === 1) staleClosed = true;
+        },
+        onClose() {},
+      };
+    },
+  });
+  cleanups.push(() => client.close());
+  client.start();
+  await until(() => attempts === 1);
+  client.retry();
+  expect(firstSignal?.aborted).toBe(true);
+  await until(() => attempts === 2 && client.status.kind === "connected");
+  first.resolve();
+  await until(() => staleClosed);
+  expect(client.status.kind).toBe("connected");
+  expect(attempts).toBe(2);
 });
 
 test("offline recovery waits for network availability and does not unblock identity failures", async () => {

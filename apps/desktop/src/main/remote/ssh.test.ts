@@ -4,6 +4,75 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SshSession } from "./ssh";
+import { spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+
+class LocalShellSession extends SshSession {
+  override launch({ command = [] }: { args: string[]; command?: string[] }) {
+    const child = spawn("/bin/sh", ["-c", command.join(" ")], { stdio: "pipe" });
+    child.stdin.on("error", () => {});
+    return child;
+  }
+}
+
+test("SSH binary input is separate from the shell command and preserves arbitrary bytes", async () => {
+  const session = new LocalShellSession({
+    target: "fixture",
+    temporaryDirectory: "unused",
+    prompt: async () => null,
+  });
+  const input = randomBytes(2 * 1024 * 1024);
+  const { execFileSync } = await import("node:child_process");
+  const node = execFileSync("node", ["-p", "process.execPath"], { encoding: "utf8" }).trim();
+  const { shellQuote } = await import("./ssh");
+  const output = await session.execute({
+    script: `exec ${shellQuote(node)} -e 'const crypto = require("node:crypto"); const h = crypto.createHash("sha256"); process.stdin.on("data", b => h.update(b)); process.stdin.on("end", () => process.stdout.write(h.digest("hex")));'`,
+    input,
+    signal: AbortSignal.timeout(5000),
+  });
+  expect(output).toBe(createHash("sha256").update(input).digest("hex"));
+});
+
+test("SSH timeout and cancellation remain distinct and terminate an active command", async () => {
+  const session = new LocalShellSession({
+    target: "fixture",
+    temporaryDirectory: "unused",
+    prompt: async () => null,
+  });
+  await expect(
+    session.execute({ script: "exec sleep 10", signal: new AbortController().signal, timeout: 20 }),
+  ).rejects.toThrow("timed out");
+  const controller = new AbortController();
+  const pending = session.execute({ script: "exec sleep 10", signal: controller.signal });
+  controller.abort(new Error("Attempt replaced"));
+  await expect(pending).rejects.toThrow("Attempt replaced");
+});
+
+test("concurrent retries share authentication setup and closing waits for that setup", async () => {
+  const root = await mkdtemp(join(homedir(), ".tidy-ssh-initialize-"));
+  const session = new SshSession({
+    target: "unused",
+    temporaryDirectory: root,
+    prompt: async () => null,
+  });
+  try {
+    await Promise.all([session.initialize(), session.initialize()]);
+    expect(await readdir(root)).toHaveLength(1);
+    await session.close();
+    expect(await readdir(root)).toHaveLength(0);
+    await expect(session.initialize()).rejects.toThrow("closed");
+    const starting = new SshSession({
+      target: "unused",
+      temporaryDirectory: root,
+      prompt: async () => null,
+    });
+    await Promise.all([starting.initialize(), starting.close()]);
+    expect(await readdir(root)).toHaveLength(0);
+  } finally {
+    await session.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("SSH reuses accepted passwords once per command, refreshes rejected secrets and bounds prompts", async () => {
   const root = await mkdtemp(join(homedir(), ".tidy-ssh-ask-"));

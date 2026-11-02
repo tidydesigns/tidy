@@ -46,7 +46,12 @@ export const connectionStatusSchema = z.discriminatedUnion("kind", [
     question: z.string(),
     secret: z.boolean(),
   }),
-  z.object({ kind: z.literal("connected"), target: z.string(), warning: z.string().optional() }),
+  z.object({
+    kind: z.literal("connected"),
+    target: z.string(),
+    warning: z.string().optional(),
+    updatePending: z.boolean().optional(),
+  }),
   z.object({
     kind: z.literal("reconnecting"),
     target: z.string(),
@@ -110,7 +115,7 @@ export type RemoteBridge = {
   discover(): Promise<z.infer<typeof sshHostSchema>[]>;
   tailnet(): Promise<TailnetDiscovery>;
   forget(id: string): Promise<void>;
-  retry(): Promise<void>;
+  retry(options?: { update: boolean }): Promise<void>;
   verify(requestId: string): Promise<void>;
   cancelVerification(requestId: string): Promise<void>;
   activity(input: { kind: "active" } | { kind: "network"; online: boolean }): Promise<void>;

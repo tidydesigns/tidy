@@ -365,9 +365,11 @@ export function registerWorkspaceIPC(
     trusted(event);
     return remote.forget(z.string().uuid().parse(id));
   });
-  ipcMain.handle("tidy:remote-retry", (event, scope: unknown) => {
+  ipcMain.handle("tidy:remote-retry", (event, scope: unknown, options: unknown) => {
     trusted(event);
-    clientFor(event, scope)?.retry();
+    clientFor(event, scope)?.retry(
+      z.object({ update: z.boolean() }).strict().optional().parse(options),
+    );
   });
   ipcMain.handle("tidy:remote-verify", async (event, id: unknown, scope: unknown) => {
     trusted(event);

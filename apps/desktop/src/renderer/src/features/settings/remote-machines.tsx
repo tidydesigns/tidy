@@ -73,7 +73,19 @@ function RemoteMachineRow({
           </p>
         </div>
         <div className="settings-account-actions">
-          {(!status || ["offline", "blocked", "closed"].includes(status.kind)) && (
+          {status?.kind === "connected" && status.updatePending && (
+            <Button
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => void perform(() => remote.retry({ update: true }))}
+            >
+              Update backend
+            </Button>
+          )}
+          {(!status ||
+            ["offline", "blocked", "closed", "preparing", "reconnecting"].includes(
+              status.kind,
+            )) && (
             <Button
               className="secondary-button"
               disabled={busy}

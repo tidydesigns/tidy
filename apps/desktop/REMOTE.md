@@ -3,7 +3,8 @@
 The remote backend, automatic SSH bootstrap, reconnection and machine-scoped IPC are implemented.
 Open **Settings → Remote machines**, enter an SSH alias or `user@hostname`, and choose
 **Connect**. Settings shows installation progress, authentication prompts, browser verification,
-and connection status, with **Retry** and **Remove** actions. Connecting does not switch the current chat.
+and connection status, with **Retry** and **Remove** actions. **Update backend** appears when a
+newer backend is available. Connecting does not switch the current chat.
 
 ## Choose where a thread runs
 
@@ -40,7 +41,7 @@ The remote machine owns repositories, agent processes, CLI sign-ins and thread s
 
 - macOS or Linux desktop client with OpenSSH and curl. The remote desktop/server can be
   macOS (Intel or Apple silicon), or Linux x64/arm64 with glibc. It needs a POSIX shell,
-  tar, base64, curl or wget, and SHA-256 tools (shasum on macOS; sha256sum on Linux).
+  tar, curl or wget, and SHA-256 tools (shasum on macOS; sha256sum on Linux).
 - Tailscale installed and signed in on both machines. Configure either
   [Tailscale SSH](https://tailscale.com/docs/features/tailscale-ssh) or
   [OpenSSH over Tailscale](https://tailscale.com/docs/reference/ssh-over-tailscale).
@@ -62,11 +63,21 @@ Device login/key expiry is separate: open the Tailscale app to sign in again.
 
 ## Setup and lifecycle
 
-The desktop carries its backend bundle. Over SSH it uploads that bundle, validates its
+Reconnecting first verifies and reuses the installed build belonging to the running backend,
+or restarts the accepted installed build when the backend has stopped. This path does not
+upload a bundle, download Node, or wait for the installation lock. Existing identity, health,
+authentication and ownership checks still apply. A failed health check never triggers a
+speculative replacement of a running backend.
+
+When no usable installation exists, the desktop streams its backend bundle over SSH directly
+into private staging under the remote home directory, without a shell here-document or
+system temporary files. It validates the bundle's
 SHA-256, downloads the pinned Node 24.22.1 runtime for the remote operating system and CPU, verifies the platform-specific
-SHA-256 and smoke-tests the installation. A private staging directory and installation
-lock prevent incomplete installs from being used. Runtime directories are keyed by the
-backend bundle checksum under `~/.local/share/tidy/runtime`.
+SHA-256 and smoke-tests the installation. Node is shared between backend builds. Backend
+directories are keyed by bundle checksum under `~/.local/share/tidy/runtime`.
+Crash-released SQLite installation and launch locks serialize publication. Verified replacements
+can repair damaged inactive installations; running installations are preserved. Failed transfers
+remove their own staging files. Existing older runtime directories are retained.
 
 The launcher serializes startup and reuses a healthy backend shared by all connected desktops.
 On Linux it installs a systemd user service when the user manager is available. On macOS
@@ -90,7 +101,8 @@ port, persistent host identity and a private session credential over SSH. The de
 opens an SSH local forward, verifies the backend instance, authenticates with the session,
 and exchanges a short-lived, single-use ticket for its WebSocket connection.
 
-Managed backends upgrade automatically to newer source builds when idle. Active runs, browser tabs and in-flight requests
+Automatic recovery preserves compatible running builds. Choose **Update backend** in Settings
+to install and activate a newer source build. Active runs, browser tabs and in-flight requests
 prevent an update; the connection status includes a deferred-update warning. Externally managed
 backends are left running. A backend that is alive but unresponsive is also left running
 rather than killed speculatively. The launcher never restarts agents to fix a client
@@ -125,6 +137,8 @@ are treated as hints: an answering connection is retained. Authentication, ident
 failures remain blocked until explicitly retried. Backoff uses equal jitter starting at one to
 two seconds, doubles to a maximum range of 150–300 seconds, and resets after thirty stable
 seconds. A healthy-session Retry probes without resetting the backoff of a later failure.
+Retry during preparation cancels the previous attempt and starts a fresh recovery attempt;
+late results from that attempt cannot replace the current connection.
 
 Opening the backend connection has a fifteen-second budget after SSH preparation. Initial
 state synchronization has a separate seventy-five-second budget. Recovery cancels stale
@@ -160,14 +174,14 @@ This is not an atomic transaction between workspace files and command receipts. 
 Pending receipts remain available to identify interrupted operations. Expired results are
 reported as unconfirmed; the client never resends those mutations automatically.
 
-The backend is **not** installed as an OS boot service. Reconnecting starts it after a
-reboot or crash, but active jobs do not survive backend or machine restarts. A small process
+Active jobs do not survive backend or machine restarts. A small process
 supervisor terminates an agent's process group when its controlling backend dies. Commands
 that deliberately create their own sessions can escape that process group. Recovery marks
 unfinished threads/tools interrupted, clears stale approvals and advances thread revisions.
 Continuing after a backend restart requires a new message; no approvals or prompts are
 replayed automatically. A machine
-must remain awake and online. Boot supervision, mobile/browser clients and Windows clients
+must remain awake and online. Recovery requires working SSH access; it cannot restore a
+powered-off machine, a failed SSH service or an unreachable network. Mobile/browser clients and Windows clients
 are outside this implementation. Remote macOS installation is implemented but still requires
 validation on physical Intel and Apple silicon Macs.
 

@@ -57,6 +57,7 @@ try {
       let runtime = await ready();
       if (
         runtime &&
+        !process.argv.includes("--reconnect") &&
         shouldUpdateHost({
           current: runtime,
           candidate: { buildId, sourceTimestamp },

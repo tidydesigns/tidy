@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { remoteTargetSchema } from "../../shared/remote";
 
 import { RemoteFailure, sshFailure } from "./errors";
+export const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 export type AuthenticationPrompt = (input: {
   question: string;
   secret: boolean;
@@ -49,6 +50,8 @@ export function sshArguments({
   ];
 }
 export class SshSession {
+  private initializing?: Promise<void>;
+  private closed = false;
   private directory = "";
   private server?: ReturnType<typeof createServer>;
   private children = new Set<ChildProcessWithoutNullStreams>();
@@ -77,7 +80,11 @@ export class SshSession {
       verify?: (url: string) => void;
     },
   ) {}
-  async initialize() {
+  initialize() {
+    if (this.closed) return Promise.reject(new Error("SSH session is closed."));
+    return (this.initializing ??= this.initializeAuthentication());
+  }
+  private async initializeAuthentication() {
     await mkdir(this.options.temporaryDirectory, { recursive: true, mode: 0o700 });
     this.directory = await mkdtemp(join(this.options.temporaryDirectory, "ssh-"));
     const socket = join(this.directory, "ask.sock");
@@ -141,6 +148,7 @@ export class SshSession {
     );
   }
   launch({ args, command = [] }: { args: string[]; command?: string[] }) {
+    if (this.closed) throw new Error("SSH session is closed.");
     this.generation++;
     const generation = this.generation;
     this.verification = false;
@@ -189,20 +197,31 @@ export class SshSession {
     signal,
     timeout = 600_000,
     progress,
+    input,
   }: {
     script: string;
     signal: AbortSignal;
     timeout?: number;
     progress?: (phase: string) => void;
+    input?: Buffer;
   }) {
     signal.throwIfAborted();
-    const child = this.launch({ args: ["-o", "ClearAllForwardings=yes"], command: ["/bin/sh -s"] });
+    const child = this.launch({
+      args: ["-o", "ClearAllForwardings=yes"],
+      command: input === undefined ? ["/bin/sh -s"] : [`/bin/sh -c ${shellQuote(script)}`],
+    });
     let stdout = "",
       stderr = "",
       lines = "";
-    const abort = () => child.kill();
+    let timedOut = false;
+    const abort = () => {
+      child.kill();
+    };
     signal.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(abort, timeout);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      abort();
+    }, timeout);
     try {
       const exited = new Promise<number | null>((resolve, reject) => {
         child.once("error", reject);
@@ -223,9 +242,11 @@ export class SshSession {
           if (lines.length > 16_384) lines = lines.slice(-16_384);
         });
       });
-      child.stdin.end(script);
+      child.stdin.end(input ?? script);
       const code = await exited;
       signal.throwIfAborted();
+      if (timedOut)
+        throw new RemoteFailure("unavailable", "Remote setup timed out. Retry to reconnect.");
       if (code !== 0) {
         this.cache.clear();
         throw this.failure(
@@ -240,6 +261,8 @@ export class SshSession {
     }
   }
   async close() {
+    this.closed = true;
+    await this.initializing?.catch(() => {});
     this.cache.clear();
     for (const child of this.children) child.kill();
     this.server?.closeAllConnections();
