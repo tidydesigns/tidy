@@ -250,6 +250,10 @@ export function RepositoryBrowser({
         aria-label={navigation.view === "changes" ? "Changed files" : "Repository files"}
         tabIndex={0}
         onKeyDown={keyDown}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget && event.currentTarget.matches(":focus-visible"))
+            focusRow(activeIndex);
+        }}
         aria-activedescendant={focusedMounted ? `repository-row-${activeIndex}` : undefined}
       >
         <div

@@ -96,10 +96,7 @@
 .repository-tree-row[aria-selected="true"] .repository-entry-name {
   font-weight: 500;
 }
-.repository-tree:focus-visible {
-  outline: none;
-}
-.repository-tree:focus-visible:not(:has(.repository-tree-row.focused)),
+.repository-tree:focus-visible,
 .repository-code-pane:focus-visible {
   outline: 2px solid var(--color-control-border);
   outline-offset: -2px;

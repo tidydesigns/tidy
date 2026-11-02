@@ -245,6 +245,7 @@ export function ContinuousReview({
         }
         if (!valid()) return;
         const values = cache.current;
+        const previous = values.get(path);
         values.delete(path);
         values.set(path, {
           file,
@@ -262,9 +263,15 @@ export function ContinuousReview({
         }
         for (const [key, entry] of values) {
           if (values.size <= 24 && bytes <= 4 * 1024 * 1024 && rows <= 60000) break;
+          if (key === path || latestPaths.current.includes(key)) continue;
           values.delete(key);
           bytes -= entry.file.kind === "text" ? entry.file.text.length : 0;
           rows -= entry.result?.rows.length ?? 0;
+        }
+        if (values.size > 24 || bytes > 4 * 1024 * 1024 || rows > 60000) {
+          values.delete(path);
+          if (previous) values.set(path, previous);
+          throw new Error("Preview memory limit reached. Collapse another file, then retry.");
         }
         publishRef.current();
       } catch (cause) {

@@ -35,10 +35,15 @@ afterEach(async () => {
   await closeGitSnapshots();
   await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
+function gitEnvironment() {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
+  );
+}
 async function fixture(commit = true, format: "sha1" | "sha256" = "sha1") {
   const root = await realpath(await mkdtemp(join(tmpdir(), "tidy-repository-files-")));
   scratch.push(root);
-  const git = (args: string[]) => execute("git", args, { cwd: root });
+  const git = (args: string[]) => execute("git", args, { cwd: root, env: gitEnvironment() });
   await git(["init", "-b", "main", `--object-format=${format}`]);
   await git(["config", "user.name", "Fixture"]);
   await git(["config", "user.email", "fixture@example.invalid"]);
@@ -614,7 +619,7 @@ test.each([
       await git(["sparse-checkout", "set", "nested"]);
     }
   }
-  const run = (args: string[]) => execute("git", args, { cwd: selected });
+  const run = (args: string[]) => execute("git", args, { cwd: selected, env: gitEnvironment() });
   if (kind.startsWith("split")) {
     await run(["update-index", "--split-index"]);
     await run(["config", "filter.fixture.clean", "cat"]);
@@ -729,6 +734,7 @@ test.each(["count", "payload"] as const)(
       await writeFile(input, text);
       const child = Bun.spawn(["git", ...args], {
         cwd: root,
+        env: gitEnvironment(),
         stdin: Bun.file(input),
         stdout: "ignore",
         stderr: "pipe",
@@ -807,5 +813,29 @@ test("rejects Git results when the selected root is replaced during status", asy
     else process.env.PATH = previous;
     await rm(root, { force: true });
     await rename(held, root);
+  }
+});
+
+test("fixture Git commands ignore inherited repository and index locations", async () => {
+  const other = await fixture();
+  const before = await readFile(join(other.root, ".git/index"));
+  const overrides = {
+    GIT_DIR: join(other.root, ".git"),
+    GIT_WORK_TREE: other.root,
+    GIT_INDEX_FILE: join(other.root, ".git/index"),
+  };
+  const previous = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, overrides);
+  try {
+    const selected = await fixture();
+    expect((await selected.git(["rev-parse", "--show-toplevel"])).stdout.trim()).toBe(
+      selected.root,
+    );
+    expect(await readFile(join(other.root, ".git/index"))).toEqual(before);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });

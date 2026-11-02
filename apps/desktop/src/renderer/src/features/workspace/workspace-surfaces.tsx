@@ -118,14 +118,18 @@ export function WorkspaceSurfaces({
     if (selected === "browser") setBrowserMounted(browserKey);
     else if (selected) setRepositoryMounted(true);
   }, [selected, browserKey]);
+  const previousFocus = useRef({ open: false, tab: panel.active });
   useLayoutEffect(() => {
-    if (active)
+    const changed =
+      (open && !previousFocus.current.open) || panel.active !== previousFocus.current.tab;
+    previousFocus.current = { open, tab: panel.active };
+    if (active && changed)
       pane.current
         ?.querySelector<HTMLButtonElement>(
           selected ? `#workspace-tab-${selected}` : "#workspace-add-surface",
         )
         ?.focus();
-  }, [active, panel, selected]);
+  }, [active, open, panel.active, selected]);
   useLayoutEffect(() => {
     const node = pane.current,
       parent = node?.parentElement;
