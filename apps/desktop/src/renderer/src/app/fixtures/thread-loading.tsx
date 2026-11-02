@@ -4008,6 +4008,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
         render("Recover this workspace prompt");
         const animations = scroll.getAnimations({ subtree: true });
+        for (const animation of animations) {
+          animation.pause();
+          animation.currentTime = 0;
+        }
         check(animations.length < 12, "Draft animated offscreen thread rows");
         check(
           Math.abs(row.getBoundingClientRect().top - before) < 1,
