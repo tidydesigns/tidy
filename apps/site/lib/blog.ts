@@ -47,7 +47,7 @@ function hasPageHeading(markdown: string) {
       fence = marker[1];
       continue;
     }
-    if (/^#\s/.test(line)) return true;
+    if (/^#(?:[ \t]|$)/.test(line)) return true;
   }
   return false;
 }

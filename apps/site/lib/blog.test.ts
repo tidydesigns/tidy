@@ -93,6 +93,7 @@ describe("blog publication", () => {
       ["````markdown", "```bash", "# inner example", "```", "# still code", "~~~~", "````"],
       ["```markdown", "```not-a-closing-fence", "# still code", "```"],
       ["~~~bash", "# code until the end of the document"],
+      ["```markdown", "#", "```"],
     ];
     for (const lines of examples) {
       for (const newline of ["\n", "\r\n"]) {
@@ -108,6 +109,7 @@ describe("blog publication", () => {
       ["```bash", "# code comment", "```", "# Actual heading"],
       ["~~~bash", "# code comment", "~~~~", "# Actual heading"],
       ["```invalid`info", "# Actual heading"],
+      ["#", "", "Content below an empty heading"],
     ];
     for (const lines of examples) {
       assert.throws(() => parsePost("example", source("", lines.join("\n"))), /headings at ##/);
