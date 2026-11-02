@@ -39,6 +39,9 @@ jobs:
         run: node --test scripts/desktop-release.test.mjs
         env:
           DESKTOP_BETA_VERSION_OFFSET: "100"
+      - if: runner.os == 'macOS'
+        name: Test native installer disk images
+        run: bun test apps/desktop/scripts/disk-image.test.ts
       - if: runner.os == 'Linux'
         name: Install virtual display dependencies
         run: |

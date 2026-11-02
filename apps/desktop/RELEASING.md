@@ -165,6 +165,13 @@ for secrets, and runs type checks, lint, unit tests and release regressions. The
 macOS job stamps/builds the same commit, runs the native security smoke before
 importing credentials, then signs and notarizes the app and DMG. It verifies
 signatures, stapled tickets and Gatekeeper acceptance before uploading artifacts.
+Disk image creation retries only `hdiutil create` resource-busy failures, with
+5, 15 and 30 seconds of backoff. Each attempt uses a new private output path;
+the successful image must pass `hdiutil verify` before replacing the candidate.
+Other creation errors, exhausted retries and failed verification stop the release.
+Signing, notarization, stapling and Gatekeeper checks still run on the final image.
+Pull requests also create, verify and mount an unsigned fixture image on macOS,
+checking its files and application shortcuts without accessing signing credentials.
 Only the selected installer, update ZIP, checksums and metadata leave that job. Its temporary
 Keychain and `.p12` are removed on success or failure.
 The signing step registers that temporary Keychain in the runner's user search

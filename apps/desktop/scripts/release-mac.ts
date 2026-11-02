@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import manifest from "../package.json";
 import { packageDesktop } from "./package";
 import { retryStapler } from "./stapler";
+import { createDiskImage } from "./disk-image";
 import { desktopAppName } from "../src/shared/app-name";
 
 const execute = promisify(execFile);
@@ -177,17 +178,11 @@ try {
   await cp(app, copiedApp, { recursive: true, verbatimSymlinks: true });
   await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", copiedApp]);
   await symlink("/Applications", join(contents, "Applications"));
-  await run("hdiutil", [
-    "create",
-    "-volname",
-    `${appName} ${manifest.version}`,
-    "-srcfolder",
-    contents,
-    "-format",
-    "UDZO",
-    "-ov",
-    artifact,
-  ]);
+  await createDiskImage({
+    sourceDirectory: contents,
+    outputPath: artifact,
+    volumeName: `${appName} ${manifest.version}`,
+  });
   await run("codesign", [
     "--sign",
     identity,
