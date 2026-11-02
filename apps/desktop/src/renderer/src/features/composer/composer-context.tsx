@@ -7,6 +7,7 @@ import { SelectMenu } from "@tidy/ui/select-menu";
 import type { DesignSummary } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
 import { ComposerChevron, ComposerIcon } from "./composer-icon";
+import { BranchPicker } from "./branch-picker";
 import type { WorkspaceMachine } from "../../../../shared/remote";
 
 export function ComposerContext({
@@ -17,6 +18,7 @@ export function ComposerContext({
   selected,
   onReferencesChange,
   onBranchChange,
+  branchPlacement,
   disabled,
   pending,
   execution,
@@ -33,6 +35,7 @@ export function ComposerContext({
   selected: string[];
   onReferencesChange?: (ids: string[]) => void;
   onBranchChange(branch: string): void;
+  branchPlacement?: Parameters<typeof BranchPicker>[0]["placement"];
   disabled: boolean;
   pending: boolean;
   machine?: {
@@ -197,22 +200,10 @@ export function ComposerContext({
           <span>No repository</span>
         </span>
       ) : (
-        <SelectMenu
-          label="Project branch"
-          value={repository?.branch ?? ""}
+        <BranchPicker
+          repository={repository}
+          placement={branchPlacement}
           disabled={disabled || branchDisabled || pending || !repository?.repository}
-          placement="top"
-          align="end"
-          triggerClassName={`${codeContextTriggerClassName} branch-trigger max-w-[175px] max-[700px]:max-w-[115px]`}
-          triggerContent={
-            <>
-              <ComposerIcon name="branch" />
-              <span>{repository ? (repository.branch ?? "Detached HEAD") : "Branch"}</span>
-              <ComposerChevron />
-            </>
-          }
-          menuClassName={`${codeMenuClassName} branch-menu [&]:max-w-[min(300px,calc(100vw_-_16px))]`}
-          options={repository?.branches.map((branch) => ({ value: branch, label: branch })) ?? []}
           onChange={onBranchChange}
         />
       )}

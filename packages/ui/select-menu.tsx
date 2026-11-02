@@ -44,6 +44,10 @@ export function SelectMenu({
   selectionIndicator = "check",
   closeOnSelect = true,
   menuHeader,
+  menuFooter,
+  emptyMessage = "No matches",
+  renderOptionLabel,
+  placementFallback = "flip",
   menuSidebar,
   menuClassName = "",
   optionsClassName = "",
@@ -53,9 +57,13 @@ export function SelectMenu({
   onOpenChange,
 }: {
   menuContent?: (close: () => void) => ReactNode;
-  maxMenuHeight?: number;
+  maxMenuHeight?: number | ((trigger: HTMLButtonElement) => number);
   onOpenChange?(open: boolean): void;
   menuHeader?: ReactNode;
+  menuFooter?: ReactNode;
+  emptyMessage?: string;
+  renderOptionLabel?: (option: SelectMenuOption) => ReactNode;
+  placementFallback?: "flip" | "resize";
   menuSidebar?: ReactNode;
   menuClassName?: string;
   optionsClassName?: string;
@@ -124,12 +132,19 @@ export function SelectMenu({
       const margin = 8,
         gap = 6;
       popup.style.minWidth = `${Math.min(bounds.width, window.innerWidth - margin * 2)}px`;
-      const height = Math.min(maxMenuHeight, popup.scrollHeight + 2);
+      const heightLimit =
+        typeof maxMenuHeight === "function" ? maxMenuHeight(anchor) : maxMenuHeight;
+      const height = Math.min(heightLimit, popup.scrollHeight + 2);
       const below = window.innerHeight - bounds.bottom - gap - margin;
       const above = bounds.top - gap - margin;
+      const preferredSpace = placement === "top" ? above : below;
       const useTop =
-        placement === "top" ? above >= height || above > below : below < height && above > below;
-      popup.style.maxHeight = `${Math.max(0, Math.min(maxMenuHeight, useTop ? above : below))}px`;
+        placementFallback === "resize" && preferredSpace > 0
+          ? placement === "top"
+          : placement === "top"
+            ? above >= height || above > below
+            : below < height && above > below;
+      popup.style.maxHeight = `${Math.max(0, Math.min(heightLimit, useTop ? above : below))}px`;
       const size = popup.getBoundingClientRect();
       const alignRight = align ? align === "end" : placement === "top";
       popup.style.left = `${Math.max(margin, Math.min(alignRight ? bounds.right - size.width : bounds.left, window.innerWidth - size.width - margin))}px`;
@@ -164,7 +179,15 @@ export function SelectMenu({
       window.removeEventListener("resize", position);
       if (popup.matches(":popover-open")) popup.hidePopover();
     };
-  }, [visible, placement, align, dismissOnScroll, maxMenuHeight, Boolean(menuContent)]);
+  }, [
+    visible,
+    placement,
+    placementFallback,
+    align,
+    dismissOnScroll,
+    maxMenuHeight,
+    Boolean(menuContent),
+  ]);
 
   useEffect(() => {
     if (!visible) return;
@@ -177,6 +200,7 @@ export function SelectMenu({
   }, [visible]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (menuHeader && event.key === "Enter" && event.target instanceof HTMLInputElement) {
       event.preventDefault();
       menu.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.click();
@@ -315,7 +339,7 @@ export function SelectMenu({
                   className={`${optionAction ? "select-menu-options" : "contents"} ${optionsClassName}`}
                 >
                   {options.length === 0 && menuHeader && (
-                    <p className="select-menu-empty">No matches</p>
+                    <p className="select-menu-empty">{emptyMessage}</p>
                   )}
                   {options.map((option) => {
                     const button = (
@@ -354,7 +378,7 @@ export function SelectMenu({
                             className="min-w-0"
                           >
                             <span data-slot="select-menu-label" className="block truncate">
-                              {option.label}
+                              {renderOptionLabel ? renderOptionLabel(option) : option.label}
                             </span>
                             {option.description && (
                               <span
@@ -394,6 +418,7 @@ export function SelectMenu({
                   })}
                 </div>
               </div>
+              {menuFooter}
             </>
           )}
         </div>
