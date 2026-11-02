@@ -212,8 +212,8 @@ const api: DesktopAPI = {
     request("add-attachment", { projectId, name, dataUrl }),
   readAttachment: (projectId, attachmentId) =>
     request("read-attachment", { projectId, attachmentId }),
-  autoCompleteThreads: (projectId, preferences) =>
-    request("auto-complete-threads", { projectId, preferences }),
+  autoCompleteThreads: (projectId, preferences, force) =>
+    request("auto-complete-threads", { projectId, preferences, ...(force ? { force: true } : {}) }),
   setThreadDone: (projectId, threadId, done) =>
     request("set-thread-done", { projectId, threadId, done }),
   respondToApproval: (projectId, threadId, approvalId, decision) =>

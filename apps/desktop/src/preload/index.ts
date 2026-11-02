@@ -395,8 +395,16 @@ function workspaceApi(machineId?: string): DesktopAPI {
       scopedRequest("add-attachment", { projectId, name, dataUrl }),
     readAttachment: (projectId, attachmentId) =>
       scopedRequest("read-attachment", { projectId, attachmentId }),
-    autoCompleteThreads: (projectId, preferences) =>
-      scopedRequest("auto-complete-threads", { projectId, preferences }),
+    autoCompleteThreads: (projectId, preferences, force) =>
+      scopedRequest("auto-complete-threads", {
+        projectId,
+        preferences,
+        ...(force ? { force: true } : {}),
+      }).catch((error: unknown) => {
+        if (force && error instanceof Error && error.message === "Invalid desktop request.")
+          return scopedRequest("auto-complete-threads", { projectId, preferences });
+        throw error;
+      }),
     setThreadDone: (projectId, threadId, done) =>
       scopedRequest("set-thread-done", { projectId, threadId, done }),
     respondToApproval: (projectId, threadId, approvalId, decision) =>

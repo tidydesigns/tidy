@@ -3114,10 +3114,148 @@ test.each([0, 70_000])(
     expect(done.doneReason).toBe("merged");
     expect(done.doneAt).toBeDefined();
     expect(done.pullRequests).toEqual([url]);
-    expect(done.pullRequestDetectionVersion).toBe(1);
+    expect(done.pullRequestDetectionVersion).toBe(2);
     expect(done.revision).toBe(stored.revision + 1);
   },
 );
+
+test("explicit completion receipts are durable across unsupported shell syntax and tool-log eviction", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const url = "https://github.com/owner/repo/pull/42";
+  runs[0].input.onUpdate({
+    type: "tool",
+    tool: {
+      id: "creation",
+      kind: "command",
+      toolName: "Shell",
+      title: "Create PR",
+      input: 'PR_URL=$(gh pr create --body-file "$BODY_FILE")',
+      status: "completed",
+      exitCode: 0,
+      output: url,
+    },
+  });
+  expect((await service.readThread(project.id, thread.id)).pullRequests).toEqual([]);
+  runs[0].input.onUpdate({ type: "message", id: "receipt", text: `Created pull request: ${url}` });
+  let completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  expect((await store.readThread(project.id, thread.id)).pullRequests).toEqual([url]);
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Check the cleanup",
+  });
+  for (let index = 0; index <= MAX_TOOL_ACTIVITIES; index++)
+    runs[1].input.onUpdate({
+      type: "tool",
+      tool: {
+        id: `check-${index}`,
+        kind: "command",
+        toolName: "Shell",
+        title: "Check",
+        input: "true",
+        status: "completed",
+        exitCode: 0,
+        output: "ok",
+      },
+    });
+  completion = finished(service, thread.id);
+  runs[1].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  expect(stored.toolActivities?.some((tool) => tool.input?.includes("gh pr create"))).toBe(false);
+  expect(stored.pullRequests).toEqual([url]);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  }));
+  expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
+});
+
+test("legacy pruned creation logs recover from assistant receipts before automatic completion", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  const url = "https://github.com/owner/repo/pull/42";
+  stored.pullRequests = [];
+  stored.pullRequestDetectionVersion = 1;
+  stored.toolActivities = [];
+  stored.toolActivityTruncated = true;
+  stored.messages.push({
+    id: randomUUID(),
+    role: "assistant",
+    text: `Opened [PR #42](${url}), ready for review.\n${"x".repeat(70_000)}`,
+  });
+  await writeFile(
+    join(project.path, ".tidy", "threads", `${thread.id}.json`),
+    JSON.stringify(stored),
+  );
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  }));
+  const done = await store.readThread(project.id, thread.id);
+  expect(done.pullRequests).toEqual([url]);
+  expect(done.doneReason).toBe("merged");
+});
+
+test("unavailable PR checks report failure, preserve open threads, and recover on retry", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  await expect(
+    service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => null),
+  ).rejects.toThrow("retry automatically");
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  await expect(
+    service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+      state: "merged",
+      baseBranch: "main",
+      defaultBranch: null,
+      endedAt: "2026-01-01T00:00:00Z",
+    })),
+  ).rejects.toThrow("retry automatically");
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  }));
+  expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
+});
 
 test("automatic completion persists its reason, emits an update, and respects a manual reopen", async () => {
   const { service, store, project, runs } = await fixture();

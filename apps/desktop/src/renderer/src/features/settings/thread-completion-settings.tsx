@@ -3,6 +3,11 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { showToast } from "@tidy/ui/toast";
 import {
+  completionHealth,
+  subscribeCompletionHealth,
+  retryCompletionChecks,
+} from "./thread-completion-health";
+import {
   threadCompletionSchema,
   type ThreadCompletion,
 } from "../../../../shared/contracts/thread-completion";
@@ -14,6 +19,7 @@ import {
 
 export function ThreadCompletionSettings() {
   const preferences = useSyncExternalStore(subscribeThreadCompletion, currentThreadCompletion);
+  const failures = useSyncExternalStore(subscribeCompletionHealth, completionHealth);
   const id = useId();
   const [branchDraft, setBranchDraft] = useState<string>();
   const branches = branchDraft ?? preferences.branches.join(", ");
@@ -45,6 +51,18 @@ export function ThreadCompletionSettings() {
       <p className="thread-naming-note">
         Applies to existing and new threads in your connected projects while Tidy is open.
       </p>
+      {failures.length > 0 &&
+        (preferences.merged || preferences.closed || preferences.inactiveDays > 0) && (
+          <div className="completion-row" role="status">
+            <p>
+              Automatic completion could not check or update threads in {failures.join(", ")}. Tidy
+              will retry automatically.
+            </p>
+            <Button type="button" className="quiet-button shrink-0" onClick={retryCompletionChecks}>
+              Retry now
+            </Button>
+          </div>
+        )}
       <div className="completion-row">
         <div>
           <span>Pull request merged</span>

@@ -79,6 +79,25 @@ test("unavailable state stays neutral and failed reads retry after a short cache
   expect(calls).toBe(2);
 });
 
+test("explicit retry invalidates settled results without duplicating an in-flight lookup", async () => {
+  const gate = Promise.withResolvers<void>();
+  let calls = 0;
+  const states = new PullRequestStates(async () => {
+    calls++;
+    await gate.promise;
+    return calls === 1 ? "open" : "merged";
+  });
+  const pending = states.read(url);
+  states.invalidate();
+  expect(states.read(url)).toBe(pending);
+  expect(calls).toBe(1);
+  gate.resolve();
+  expect(await pending).toBe("open");
+  states.invalidate();
+  expect(await states.read(url)).toBe("merged");
+  expect(calls).toBe(2);
+});
+
 test("queued requests release their slots after failures and the pending cache stays bounded", async () => {
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {

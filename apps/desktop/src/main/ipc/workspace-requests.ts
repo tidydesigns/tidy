@@ -463,8 +463,11 @@ export function createWorkspaceRequests<Context>(
   );
   handle(
     "auto-complete-threads",
-    z.object({ projectId, preferences: threadCompletionSchema }).strict(),
-    ({ projectId, preferences }) => service.autoCompleteThreads(projectId, preferences),
+    z
+      .object({ projectId, preferences: threadCompletionSchema, force: z.boolean().optional() })
+      .strict(),
+    ({ projectId, preferences, force }) =>
+      service.autoCompleteThreads(projectId, preferences, undefined, force),
   );
   handle(
     "set-thread-done",

@@ -1,15 +1,50 @@
-import { z } from "zod";
 import type { Thread } from "../contracts/desktop";
 import type { ToolActivity } from "../contracts/tool-activity";
 import { pullRequestURL } from "../contracts/pull-request";
 
-const createdResponse = z.object({ html_url: z.string() });
-export const pullRequestDetectionVersion = 1;
+export const pullRequestDetectionVersion = 2;
 
-/** Read the final simple command without executing shell input or matching quoted examples. */
-function lastShellCommand(input: string): string[] | null {
+function structuredReceipts(value: unknown, depth = 0): string[] {
+  if (depth > 6 || !value || typeof value !== "object") return [];
+  if (Array.isArray(value))
+    return value.slice(0, 50).flatMap((entry) => structuredReceipts(entry, depth + 1));
+  const object = value as Record<string, unknown>;
+  if (
+    object.isError === true ||
+    object.success === false ||
+    object.error ||
+    (Array.isArray(object.errors) && object.errors.length)
+  )
+    return [];
+  const urls: string[] = [];
+  for (const key of ["html_url", "url"]) {
+    const url = typeof object[key] === "string" ? pullRequestURL(object[key]) : null;
+    if (url) urls.push(url);
+  }
+  for (const key of [
+    "data",
+    "result",
+    "structuredContent",
+    "content",
+    "pullRequest",
+    "createPullRequest",
+  ])
+    urls.push(...structuredReceipts(object[key], depth + 1));
+  if (object.type === "text" && typeof object.text === "string") {
+    try {
+      urls.push(...structuredReceipts(JSON.parse(object.text), depth + 1));
+    } catch {
+      const url = pullRequestURL(object.text.trim());
+      if (url) urls.push(url);
+    }
+  }
+  return [...new Set(urls)].slice(-20);
+}
+
+/** Read simple commands without evaluating expansions or matching quoted/heredoc examples. */
+function shellCommands(input: string): string[][] | null {
   let words: string[] = [];
-  let previous: string[] = [];
+  const commands: string[][] = [];
   let word = "";
   let started = false;
   let quote: "'" | '"' | undefined;
@@ -31,7 +66,7 @@ function lastShellCommand(input: string): string[] | null {
     } else if (quote) {
       if (character === quote) quote = undefined;
       else {
-        if (quote === '"' && /[$`]/.test(character)) return null;
+        if (quote === '"' && character === "`") return null;
         word += character;
       }
     } else if (character === "'" || character === '"') {
@@ -52,7 +87,7 @@ function lastShellCommand(input: string): string[] | null {
       index += document[0].length - 1;
     } else if (character === ";" || character === "\n" || input.startsWith("&&", index)) {
       finishWord();
-      if (words.length) previous = words;
+      if (words.length) commands.push(words);
       words = [];
       if (character === "&") index++;
       if (character === "\n") {
@@ -73,7 +108,7 @@ function lastShellCommand(input: string): string[] | null {
       }
     } else if (/\s/.test(character)) finishWord();
     // Complex shell expressions are deliberately left unlinked rather than guessed.
-    else if (/[|&(){}$`]/.test(character)) return null;
+    else if (/[|&()`]/.test(character)) return null;
     else {
       word += character;
       started = true;
@@ -81,53 +116,101 @@ function lastShellCommand(input: string): string[] | null {
   }
   if (quote || documents.length) return null;
   finishWord();
-  return words.length ? words : previous;
+  if (words.length) commands.push(words);
+  return commands;
 }
 
-export function createdPullRequest(tool: ToolActivity): string | null {
-  if (tool.status !== "completed" || (tool.exitCode !== undefined && tool.exitCode !== 0))
-    return null;
-  if (!tool.output) return null;
+export function createdPullRequests(tool: ToolActivity): string[] {
+  if (!tool.output) return [];
+  const succeeded =
+    tool.status === "completed" && (tool.exitCode === undefined || tool.exitCode === 0);
   const command = (tool.input ?? tool.title).replace(
     /^(?:\/(?:usr\/)?bin\/)?(?:bash|zsh|sh)\s+-[a-z]*c\s+(['"])([\s\S]*)\1$/,
     "$2",
   );
-  const creation = lastShellCommand(command);
+  const commands = shellCommands(command);
   if (
     (tool.kind === "command" || tool.kind === "test") &&
-    creation?.[0] === "gh" &&
-    creation[1] === "pr" &&
-    creation[2] === "create" &&
-    !creation.some((word) => word === "--dry-run" || word.startsWith("--dry-run="))
+    (succeeded || /\r?\n$/.test(tool.output)) &&
+    commands?.some(
+      (creation) =>
+        creation[0] === "gh" &&
+        creation[1] === "pr" &&
+        creation[2] === "create" &&
+        !creation.some((word) => word === "--dry-run" || word.startsWith("--dry-run=")),
+    )
   ) {
-    for (const line of tool.output.split("\n").reverse()) {
-      const url = pullRequestURL(line.trim());
-      if (url) return url;
-    }
+    return [
+      ...new Set(
+        tool.output.split("\n").flatMap((line) => {
+          const raw = line.trim();
+          const url = pullRequestURL(raw);
+          return url && !/[?#]/.test(raw) && /\/pull\/[1-9]\d*\/?$/.test(new URL(raw).pathname)
+            ? [url]
+            : [];
+        }),
+      ),
+    ].slice(-20);
   }
-  if (/(?:^|[\s._/])create_pull_request$/.test(tool.toolName)) {
+  if (succeeded && /(?:^|[\s._/])create_pull_request$/.test(tool.toolName)) {
     try {
-      const response = createdResponse.safeParse(JSON.parse(tool.output));
-      if (response.success) return pullRequestURL(response.data.html_url);
+      return structuredReceipts(JSON.parse(tool.output));
     } catch {
-      return null;
+      return [];
     }
   }
-  return null;
+  return [];
+}
+
+export function createdPullRequest(tool: ToolActivity): string | null {
+  return createdPullRequests(tool).at(-1) ?? null;
+}
+
+/** Recover explicit creation receipts, never user references, review prose, quotes or code examples. */
+export function confirmedPullRequests(messages: Pick<Thread, "messages">["messages"]): string[] {
+  const urls = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    let fence: string | undefined;
+    for (const line of message.text.split("\n")) {
+      const trimmed = line.trim();
+      const marker = trimmed.match(/^(`{3,}|~{3,})/);
+      if (marker) {
+        if (!fence) fence = marker[1][0];
+        else if (fence === marker[1][0]) fence = undefined;
+        continue;
+      }
+      if (fence || /^(?: {4}|\t)/.test(line) || trimmed.startsWith(">")) continue;
+      if (
+        !/^(?:(?:I(?:'ve| have)?|We(?:'ve| have)?)\s+)?(?:Created pull request\s*:|(?:Opened|Created)\s+(?:(?:a\s+)?(?:PR\b|pull request\b)|\[(?:PR\b|pull request\b)|https:\/\/github\.com\/)|(?:Implemented in|Fixed in)\s+)/i.test(
+          trimmed,
+        )
+      )
+        continue;
+      for (const match of trimmed.matchAll(/https:\/\/(?:www\.)?github\.com\/[^\s)\]>]+/g)) {
+        const url = pullRequestURL(match[0].replace(/[.,;:]+$/, ""));
+        if (url) urls.add(url);
+      }
+    }
+  }
+  return [...urls].slice(-20);
 }
 
 export function threadPullRequests(
-  thread: Pick<Thread, "pullRequests" | "toolActivities" | "pullRequestDetectionVersion">,
+  thread: Pick<Thread, "pullRequests" | "toolActivities" | "pullRequestDetectionVersion"> &
+    Partial<Pick<Thread, "messages">>,
 ): string[] {
   if (thread.pullRequestDetectionVersion === pullRequestDetectionVersion && thread.pullRequests)
     return thread.pullRequests;
   const urls = new Set(thread.pullRequests ?? []);
   for (const tool of thread.toolActivities ?? []) {
-    const url = createdPullRequest(tool);
-    if (url) {
+    for (const url of createdPullRequests(tool)) {
       urls.delete(url);
       urls.add(url);
     }
+  }
+  for (const url of confirmedPullRequests(thread.messages ?? [])) {
+    if (!urls.has(url)) urls.add(url);
   }
   return [...urls].slice(-20);
 }

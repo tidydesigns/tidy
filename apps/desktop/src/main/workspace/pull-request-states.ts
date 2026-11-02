@@ -32,6 +32,10 @@ export class CachedPullRequests<T> {
     private readonly now: () => number = Date.now,
   ) {}
 
+  invalidate() {
+    for (const [url, entry] of this.cache) if (!entry.pending) this.cache.delete(url);
+  }
+
   read(href: string): Promise<T | null> {
     const url = pullRequestURL(href);
     if (!url) return Promise.resolve(null);

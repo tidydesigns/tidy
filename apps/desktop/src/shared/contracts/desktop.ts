@@ -101,7 +101,7 @@ export const storedThreadSchema = z.object({
   toolActivityTruncated: z.boolean().optional(),
   pullRequests: threadPullRequestsSchema.optional(),
   /** Version of creation-log recovery already applied to the persisted PR list. */
-  pullRequestDetectionVersion: z.literal(1).optional(),
+  pullRequestDetectionVersion: z.union([z.literal(1), z.literal(2)]).optional(),
   error: z.string().max(4000).optional(),
   errorKind: harnessFailureKindSchema.optional(),
   updatedAt: z.string().datetime(),
@@ -319,7 +319,11 @@ export type DesktopAPI = {
   updateMessageQueue(input: QueueRequest): Promise<Thread>;
   addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile>;
   readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile>;
-  autoCompleteThreads?(projectId: string, preferences: ThreadCompletion): Promise<void>;
+  autoCompleteThreads?(
+    projectId: string,
+    preferences: ThreadCompletion,
+    force?: boolean,
+  ): Promise<void>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
   threadPorts(projectId: string, threadId: string): Promise<ThreadPort[]>;

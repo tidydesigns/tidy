@@ -16,6 +16,7 @@ const repositorySchema = z.object({
 
 /** Only canonical GitHub PR URLs reach this loader. No shell or repository scripts execute. */
 export class CompletionPullRequests extends CachedPullRequests<CompletionPullRequest> {
+  private readonly clearRepositories: () => void;
   constructor() {
     const repositories = new Map<string, { expires: number; result: Promise<string | null> }>();
     super(async (url) => {
@@ -60,5 +61,11 @@ export class CompletionPullRequests extends CachedPullRequests<CompletionPullReq
         endedAt: value.state === "MERGED" ? value.mergedAt : value.closedAt,
       };
     });
+    this.clearRepositories = () => repositories.clear();
+  }
+
+  override invalidate() {
+    super.invalidate();
+    this.clearRepositories();
   }
 }
