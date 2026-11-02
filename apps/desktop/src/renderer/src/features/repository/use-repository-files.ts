@@ -44,7 +44,7 @@ export function useRepositoryFiles({
   const directoryQueue = useRef(new Set<string>());
   const directoryRequests = useRef(new Map<string, Promise<void>>());
   const directoryCache = useRef(new Map<string, RepositoryDirectory>());
-  const directoryFailures = useRef(new Set<string>());
+  const directoryFailures = useRef(new Map<string, string>());
   const fileGeneration = useRef(new Map<string, number>());
   const fileCache = useRef(new Map<string, RepositoryFile>());
   const changesRef = useRef(changes);
@@ -59,13 +59,19 @@ export function useRepositoryFiles({
     };
   }, []);
 
-  function rememberDirectoryFailure(path: string) {
+  function rememberDirectoryFailure(path: string, message: string) {
     const failures = directoryFailures.current;
-    failures.add(path);
+    failures.set(path, message);
     if (failures.size > 128) {
-      const first = failures.values().next().value;
+      const first = failures.keys().next().value;
       if (first !== undefined) failures.delete(first);
     }
+    setError(message);
+  }
+
+  function clearDirectoryFailure(path: string) {
+    if (directoryFailures.current.delete(path))
+      setError([...directoryFailures.current.values()].at(-1) ?? "");
   }
 
   const loadDirectory = useCallback(
@@ -91,7 +97,6 @@ export function useRepositoryFiles({
       const request = repositoryRead(api.repositoryDirectory(projectId, path))
         .then((value) => {
           if (!lifetime.current) return;
-          setError("");
           const cache = directoryCache.current;
           const previous = cache.get(path);
           if (
@@ -104,8 +109,10 @@ export function useRepositoryFiles({
                 entry.path === value.entries[index].path &&
                 entry.kind === value.entries[index].kind,
             )
-          )
+          ) {
+            clearDirectoryFailure(path);
             return;
+          }
           if (previous) {
             const retained = new Set(
               value.entries
@@ -133,19 +140,21 @@ export function useRepositoryFiles({
           if (size > 30000 || cache.size > 128) {
             cache.delete(path);
             if (previous) cache.set(path, previous);
-            rememberDirectoryFailure(path);
-            setError(
+            rememberDirectoryFailure(
+              path,
               "The folder cache is full. Collapse some folders, then refresh to continue browsing.",
             );
             return;
           }
-          directoryFailures.current.delete(path);
+          clearDirectoryFailure(path);
           setDirectories(new Map(cache));
         })
         .catch((cause: unknown) => {
-          rememberDirectoryFailure(path);
           if (lifetime.current)
-            setError(cause instanceof Error ? cause.message : "Could not read this folder.");
+            rememberDirectoryFailure(
+              path,
+              cause instanceof Error ? cause.message : "Could not read this folder.",
+            );
         })
         .finally(() => {
           directoryRequests.current.delete(path);
@@ -233,6 +242,7 @@ export function useRepositoryFiles({
             const before = new Map(previous?.changes.map((change) => [change.path, change]));
             const after = new Map(result.changes.map((change) => [change.path, change]));
             if (lightweight) {
+              const parents = new Set<string>();
               for (const path of new Set([...before.keys(), ...after.keys()])) {
                 const old = before.get(path);
                 const next = after.get(path);
@@ -242,10 +252,11 @@ export function useRepositoryFiles({
                   old?.filtered !== next?.filtered
                 ) {
                   invalidated.add(path);
-                  const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-                  void loadDirectory(parent, true);
+                  parents.add(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
                 }
               }
+              for (const parent of parents)
+                if (directoryCache.current.has(parent)) void loadDirectory(parent, true);
             }
             for (const path of new Set([
               ...fileCache.current.keys(),

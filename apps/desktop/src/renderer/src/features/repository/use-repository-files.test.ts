@@ -551,3 +551,72 @@ test("bounded preview requests discard queued obsolete selections", async () => 
     await probe.close();
   }
 });
+
+test("folder failures survive unrelated success and clear only as each folder recovers", async () => {
+  const failed = new Set(["a", "b"]);
+  const api: RepositoryAPI = {
+    repositoryDirectory: async (_project, path) => {
+      if (failed.has(path)) throw new Error(`Unavailable: ${path}`);
+      return {
+        entries: path
+          ? []
+          : ["a", "b", "good"].map((name) => ({ path: name, name, kind: "directory" as const })),
+        limited: false,
+      };
+    },
+    repositoryChanges: async () => ({ repository: true, head: "head", changes: [] }),
+    repositoryFile: async () => ({ kind: "unavailable", reason: "missing" }),
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("");
+    await act(async () => {
+      await probe.current?.preload("a");
+      await probe.current?.preload("b");
+      await probe.current?.preload("good");
+    });
+    expect(probe.current?.directoryError).toBe("Unavailable: b");
+    failed.delete("b");
+    await act(async () => probe.current?.refresh(["b"]));
+    expect(probe.current?.directoryError).toBe("Unavailable: a");
+    failed.delete("a");
+    await act(async () => probe.current?.refresh(["a"]));
+    expect(probe.current?.directoryError).toBe("");
+  } finally {
+    await probe.close();
+  }
+});
+
+test("status reconciliation reloads each cached parent once and skips unopened parents", async () => {
+  const reads: string[] = [];
+  let changes: RepositoryChanges["changes"] = [];
+  const api: RepositoryAPI = {
+    repositoryDirectory: async (_project, path) => {
+      reads.push(path);
+      return {
+        entries: path ? [] : [{ path: "src", name: "src", kind: "directory" }],
+        limited: false,
+      };
+    },
+    repositoryChanges: async () => ({ repository: true, head: "head", changes }),
+    repositoryFile: async () => ({ kind: "unavailable", reason: "missing" }),
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    probe.expanded.add("src");
+    await probe.render("");
+    reads.length = 0;
+    changes = ["src/a", "src/b", "unopened/c"].map((path) => ({
+      path,
+      previousPath: null,
+      status: "added",
+    }));
+    await act(async () => probe.current?.refresh([], true));
+    expect(reads).toEqual(["src"]);
+    expect(probe.current?.contentRevision.paths).toEqual(["src/a", "src/b", "unopened/c"]);
+  } finally {
+    await probe.close();
+  }
+});

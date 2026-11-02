@@ -124,7 +124,8 @@ export function WorkspaceSurfaces({
     else if (selected) setRepositoryMounted(true);
   }, [selected, browserKey]);
   const previousFocus = useRef({ open: false });
-  const tabFocusRequested = useRef(false);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const handledFocusRequest = useRef(0);
   const focusSelectedTab = useCallback(() => {
     pane.current
       ?.querySelector<HTMLButtonElement>(
@@ -138,15 +139,16 @@ export function WorkspaceSurfaces({
       if (hasRepository) openSurface("files");
       else if (hasBrowser) openSurface("browser");
     }
-    const changed = opening || tabFocusRequested.current;
+    const changed = opening || focusRequest !== handledFocusRequest.current;
     previousFocus.current = { open };
-    tabFocusRequested.current = false;
+    handledFocusRequest.current = focusRequest;
     if (active && changed) focusSelectedTab();
   }, [
     active,
     open,
     panel.active,
     focusSelectedTab,
+    focusRequest,
     tabs.length,
     request,
     hasRepository,
@@ -263,7 +265,7 @@ export function WorkspaceSurfaces({
                 aria-controls={`workspace-surface-${surface}`}
                 tabIndex={selected === surface || (selected === null && index === 0) ? 0 : -1}
                 onClick={() => {
-                  tabFocusRequested.current = true;
+                  setFocusRequest((value) => value + 1);
                   openSurface(surface);
                 }}
                 onPointerEnter={() => {
@@ -274,7 +276,7 @@ export function WorkspaceSurfaces({
                 onKeyDown={(event) => {
                   if (event.key === "Delete") {
                     event.preventDefault();
-                    tabFocusRequested.current = true;
+                    setFocusRequest((value) => value + 1);
                     const remaining = panel.tabs.filter((tab) => tab !== surface);
                     setPanel({
                       tabs: remaining,
@@ -292,7 +294,7 @@ export function WorkspaceSurfaces({
                           ? tabs.length - 1
                           : (index + (event.key === "ArrowLeft" ? tabs.length - 1 : 1)) %
                             tabs.length;
-                    tabFocusRequested.current = true;
+                    setFocusRequest((value) => value + 1);
                     openSurface(tabs[next]);
                   }
                 }}
@@ -304,7 +306,7 @@ export function WorkspaceSurfaces({
                 className={`${workspaceIconButtonClassName} mr-0.5 h-[26px] min-h-[26px] w-6 [&_svg]:size-3`}
                 aria-label={`Close ${labels[surface]} surface`}
                 onClick={() => {
-                  tabFocusRequested.current = true;
+                  setFocusRequest((value) => value + 1);
                   const remaining = panel.tabs.filter((tab) => tab !== surface);
                   setPanel({
                     tabs: remaining,
@@ -326,7 +328,7 @@ export function WorkspaceSurfaces({
           aria-label="Open a tab"
           title="Open a tab"
           onClick={() => {
-            tabFocusRequested.current = true;
+            setFocusRequest((value) => value + 1);
             setPanel((current) => ({ ...current, active: null }));
           }}
         >
@@ -360,7 +362,7 @@ export function WorkspaceSurfaces({
                 key={surface}
                 className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-[13px] text-(--color-secondary-ink) hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-control-border) [&>svg]:size-[18px] [&>svg]:shrink-0 [&>svg]:text-muted-ink"
                 onClick={() => {
-                  tabFocusRequested.current = true;
+                  setFocusRequest((value) => value + 1);
                   openSurface(surface);
                 }}
                 onPointerEnter={() => {

@@ -74,6 +74,7 @@ export function RepositoryBrowser({
   const [focused, setFocused] = useState<string | null>(null);
   const [reveal, setReveal] = useState(0);
   const [treeError, setTreeError] = useState("");
+  useEffect(() => setTreeError(""), [view]);
   const changeDirectories = useMemo(
     () => changedFileDirectories(repository.changes?.changes ?? []),
     [repository.changes],
@@ -565,10 +566,7 @@ export function RepositoryBrowser({
                 </Button>
               )}
             </div>
-            {errorNotice(
-              treeError ||
-                (view === "changes" ? repository.changesError : repository.directoryError),
-            )}
+            {errorNotice(treeError || (view === "files" ? repository.directoryError : ""))}
             {treePane}
           </div>
         </RepositoryExplorer>
