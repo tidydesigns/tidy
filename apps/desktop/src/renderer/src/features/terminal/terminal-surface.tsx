@@ -1,6 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
-import type { TerminalAPI, TerminalWatch } from "../../../../shared/contracts/terminal";
+import {
+  terminalSizeLimits,
+  type TerminalAPI,
+  type TerminalWatch,
+} from "../../../../shared/contracts/terminal";
 
 type Instance = Awaited<ReturnType<typeof import("./terminal-runtime").createTerminal>>;
 
@@ -130,8 +134,14 @@ export function TerminalSurface({
             watch.current?.input({
               kind: "resize",
               sessionId: session.current,
-              cols: Math.min(500, Math.max(2, cols)),
-              rows: Math.min(300, Math.max(1, rows)),
+              cols: Math.min(
+                terminalSizeLimits.maxCols,
+                Math.max(terminalSizeLimits.minCols, cols),
+              ),
+              rows: Math.min(
+                terminalSizeLimits.maxRows,
+                Math.max(terminalSizeLimits.minRows, rows),
+              ),
             });
         });
         const attach = () => {
@@ -142,8 +152,14 @@ export function TerminalSurface({
             {
               projectId,
               terminalId,
-              cols: Math.min(500, Math.max(2, terminal.cols)),
-              rows: Math.min(300, Math.max(1, terminal.rows)),
+              cols: Math.min(
+                terminalSizeLimits.maxCols,
+                Math.max(terminalSizeLimits.minCols, terminal.cols),
+              ),
+              rows: Math.min(
+                terminalSizeLimits.maxRows,
+                Math.max(terminalSizeLimits.minRows, terminal.rows),
+              ),
               resume: session.current ? { sessionId: session.current, sequence } : undefined,
             },
             (output) => {

@@ -2,9 +2,10 @@ import { z } from "zod";
 
 export const TERMINAL_STREAM_MAX_BYTES = 8 * 1024 * 1024;
 
+export const terminalSizeLimits = { minCols: 2, maxCols: 500, minRows: 1, maxRows: 300 } as const;
 export const terminalSizeSchema = z.object({
-  cols: z.number().int().min(2).max(500),
-  rows: z.number().int().min(1).max(300),
+  cols: z.number().int().min(terminalSizeLimits.minCols).max(terminalSizeLimits.maxCols),
+  rows: z.number().int().min(terminalSizeLimits.minRows).max(terminalSizeLimits.maxRows),
 });
 export const terminalScopeSchema = terminalSizeSchema
   .extend({

@@ -1,4 +1,5 @@
 import { terminalFont } from "./terminal-font";
+import { fitTerminal } from "./terminal-fit";
 import { Ghostty, Terminal, FitAddon } from "ghostty-web";
 import wasmURL from "ghostty-web/ghostty-vt.wasm?url";
 
@@ -27,11 +28,7 @@ export async function createTerminal() {
   });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
-  fit.fit = () => {
-    const size = fit.proposeDimensions();
-    if (size && (terminal.cols !== size.cols || terminal.rows !== size.rows))
-      terminal.resize(size.cols, size.rows);
-  };
+  fit.fit = () => fitTerminal({ terminal, fit });
   let active = true;
   // Ghostty's default focus schedules another focus later, which can steal it from the composer.
   terminal.focus = () =>
