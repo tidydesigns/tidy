@@ -1561,3 +1561,36 @@ test("repository notifications require per-connection capability opt-in", async 
   expect(legacy.events.some((event) => event.type === "repository-change")).toBe(false);
   expect(legacy.client.status.kind).toBe("connected");
 });
+
+test("terminal snapshots preserve a full history of JSON-escaped control characters", async () => {
+  const f = await fixture();
+  const sessionId = randomUUID();
+  const data = "\u0000".repeat(1024 * 1024);
+  const watchSpy = spyOn(f.service.terminal, "watch").mockImplementation(async (_scope, send) => {
+    send({
+      kind: "snapshot",
+      sessionId,
+      sequence: 1,
+      data,
+      cols: 80,
+      rows: 24,
+      exited: false,
+      exitCode: null,
+      reset: true,
+    });
+    return { input() {}, close() {} };
+  });
+  cleanups.push(() => watchSpy.mockRestore());
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const events: TerminalOutput[] = [];
+  const watch = client.watchTerminal(
+    { projectId: f.project.id, terminalId: randomUUID(), cols: 80, rows: 24 },
+    (event) => events.push(event),
+  );
+  cleanups.push(() => watch.close());
+  await until(() => events.some((event) => event.kind === "snapshot"));
+  const snapshot = events.find((event) => event.kind === "snapshot");
+  expect(snapshot?.data).toBe(data);
+  expect(events.some((event) => event.kind === "disconnected")).toBe(false);
+});

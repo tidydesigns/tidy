@@ -234,6 +234,8 @@ export class TerminalService {
       throw new Error("Too many terminal viewers.");
     const session = await this.open(scope, admitted);
     if (this.closed || !admitted()) throw new Error("The terminal viewer closed.");
+    if ([...this.sessions.values()].reduce((n, s) => n + s.viewers.size, 0) >= MAX_VIEWERS)
+      throw new Error("Too many terminal viewers.");
     this.flush(session);
     const viewer: Viewer = { send, bytes: 0, pending: new Map() };
     const resume =

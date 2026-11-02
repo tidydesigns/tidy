@@ -27,6 +27,11 @@ export async function createTerminal() {
   });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
+  fit.fit = () => {
+    const size = fit.proposeDimensions();
+    if (size && (terminal.cols !== size.cols || terminal.rows !== size.rows))
+      terminal.resize(size.cols, size.rows);
+  };
   let active = true;
   // Ghostty's default focus schedules another focus later, which can steal it from the composer.
   terminal.focus = () =>

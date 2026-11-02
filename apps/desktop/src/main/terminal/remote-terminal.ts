@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import { z } from "zod";
 import {
+  TERMINAL_STREAM_MAX_BYTES,
   terminalOutputSchema,
   type TerminalScope,
   type TerminalOutput,
@@ -73,7 +74,11 @@ export function remoteTerminal(
       const params = new URLSearchParams({ ticket, scope: JSON.stringify({ ...scope, resume }) });
       const client = new WebSocket(
         `${next.origin.replace("http:", "ws:")}/terminal-stream?${params}`,
-        { maxPayload: 4 * 1024 * 1024, perMessageDeflate: false, handshakeTimeout: 15000 },
+        {
+          maxPayload: TERMINAL_STREAM_MAX_BYTES,
+          perMessageDeflate: false,
+          handshakeTimeout: 15000,
+        },
       );
       socket = client;
       let lastReceived = performance.now();

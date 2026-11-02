@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
 import {
+  TERMINAL_STREAM_MAX_BYTES,
   terminalInputSchema,
   type TerminalScope,
   type TerminalWatch,
@@ -87,7 +88,7 @@ export async function serveTerminalStream({
       (output) => {
         const data = JSON.stringify(output);
         const bytes = Buffer.byteLength(data);
-        if (queuedBytes + socket.bufferedAmount + bytes > 4 * 1024 * 1024) {
+        if (queuedBytes + socket.bufferedAmount + bytes > TERMINAL_STREAM_MAX_BYTES) {
           stop();
           return;
         }

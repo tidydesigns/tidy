@@ -278,3 +278,20 @@ test("small interactive output reaches viewers synchronously without a batching 
   f.emit("x");
   expect(f.events.at(-1)).toMatchObject({ kind: "data", data: "x" });
 });
+
+test("concurrent watches respect the viewer limit and closing frees capacity", async () => {
+  const f = fixture();
+  const scope = { projectId: f.projectId, cols: 80, rows: 24 };
+  const results = await Promise.allSettled(
+    Array.from({ length: 24 }, () => f.service.watch(scope, () => {})),
+  );
+  const watches = results.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  expect(watches).toHaveLength(16);
+  expect(results.filter((result) => result.status === "rejected")).toHaveLength(8);
+  watches[0].close();
+  const replacement = await f.service.watch(scope, () => {});
+  replacement.close();
+  for (const watch of watches) watch.close();
+});
