@@ -899,6 +899,7 @@ for (const capabilities of [undefined, ["thread-naming"]]) {
       const projectId = f.project.id;
       for (const operation of [
         () => client.operation("repository-directory", { projectId, path: "" }),
+        () => client.operation("repository-search", { projectId, query: "sample" }),
         () => client.operation("repository-changes", { projectId }),
         () => client.operation("repository-file", { projectId, path: "sample.txt" }),
       ])
@@ -916,6 +917,31 @@ for (const capabilities of [undefined, ["thread-naming"]]) {
     }
   });
 }
+
+test("file-capable older hosts reject search locally while retaining file browsing", async () => {
+  const f = await fixture();
+  const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+  const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+    const frame = parse(...args);
+    return frame.type === "hello" ? { ...frame, capabilities: ["repository-files"] } : frame;
+  });
+  const requests = spyOn(f.service, "dispatch");
+  try {
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    requests.mockClear();
+    await expect(
+      client.operation("repository-search", { projectId: f.project.id, query: "sample" }),
+    ).rejects.toThrow("backend update");
+    expect(requests).not.toHaveBeenCalled();
+    expect(
+      await client.operation("repository-directory", { projectId: f.project.id, path: "" }),
+    ).toHaveProperty("entries");
+  } finally {
+    requests.mockRestore();
+    frames.mockRestore();
+  }
+});
 
 test("workspace reads bypass durable mutation receipts", async () => {
   const f = await fixture();
@@ -939,6 +965,12 @@ test("workspace reads bypass durable mutation receipts", async () => {
     path: "",
   });
   expect(directory.entries.some((entry) => entry.path === "sample.txt")).toBe(true);
+  expect(
+    await client.operation("repository-search", { projectId: f.project.id, query: "sample" }),
+  ).toEqual({
+    entries: [{ path: "sample.txt", name: "sample.txt", kind: "file" }],
+    limited: false,
+  });
   expect(await client.operation("repository-changes", { projectId: f.project.id })).toEqual({
     repository: false,
     head: null,

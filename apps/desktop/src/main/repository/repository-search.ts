@@ -108,7 +108,12 @@ export async function searchRepositoryFiles(
         ["ENOENT", "EACCES", "EPERM", "ELOOP", "ENOTDIR"].includes(String(error.code))
       )
         continue;
-      if (error instanceof Error && /Symbolic link|Choose a (path|regular)/.test(error.message))
+      if (
+        error instanceof Error &&
+        /Symbolic link|Choose a (path|regular)|Not a repository folder|project directory moved/.test(
+          error.message,
+        )
+      )
         continue;
       throw error;
     }

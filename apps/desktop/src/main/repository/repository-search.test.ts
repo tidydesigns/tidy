@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import * as repositoryGit from "./repository-git";
+import * as repositoryPath from "./repository-path";
 import { searchRepositoryFiles } from "./repository-search";
 
 const execute = promisify(execFile);
@@ -114,4 +115,43 @@ test("bounds validation when tracked matches no longer exist", async () => {
   await f.git("add", ".");
   await rm(join(f.root, "removed"), { recursive: true });
   expect(await searchRepositoryFiles(f.root, "needle")).toEqual({ entries: [], limited: true });
+});
+
+test("skips tracked files whose parent has become a file", async () => {
+  const f = await fixture();
+  await f.git("init");
+  await f.file("removed/needle.txt");
+  await f.file("needle-valid.txt");
+  await f.git("add", ".");
+  await rm(join(f.root, "removed"), { recursive: true });
+  await writeFile(join(f.root, "removed"), "replacement\n");
+  expect(await searchRepositoryFiles(f.root, "needle")).toEqual({
+    entries: [{ path: "needle-valid.txt", name: "needle-valid.txt", kind: "file" }],
+    limited: false,
+  });
+});
+
+test("skips a candidate replaced during validation without hiding unexpected failures", async () => {
+  const f = await fixture();
+  await f.git("init");
+  await f.file("needle-replaced.txt");
+  await f.file("needle-valid.txt");
+  const open = repositoryPath.openRepositoryPath;
+  let failure = "The project directory moved. Open it again.";
+  const paths = spyOn(repositoryPath, "openRepositoryPath").mockImplementation(
+    (root, path, directory) => {
+      if (path === "needle-replaced.txt") return Promise.reject(new Error(failure));
+      return open(root, path, directory);
+    },
+  );
+  try {
+    expect(await searchRepositoryFiles(f.root, "needle")).toEqual({
+      entries: [{ path: "needle-valid.txt", name: "needle-valid.txt", kind: "file" }],
+      limited: false,
+    });
+    failure = "Unexpected filesystem failure";
+    await expect(searchRepositoryFiles(f.root, "needle")).rejects.toThrow(failure);
+  } finally {
+    paths.mockRestore();
+  }
 });

@@ -361,7 +361,7 @@ test("shows conflict state instead of presenting an unresolved file as an ordina
 });
 
 test("plain folders show file contents without claiming a Git addition", async () => {
-  const root = await mkdtemp(join(tmpdir(), "tidy-local-files-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tidy-local-files-")));
   scratch.push(root);
   await writeFile(join(root, "file.txt"), "local\n");
   expect(await readRepositoryChanges(root)).toEqual({ repository: false, head: null, changes: [] });
