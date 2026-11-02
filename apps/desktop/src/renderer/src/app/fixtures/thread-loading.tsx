@@ -582,10 +582,11 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         );
       }
       flushSync(() => root.render(<Probe />));
-      await settle();
       const chat = required(host.querySelector<HTMLElement>("[data-chat]"), "Conversation");
       const trigger = required(chat.querySelector<HTMLButtonElement>("button"), "Panel toggle");
+      const workspace = required(chat.parentElement, "Workspace");
       const width = chat.getBoundingClientRect().width;
+      const availableWidth = workspace.clientWidth;
       const viewportWidth = window.innerWidth;
       trigger.focus();
       trigger.click();
@@ -598,8 +599,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(panel.matches(":modal") === narrow, "Panel presentation does not match viewport");
       if (narrow)
         check(
-          Math.abs(chat.getBoundingClientRect().width - width) < 1,
-          `Overlay compressed the conversation: ${width}px before, ${chat.getBoundingClientRect().width}px after; viewport ${viewportWidth}px before, ${window.innerWidth}px after; parent ${chat.parentElement?.getBoundingClientRect().width}px; grid ${getComputedStyle(required(chat.parentElement, "Workspace")).gridTemplateColumns}; panel ${getComputedStyle(panel).position}`,
+          Math.abs(
+            chat.getBoundingClientRect().width - width - (workspace.clientWidth - availableWidth),
+          ) < 1,
+          `Overlay compressed the conversation: chat ${width}px → ${chat.getBoundingClientRect().width}px; workspace ${availableWidth}px → ${workspace.clientWidth}px; viewport ${viewportWidth}px → ${window.innerWidth}px; grid ${getComputedStyle(workspace).gridTemplateColumns}; panel ${getComputedStyle(panel).position}`,
         );
       await until(() => Boolean(panel.querySelector('[role="treeitem"]')), "Files load");
       required(panel.querySelector<HTMLButtonElement>('[role="treeitem"]'), "File entry").click();
