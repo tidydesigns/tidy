@@ -1,3 +1,4 @@
+import { useThreadCompletion } from "../features/threads/use-thread-completion";
 import {
   currentDefaultAccess,
   accessDefaultOfferDismissed,
@@ -370,6 +371,7 @@ export function App({
     initialThreads: initial?.threads,
     connection: machine ? (machine.connected ? "connected" : "offline") : undefined,
   });
+  useThreadCompletion(api, projects, !loading && (!machine || machine.connected));
   const receiveNamedThread = useCallback(
     (value: Thread) => {
       setThreads((current) =>

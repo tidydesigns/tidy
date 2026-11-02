@@ -91,6 +91,7 @@ export const workspaceResponseSchemas = {
   "send-message": liveThreadSchema,
   "message-queue": liveThreadSchema,
   "set-thread-done": liveThreadSchema,
+  "auto-complete-threads": z.void(),
   "respond-approval": liveThreadSchema,
   "stop-thread": z.void(),
   "thread-ports": threadPortsSchema,

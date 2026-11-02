@@ -1,5 +1,6 @@
 import { searchRepositoryFiles } from "../repository/repository-search";
 import { repositorySearchQuerySchema } from "../../shared/contracts/repository-search";
+import { threadCompletionSchema } from "../../shared/contracts/thread-completion";
 import { readHarnessUsage } from "../harnesses/harness-usage";
 import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
 import { threadNamingSchema, threadTitleSchema } from "../../shared/contracts/thread-naming";
@@ -9,7 +10,6 @@ import {
   browserCommandSchema,
   browserQuerySchema,
 } from "../../shared/contracts/browser";
-import { PullRequestStates } from "../workspace/pull-request-states";
 import {
   readRepositoryDirectory,
   readRepositoryChanges,
@@ -60,7 +60,6 @@ export function createWorkspaceRequests<Context>(
   platform: WorkspacePlatform<Context>,
 ) {
   const store = service.store;
-  const pullRequests = new PullRequestStates();
   const harnessDiscovery = new HarnessDiscovery();
   const imports = new DraftImports(store, (projectId) => service.assertProjectAccess(projectId));
   const uuid = z.string().uuid();
@@ -258,7 +257,7 @@ export function createWorkspaceRequests<Context>(
       ),
   );
   handle("read-video-chunk", videoChunkRequestSchema, (value) => service.readVideoChunk(value));
-  handle("pull-request-state", chatLinkRequestSchema, ({ href }) => pullRequests.read(href));
+  handle("pull-request-state", chatLinkRequestSchema, ({ href }) => service.pullRequestState(href));
   handle("read-chat-image", chatImageRequestSchema, (value) => service.readChatImage(value));
   handle("open-chat-link", chatLinkRequestSchema, (value) =>
     openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
@@ -429,6 +428,11 @@ export function createWorkspaceRequests<Context>(
   );
   handle("read-attachment", z.object({ projectId, attachmentId: uuid }).strict(), (value) =>
     store.readAttachment(value.projectId, value.attachmentId),
+  );
+  handle(
+    "auto-complete-threads",
+    z.object({ projectId, preferences: threadCompletionSchema }).strict(),
+    ({ projectId, preferences }) => service.autoCompleteThreads(projectId, preferences),
   );
   handle(
     "set-thread-done",

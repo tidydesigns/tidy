@@ -917,7 +917,7 @@ export class ProjectStore {
     return this.readFolder(projectId, folderId);
   }
 
-  private async threadSummaries(projectId: string) {
+  async threadSummaries(projectId: string) {
     const directory = await this.storagePath(projectId, "threads");
     const files = (await readdir(directory)).filter(
       (name) => name.endsWith(".json") && id.safeParse(name.slice(0, -5)).success,

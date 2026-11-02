@@ -1,3 +1,14 @@
+import {
+  threadCompletionSchema,
+  type ThreadCompletion,
+  type CompletionPullRequest,
+} from "../../shared/contracts/thread-completion";
+import {
+  threadCanAutoComplete,
+  threadCompletionReason,
+} from "../../shared/models/thread-completion";
+import { threadPullRequests } from "../../shared/models/thread-pull-requests";
+import { CompletionPullRequests } from "./completion-pull-requests";
 import { readChatImage } from "./chat-images";
 import type { ChatImageRequest } from "../../shared/contracts/chat-images";
 import { readVideoChunk } from "./video-preview";
@@ -737,6 +748,85 @@ export class WorkspaceService {
     }
   }
 
+  private readonly completionPullRequests = new CompletionPullRequests();
+  private readonly completionChecks = new Map<string, { key: string; pending: Promise<void> }>();
+
+  async pullRequestState(href: string) {
+    return (await this.completionPullRequests.read(href))?.state ?? null;
+  }
+
+  /** Checks are advisory until revalidated inside the thread's mutation queue. */
+  autoCompleteThreads(
+    projectId: string,
+    input: ThreadCompletion,
+    load: (url: string) => Promise<CompletionPullRequest | null> = (url) =>
+      this.completionPullRequests.read(url),
+  ): Promise<void> {
+    const preferences = threadCompletionSchema.parse(input);
+    const key = JSON.stringify(preferences);
+    const previous = this.completionChecks.get(projectId);
+    if (previous?.key === key) return previous.pending;
+    const check = { key, pending: Promise.resolve() };
+    this.completionChecks.set(projectId, check);
+    check.pending = (async () => {
+      if (this.closing || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
+        return;
+      await this.assertProjectAccess(projectId);
+      const summaries = await this.store.threadSummaries(projectId);
+      for (const summary of summaries) {
+        if (this.completionChecks.get(projectId) !== check || this.closing) return;
+        if (
+          summary.doneAt ||
+          !["completed", "idle", "stopped"].includes(summary.status) ||
+          summary.queuedMessageCount ||
+          summary.pendingApprovalCount ||
+          (!preferences.inactiveDays && !summary.pullRequests?.length)
+        )
+          continue;
+        try {
+          const requests =
+            preferences.merged || preferences.closed
+              ? await Promise.all(threadPullRequests(summary).map(load))
+              : [];
+          if (!threadCompletionReason(summary, preferences, requests)) continue;
+          await this.serialize(summary.id, async () => {
+            if (
+              this.completionChecks.get(projectId) !== check ||
+              this.closing ||
+              this.jobs.has(summary.id) ||
+              this.starting.has(summary.id) ||
+              this.sessions.backgroundContexts.some((context) => context.threadId === summary.id)
+            )
+              return;
+            await this.assertProjectAccess(projectId);
+            const current = await this.store.readThread(projectId, summary.id);
+            if (
+              this.completionChecks.get(projectId) !== check ||
+              this.closing ||
+              this.jobs.has(summary.id) ||
+              this.starting.has(summary.id) ||
+              current.revision !== summary.revision ||
+              !threadCanAutoComplete(current)
+            )
+              return;
+            const reason = threadCompletionReason(current, preferences, requests);
+            if (!reason) return;
+            current.doneAt = new Date().toISOString();
+            current.doneReason = reason;
+            current.revision++;
+            await this.store.writeThread(current);
+            this.emit({ type: "thread", thread: current });
+          });
+        } catch {
+          // Offline repositories and unavailable projects retry on the next check.
+        }
+      }
+    })().finally(() => {
+      if (this.completionChecks.get(projectId) === check) this.completionChecks.delete(projectId);
+    });
+    return check.pending;
+  }
+
   setThreadDone(projectId: string, threadId: string, done: boolean) {
     if (this.closing) return Promise.reject(new Error("Tidy is closing."));
     try {
@@ -776,6 +866,8 @@ export class WorkspaceService {
       }
       if (Boolean(thread.doneAt) === done) return thread;
       thread.doneAt = done ? new Date().toISOString() : undefined;
+      thread.doneReason = undefined;
+      if (!done) thread.autoDoneAfter = new Date().toISOString();
       thread.revision++;
       await this.store.writeThread(thread);
       this.emit({ type: "thread", thread });

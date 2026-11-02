@@ -25,20 +25,20 @@ export function parsePullRequestState(response: unknown): PullRequestState {
   return value.isDraft ? "draft" : "open";
 }
 
-export class PullRequestStates {
+export class CachedPullRequests<T> {
   private readonly cache = new Map<
     string,
-    { expires: number; pending: boolean; result: Promise<PullRequestState | null> }
+    { expires: number; pending: boolean; result: Promise<T | null> }
   >();
   private active = 0;
   private readonly waiting: Array<() => void> = [];
 
   constructor(
-    private readonly load: (url: string) => Promise<PullRequestState> = readState,
+    private readonly load: (url: string) => Promise<T>,
     private readonly now: () => number = Date.now,
   ) {}
 
-  read(href: string): Promise<PullRequestState | null> {
+  read(href: string): Promise<T | null> {
     const url = pullRequestURL(href);
     if (!url) return Promise.resolve(null);
     const cached = this.cache.get(url);
@@ -49,10 +49,10 @@ export class PullRequestStates {
       if (!oldest) return Promise.resolve(null);
       this.cache.delete(oldest[0]);
     }
-    const entry = {
+    const entry: { expires: number; pending: boolean; result: Promise<T | null> } = {
       expires: Infinity,
       pending: true,
-      result: Promise.resolve<PullRequestState | null>(null),
+      result: Promise.resolve<T | null>(null),
     };
     entry.result = this.lookup(url).then((state) => {
       entry.pending = false;
@@ -63,7 +63,7 @@ export class PullRequestStates {
     return entry.result;
   }
 
-  private async lookup(url: string): Promise<PullRequestState | null> {
+  private async lookup(url: string): Promise<T | null> {
     if (this.active >= 4) await new Promise<void>((resolve) => this.waiting.push(resolve));
     else this.active++;
     try {
@@ -75,5 +75,11 @@ export class PullRequestStates {
       if (next) next();
       else this.active--;
     }
+  }
+}
+
+export class PullRequestStates extends CachedPullRequests<PullRequestState> {
+  constructor(load = readState, now = Date.now) {
+    super(load, now);
   }
 }

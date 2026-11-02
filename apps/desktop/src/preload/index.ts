@@ -380,6 +380,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
       scopedRequest("add-attachment", { projectId, name, dataUrl }),
     readAttachment: (projectId, attachmentId) =>
       scopedRequest("read-attachment", { projectId, attachmentId }),
+    autoCompleteThreads: (projectId, preferences) =>
+      scopedRequest("auto-complete-threads", { projectId, preferences }),
     setThreadDone: (projectId, threadId, done) =>
       scopedRequest("set-thread-done", { projectId, threadId, done }),
     respondToApproval: (projectId, threadId, approvalId, decision) =>

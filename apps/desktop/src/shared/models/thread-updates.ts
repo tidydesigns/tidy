@@ -30,6 +30,8 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     titleRevision: thread.titleRevision,
     harness: thread.harness,
     doneAt: thread.doneAt,
+    doneReason: thread.doneReason,
+    autoDoneAfter: thread.autoDoneAfter,
     settings: thread.settings,
     actualModel: thread.actualModel,
     usage: thread.usage,

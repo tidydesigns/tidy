@@ -3061,3 +3061,159 @@ test.each([false, true])(
     expect(runs).toHaveLength(2);
   },
 );
+
+test("automatic completion persists its reason, emits an update, and respects a manual reopen", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const load = async () => ({
+    state: "merged" as const,
+    baseBranch: "trunk",
+    defaultBranch: "trunk",
+    endedAt: "2026-01-01T00:00:00Z",
+  });
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  const done = await store.readThread(project.id, thread.id);
+  expect(done.doneAt).toBeDefined();
+  expect(done.doneReason).toBe("merged");
+  expect(done.revision).toBe(stored.revision + 1);
+  const reopened = await service.setThreadDone(project.id, thread.id, false);
+  expect(reopened.doneReason).toBeUndefined();
+  expect(reopened.autoDoneAfter).toBeDefined();
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+});
+
+test("disabling rules cancels a pending automatic completion and running work is never stopped", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  let lookups = 0;
+  const gate =
+    Promise.withResolvers<
+      import("../../shared/contracts/thread-completion").CompletionPullRequest
+    >();
+  const load = () => {
+    lookups++;
+    return gate.promise;
+  };
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  expect(lookups).toBe(0);
+  expect(runs[0].stopped).toBe(false);
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const pending = service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  for (let attempt = 0; lookups === 0 && attempt < 100; attempt++) await Bun.sleep(2);
+  expect(lookups).toBe(1);
+  await service.autoCompleteThreads(
+    project.id,
+    { ...defaultThreadCompletion, merged: false },
+    load,
+  );
+  gate.resolve({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  });
+  await pending;
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+});
+
+test("new activity during a PR lookup wins over automatic completion", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const lookup = Promise.withResolvers<void>();
+  const gate =
+    Promise.withResolvers<
+      import("../../shared/contracts/thread-completion").CompletionPullRequest
+    >();
+  const pending = service.autoCompleteThreads(project.id, defaultThreadCompletion, () => {
+    lookup.resolve();
+    return gate.promise;
+  });
+  await lookup.promise;
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "One more thing" });
+  gate.resolve({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  });
+  await pending;
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  expect(runs[1].stopped).toBe(false);
+});
+
+test("inactivity completes threads without PRs, while queued work stays open", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Explore",
+    designIds: [],
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.updatedAt = "2000-01-01T00:00:00Z";
+  stored.queuedMessages = [{ id: randomUUID(), text: "Follow up" }];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const preferences = { ...defaultThreadCompletion, merged: false, inactiveDays: 7 as const };
+  const load = async () => {
+    throw new Error("Inactivity must not query GitHub");
+  };
+  await service.autoCompleteThreads(project.id, preferences, load);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  stored.queuedMessages = [];
+  stored.revision++;
+  await store.writeThread(stored);
+  const events: DesktopEvent[] = [];
+  const unsubscribe = service.subscribe((event) => events.push(event));
+  await service.autoCompleteThreads(project.id, preferences, load);
+  unsubscribe();
+  const done = await store.readThread(project.id, thread.id);
+  expect(done.doneReason).toBe("inactive");
+  expect(
+    events.some(
+      (event) =>
+        event.type === "thread" &&
+        event.thread.id === thread.id &&
+        event.thread.doneAt === done.doneAt,
+    ),
+  ).toBe(true);
+});

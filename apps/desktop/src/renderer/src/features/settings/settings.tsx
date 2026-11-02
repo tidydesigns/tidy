@@ -1,3 +1,4 @@
+import { ThreadCompletionSettings } from "./thread-completion-settings";
 import { AccessSettings } from "./access-settings";
 import { ThreadNamingSettings } from "./thread-naming-settings";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -150,6 +151,7 @@ export function Settings({
           <div id="settings-threads-panel" hidden={page !== "threads"}>
             <AccessSettings />
             <ThreadNamingSettings />
+            <ThreadCompletionSettings />
           </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
             <PrivacySettings active={active} />

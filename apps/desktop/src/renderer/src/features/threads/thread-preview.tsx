@@ -37,7 +37,14 @@ export function ThreadPreview({
 }: {
   thread: Pick<
     ThreadSummary,
-    "title" | "harness" | "actualModel" | "settings" | "projectId" | "pullRequests"
+    | "title"
+    | "harness"
+    | "actualModel"
+    | "settings"
+    | "projectId"
+    | "pullRequests"
+    | "doneAt"
+    | "doneReason"
   >;
   api?: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
   projectName?: string;
@@ -50,6 +57,15 @@ export function ThreadPreview({
         {thread.title}
       </strong>
       <dl className="thread-preview-details mt-2 grid gap-1.5 text-xs leading-[1.5] text-secondary-ink">
+        {thread.doneAt && thread.doneReason && (
+          <Detail label="Done automatically" icon={<Icon name="check" size={12} />}>
+            {
+              { merged: "PR merged", closed: "PR closed", inactive: "No activity" }[
+                thread.doneReason
+              ]
+            }
+          </Detail>
+        )}
         <Detail label="Model" icon={<ModelProviderIcon harness={thread.harness} size={12} />}>
           {modelName ?? thread.actualModel ?? thread.settings?.model ?? "Model not reported"}
         </Detail>

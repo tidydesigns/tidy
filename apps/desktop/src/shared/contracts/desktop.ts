@@ -1,3 +1,4 @@
+import { threadDoneReasonSchema, type ThreadCompletion } from "./thread-completion";
 import { threadPullRequestsSchema, type PullRequestState } from "./pull-request";
 import type { ThreadNaming } from "./thread-naming";
 import { harnessFailureKindSchema } from "./harness-failure";
@@ -84,6 +85,9 @@ export const storedThreadSchema = z.object({
   usage: tokenUsageSchema.optional(),
   actualModel: z.string().max(200).optional(),
   doneAt: z.string().datetime().optional(),
+  doneReason: threadDoneReasonSchema.optional(),
+  /** Ignore PR events before the last manual reopen. */
+  autoDoneAfter: z.string().datetime().optional(),
   designIds: z.array(id).max(20),
   messages: z.array(messageSchema).max(1000),
   queuedMessages: z.array(queuedMessageSchema).max(MAX_QUEUED_MESSAGES).optional(),
@@ -290,6 +294,7 @@ export type DesktopAPI = {
   updateMessageQueue(input: QueueRequest): Promise<Thread>;
   addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile>;
   readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile>;
+  autoCompleteThreads?(projectId: string, preferences: ThreadCompletion): Promise<void>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
   threadPorts(projectId: string, threadId: string): Promise<ThreadPort[]>;
