@@ -9,7 +9,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 class LocalShellSession extends SshSession {
   override launch({ command = [] }: { args: string[]; command?: string[] }) {
-    const child = spawn("/bin/sh", ["-c", command.join(" ")], { stdio: "pipe" });
+    const child = spawn("/bin/sh", ["-c", `exec ${command.join(" ")}`], { stdio: "pipe" });
     child.stdin.on("error", () => {});
     return child;
   }

@@ -308,6 +308,7 @@ test("identity, malformed state, and incompatible live protocols fail without in
 test("damaged live installations cannot be executed or replaced during recovery", async () => {
   for (const damage of ["bundle", "marker", "node"]) {
     const f = await fixture();
+    await f.sharedNode();
     await f.install();
     await writeFile(
       join(f.state, "runtime.json"),
@@ -358,6 +359,7 @@ test("truncated transfers fail checksum validation and remove only their own sta
 
 test("explicit updates validate identity before requesting an installation", async () => {
   const f = await fixture();
+  await f.sharedNode();
   await writeFile(join(f.state, "identity"), fixtureHostId);
   expect(f.reconnect({ update: true, expectedHostId: fixtureHostId }).stdout.trim()).toBe(
     "TIDY_INSTALL_REQUIRED",
