@@ -84,6 +84,12 @@ directories are keyed by bundle checksum under `~/.local/share/tidy/runtime`.
 Crash-released SQLite installation and launch locks serialize publication. Verified replacements
 can repair damaged inactive installations; running installations are preserved. Failed transfers
 remove their own staging files. Existing older runtime directories are retained.
+Repair holds the backend ownership locks until publication completes, so reused process IDs
+cannot block inactive repairs and concurrent startup cannot claim a runtime during replacement.
+Cached Node executables that lose execute permission are repaired only when inactive; inaccessible
+state directories and unknown ownership formats still stop recovery.
+Replacing an existing damaged cache requires exclusive ownership, even if runtime metadata names
+a different build. Installing a missing helper alongside a running backend remains supported.
 
 The launcher serializes startup and reuses a healthy backend shared by all connected desktops.
 On Linux it installs a systemd user service when the user manager is available. On macOS

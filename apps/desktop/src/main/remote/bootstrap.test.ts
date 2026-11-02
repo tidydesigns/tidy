@@ -1,15 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sshFailure } from "./errors";
 import { bootstrapScript, prepareHost, reconnectScript } from "./bootstrap";
 import { type SshSession, shellQuote } from "./ssh";
+import { installHostScript } from "./install-host";
 
 const roots: string[] = [];
+const releaseOwners: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  for (const release of releaseOwners.splice(0)) await release();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 const node = execFileSync("node", ["-p", "process.execPath"], { encoding: "utf8" }).trim();
@@ -65,6 +68,51 @@ async function fixture() {
     await writeFile(join(directory, "complete"), checksum + "\n");
     return directory;
   }
+  async function ownHost(legacy = false) {
+    const owner = spawn(
+      node,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `
+      import {lockHost, lockWorkspaceHost} from './src/main/remote/host-lock.ts';
+      import {join} from 'node:path';
+      if (process.argv[2] === 'legacy') lockHost(join(process.argv[1], 'host.lock'));
+      else await lockWorkspaceHost(process.argv[1]);
+      process.stdout.write('owned');
+      setInterval(() => {}, 1000);
+    `,
+        state,
+        legacy ? "legacy" : "current",
+      ],
+      {
+        cwd: new URL("../../..", import.meta.url),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let errors = "";
+    owner.stderr.on("data", (chunk) => {
+      errors += chunk.toString();
+    });
+    const exited = new Promise<void>((resolve, reject) => {
+      owner.once("error", reject);
+      owner.once("exit", () => resolve());
+    });
+    const release = async () => {
+      owner.kill("SIGKILL");
+      await exited;
+    };
+    releaseOwners.push(release);
+    await Promise.race([
+      new Promise<void>((resolve) => owner.stdout.once("data", () => resolve())),
+      exited.then(() => {
+        throw new Error("Ownership fixture exited: " + errors);
+      }),
+    ]);
+    return release;
+  }
   return {
     home,
     runtime,
@@ -78,6 +126,7 @@ async function fixture() {
     sharedNode,
     sharedName,
     checksum,
+    ownHost,
   };
 }
 
@@ -224,6 +273,7 @@ test("installing a helper alongside a live desktop preserves reconnect mode unle
   for (const update of [false, true]) {
     const f = await fixture();
     await f.sharedNode();
+    await f.ownHost();
     await writeFile(
       join(f.state, "runtime.json"),
       JSON.stringify({
@@ -297,6 +347,7 @@ test("identity, malformed state, and incompatible live protocols fail without in
   ]) {
     const f = await fixture();
     await f.install();
+    await f.ownHost();
     await writeFile(join(f.state, "runtime.json"), runtime);
     const result = f.reconnect({ expectedHostId: fixtureHostId });
     expect(result.status).not.toBe(0);
@@ -305,17 +356,21 @@ test("identity, malformed state, and incompatible live protocols fail without in
   }
 });
 
-test("damaged live installations cannot be executed or replaced during recovery", async () => {
-  for (const damage of ["bundle", "marker", "node"]) {
+test("damaged owned installations cannot be executed or replaced even when their backend is unresponsive", async () => {
+  for (const damage of ["bundle", "marker", "node", "permission"]) {
     const f = await fixture();
     await f.sharedNode();
     await f.install();
+    await f.ownHost();
     await writeFile(
       join(f.state, "runtime.json"),
       JSON.stringify({ pid: process.pid, protocol: 3, buildId: digest(bundle) }),
     );
-    if (damage === "node") await rm(join(f.installed, "bin/node"));
-    else
+    if (damage === "node" || damage === "permission") {
+      await rm(join(f.installed, "bin/node"));
+      if (damage === "permission")
+        await writeFile(join(f.installed, "bin/node"), "disabled", { mode: 0o600 });
+    } else
       await writeFile(
         join(f.installed, damage === "bundle" ? "tidy-host.mjs" : "complete"),
         "damaged",
@@ -323,7 +378,161 @@ test("damaged live installations cannot be executed or replaced during recovery"
     const result = f.reconnect();
     expect(result.status).not.toBe(0);
     expect(result.stdout).not.toContain("TIDY_INSTALL_REQUIRED");
+    const install = f.run(
+      bootstrapScript({ bundle, clientId, directories: f.directories }),
+      bundle,
+    );
+    expect(install.status).not.toBe(0);
+    expect(install.stderr).toContain("installation is damaged");
   }
+});
+
+test("a reused PID cannot block repair of an inactive installation", async () => {
+  const f = await fixture();
+  await f.sharedNode();
+  await f.install();
+  await writeFile(join(f.installed, "complete"), "damaged");
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 3,
+      buildId: digest(bundle),
+      hostId: fixtureHostId,
+    }),
+  );
+  expect(f.reconnect().stdout.trim()).toBe("TIDY_INSTALL_REQUIRED");
+  const result = f.run(bootstrapScript({ bundle, clientId, directories: f.directories }), bundle);
+  expect(result.status).toBe(0);
+  expect(await readFile(join(f.installed, "complete"), "utf8")).toBe(digest(bundle) + "\n");
+});
+
+test("an inactive installation with a stale incompatible runtime can request recovery", async () => {
+  const f = await fixture();
+  await f.sharedNode();
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 2,
+      buildId: digest(bundle),
+      hostId: fixtureHostId,
+    }),
+  );
+  expect(f.reconnect().stdout.trim()).toBe("TIDY_INSTALL_REQUIRED");
+});
+
+test("inactive bundle and shared runtimes with lost execute permission are repairable", async () => {
+  for (const shared of [false, true]) {
+    const f = await fixture();
+    const sharedDirectory = await f.sharedNode();
+    await f.install();
+    if (shared) {
+      await rm(join(f.installed, "bin/node"));
+      await symlink(join(sharedDirectory, "bin/node"), join(f.installed, "bin/node"));
+    }
+    const executable = join(shared ? sharedDirectory : f.installed, "bin/node");
+    await rm(executable);
+    await writeFile(executable, "disabled", { mode: 0o600 });
+    expect(f.reconnect().stdout.trim()).toBe("TIDY_INSTALL_REQUIRED");
+    async function repair() {
+      const stage = await mkdtemp(join(f.runtime, ".stage-"));
+      await writeFile(join(stage, "tidy-host.mjs"), bundle);
+      let nodeStage = "";
+      if (shared) {
+        nodeStage = await mkdtemp(join(f.runtime, ".node-stage-"));
+        await mkdir(join(nodeStage, "bin"));
+        await symlink(node, join(nodeStage, "bin/node"));
+        await writeFile(join(nodeStage, "complete"), f.checksum + "\n");
+      }
+      return spawnSync(
+        node,
+        [
+          "-e",
+          installHostScript,
+          f.runtime,
+          stage,
+          nodeStage,
+          sharedDirectory,
+          f.checksum,
+          digest(bundle),
+          f.state,
+        ],
+        { encoding: "utf8", env: f.environment },
+      );
+    }
+    const release = await f.ownHost();
+    const blocked = await repair();
+    expect(blocked.status).not.toBe(0);
+    expect(blocked.stderr).toContain("damaged");
+    expect(await readFile(executable, "utf8")).toBe("disabled");
+    await release();
+    const result = await repair();
+    expect(result.stderr).not.toContain("EACCES");
+    expect(result.status).toBe(0);
+    expect(JSON.parse(f.reconnect().stdout).buildId).toBe(digest(bundle));
+  }
+});
+
+test("inaccessible state directories fail without replacing cached runtimes", async () => {
+  const f = await fixture();
+  await f.sharedNode();
+  await f.install();
+  await writeFile(join(f.installed, "complete"), "damaged");
+  await chmod(f.state, 0o000);
+  try {
+    const result = f.reconnect();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("EACCES");
+    const install = f.run(
+      bootstrapScript({ bundle, clientId, directories: f.directories }),
+      bundle,
+    );
+    expect(install.status).not.toBe(0);
+    expect(await readFile(join(f.installed, "complete"), "utf8")).toBe("damaged");
+  } finally {
+    await chmod(f.state, 0o700);
+  }
+});
+
+test("legacy backend ownership also protects damaged installations", async () => {
+  const f = await fixture();
+  await f.sharedNode();
+  await f.install();
+  await f.ownHost(true);
+  await writeFile(join(f.installed, "complete"), "damaged");
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 3,
+      buildId: digest(bundle),
+    }),
+  );
+  expect(f.reconnect().stderr).toContain("running backend installation is damaged");
+  const result = f.run(bootstrapScript({ bundle, clientId, directories: f.directories }), bundle);
+  expect(result.status).not.toBe(0);
+  expect(await readFile(join(f.installed, "complete"), "utf8")).toBe("damaged");
+});
+
+test("repair cannot trust a stale build record while another backend owns the state", async () => {
+  const f = await fixture();
+  await f.sharedNode();
+  await f.install();
+  await f.ownHost();
+  await writeFile(join(f.installed, "complete"), "damaged");
+  await writeFile(
+    join(f.state, "runtime.json"),
+    JSON.stringify({
+      pid: process.pid,
+      protocol: 3,
+      buildId: "b".repeat(64),
+    }),
+  );
+  const result = f.run(bootstrapScript({ bundle, clientId, directories: f.directories }), bundle);
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("Stop the backend before repairing this cache");
+  expect(await readFile(join(f.installed, "complete"), "utf8")).toBe("damaged");
 });
 
 test("backend installation streams bytes into home storage and shares Node across builds", async () => {

@@ -28,6 +28,33 @@ async function proveOwnership(script: string) {
   }
 }
 
+test("recovery leases exclude current and legacy backend startup throughout repair", async () => {
+  await proveOwnership(`
+    import assert from 'node:assert/strict';
+    import {createRequire} from 'node:module';
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import {lockHost, lockWorkspaceHost} from './src/main/remote/host-lock.ts';
+    import {recoveryLockScript} from './src/main/remote/recovery-lock.ts';
+    const lockInactiveHost = new Function('require', 'fs', 'path', recoveryLockScript + ';return lockInactiveHost;')(createRequire(import.meta.url), fs, path);
+    const root = process.argv[1];
+    for (const modern of [false, true]) {
+      if (modern) { const migrate = await lockWorkspaceHost(root); migrate(); }
+      const release = lockInactiveHost(root);
+      assert.equal(typeof release, 'function');
+      assert.equal(lockInactiveHost(root), null);
+      assert.throws(() => lockHost(path.join(root, 'host.lock')));
+      await assert.rejects(lockWorkspaceHost(root));
+      release();
+      const owner = await lockWorkspaceHost(root);
+      assert.equal(lockInactiveHost(root), null);
+      owner();
+    }
+    fs.writeFileSync(path.join(root, 'host.lock'), JSON.stringify({format:'tidy-workspace-lock', version:99}));
+    assert.throws(() => lockInactiveHost(root), /requires a newer desktop/);
+  `);
+});
+
 test.skipIf(process.platform === "win32")(
   "ownership migration preserves a live legacy host and permanently excludes legacy launchers after release",
   async () => {
