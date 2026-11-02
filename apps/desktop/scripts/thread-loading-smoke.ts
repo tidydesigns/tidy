@@ -1,3 +1,5 @@
+import { build } from "vite";
+import { rendererConfig } from "../electron.vite.config";
 import { spawn } from "node:child_process";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,12 +15,25 @@ try {
   const assets = join(desktop, "out/renderer/assets");
   const css = (await readdir(assets)).find((name) => /^index-.*\.css$/.test(name));
   if (!css) throw new Error("Build the desktop app before running its renderer tests.");
-  const [renderer, runner] = await Promise.all([
-    Bun.build({
-      entrypoints: [join(desktop, "src/renderer/src/app/fixtures/thread-loading.tsx")],
-      target: "browser",
-      define: { "process.env.NODE_ENV": '"production"', "import.meta.env.DEV": "false" },
-      outdir: join(temporary, "renderer"),
+  const [, runner] = await Promise.all([
+    build({
+      ...rendererConfig,
+      configFile: false,
+      root: desktop,
+      base: "./",
+      build: {
+        ...rendererConfig.build,
+        outDir: join(temporary, "renderer"),
+        cssCodeSplit: false,
+        rolldownOptions: {
+          ...rendererConfig.build.rolldownOptions,
+          input: join(desktop, "src/renderer/src/app/fixtures/thread-loading.tsx"),
+          output: {
+            ...rendererConfig.build.rolldownOptions.output,
+            entryFileNames: "thread-loading.js",
+          },
+        },
+      },
     }),
     Bun.build({
       entrypoints: [join(desktop, "scripts/thread-loading-electron.ts")],
@@ -28,8 +43,7 @@ try {
       naming: "[name].mjs",
     }),
   ]);
-  if (!renderer.success || !runner.success)
-    throw new AggregateError([...renderer.logs, ...runner.logs], "Could not build renderer tests.");
+  if (!runner.success) throw new AggregateError(runner.logs, "Could not build renderer tests.");
   const html = join(temporary, "index.html");
   await writeFile(
     html,
