@@ -3091,6 +3091,72 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   );
 
   await run(
+    "done section stays at the sidebar bottom with short and scrolling lists",
+    async (root) => {
+      const active = Array.from({ length: 50 }, () => summarizeThread(makeThread({ count: 0 })));
+      const done = Array.from({ length: 20 }, () =>
+        summarizeThread({ ...makeThread({ count: 0 }), doneAt: timestamp }),
+      );
+      for (const height of [700, 360]) {
+        for (const count of [2, 50]) {
+          flushSync(() =>
+            root.render(
+              <div style={{ display: "flex", flexDirection: "column", height, width: 244 }}>
+                <header style={{ height: 100, flexShrink: 0 }}>Threads</header>
+                <ThreadSidebar
+                  projectId={projectId}
+                  threads={[...active.slice(0, count), ...done]}
+                  search=""
+                  renderThread={(thread) => (
+                    <button style={{ display: "block", height: 48 }}>{thread.title}</button>
+                  )}
+                />
+                <footer data-sidebar-footer style={{ height: 40, flexShrink: 0 }}>
+                  Settings
+                </footer>
+              </div>,
+            ),
+          );
+          const disclosure = required(
+            host.querySelector<HTMLDetailsElement>(".done-threads"),
+            "Done section",
+          );
+          disclosure.open = false;
+          await settle();
+          const summary = required(disclosure.querySelector("summary"), "Done disclosure");
+          const footer = required(host.querySelector("[data-sidebar-footer]"), "Sidebar footer");
+          const scroll = required(host.querySelector(".sidebar-scroll"), "Active thread scroller");
+          const footerTop = footer.getBoundingClientRect().top;
+          const bottomGap = footerTop - summary.getBoundingClientRect().bottom;
+          check(bottomGap >= 0 && bottomGap <= 12, "Done did not stay above the sidebar footer");
+          if (count === 50) {
+            check(scroll.scrollHeight > scroll.clientHeight, "Active threads did not scroll");
+            const top = summary.getBoundingClientRect().top;
+            scroll.scrollTop = scroll.scrollHeight;
+            check(
+              Math.abs(summary.getBoundingClientRect().top - top) < 1,
+              "Scrolling active threads moved Done",
+            );
+          }
+          disclosure.open = true;
+          await settle();
+          const list = required(host.querySelector(".done-thread-list"), "Done thread scroller");
+          check(list.scrollHeight > list.clientHeight, "Expanded Done threads were not bounded");
+          check(
+            list.getBoundingClientRect().bottom <= footerTop + 1,
+            "Expanded Done rows overlapped the footer",
+          );
+          check(
+            disclosure.getBoundingClientRect().bottom <= footerTop + 1,
+            "Expanded Done overlapped the footer",
+          );
+          check(scroll.clientHeight > 40, "Expanded Done displaced the active thread area");
+        }
+      }
+    },
+  );
+
+  await run(
     "rapid deferred searches retain order and finish with the latest query",
     async (root) => {
       const first = { ...makeThread({ count: 1 }), title: "Alpha search" };
