@@ -3299,7 +3299,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
-  await run("thread tables scroll without squeezing columns and expand in place", async (root) => {
+  await run("thread tables wrap, scroll at narrow widths and expand in place", async (root) => {
     const { a, threads, render } = conversationFixture(root);
     const text = [
       "| Harness | What its own interfaces show | What Tidy can access |",
@@ -3324,7 +3324,16 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     );
     const table = required(scroller.querySelector("table"), "Table");
     const firstColumn = required(table.querySelector("th"), "First column");
-    check(scroller.scrollWidth > scroller.clientWidth, "Wide table did not overflow horizontally");
+    check(
+      scroller.scrollWidth <= scroller.clientWidth + 1,
+      "Table did not wrap within the available message width",
+    );
+    message.style.width = "240px";
+    await settle();
+    check(
+      scroller.scrollWidth > scroller.clientWidth,
+      "Narrow table did not overflow horizontally",
+    );
     check(
       firstColumn.clientWidth >= parseFloat(getComputedStyle(firstColumn).minWidth) - 1,
       "Table squeezed its label column",
@@ -3335,7 +3344,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     check(left > 0, "Table could not scroll");
     check(!document.querySelector(".markdown-table-dialog"), "Collapsed table duplicated its DOM");
     const expand = required(
-      message.querySelector<HTMLButtonElement>(".markdown-table-action"),
+      message.querySelector<HTMLButtonElement>('[aria-label="Expand table"]'),
       "Expand table",
     );
     expand.focus();
