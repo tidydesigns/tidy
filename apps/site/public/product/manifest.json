@@ -88,37 +88,37 @@
       {
         "src": "/product/desktop-dark-640.webp",
         "width": 640,
-        "bytes": 22114
+        "bytes": 22484
       },
       {
         "src": "/product/desktop-dark-960.webp",
         "width": 960,
-        "bytes": 39378
+        "bytes": 42370
       },
       {
         "src": "/product/desktop-dark-1280.webp",
         "width": 1280,
-        "bytes": 58340
+        "bytes": 63430
       },
       {
         "src": "/product/desktop-dark-1920.webp",
         "width": 1920,
-        "bytes": 102250
+        "bytes": 103760
       },
       {
         "src": "/product/desktop-dark-2400.webp",
         "width": 2400,
-        "bytes": 141452
+        "bytes": 139252
       },
       {
         "src": "/product/desktop-dark-3200.webp",
         "width": 3200,
-        "bytes": 226084
+        "bytes": 202652
       },
       {
         "src": "/product/desktop-dark-3840.webp",
         "width": 3840,
-        "bytes": 285952
+        "bytes": 200334
       }
     ]
   },
@@ -129,37 +129,37 @@
       {
         "src": "/product/desktop-light-640.webp",
         "width": 640,
-        "bytes": 22280
+        "bytes": 22778
       },
       {
         "src": "/product/desktop-light-960.webp",
         "width": 960,
-        "bytes": 38930
+        "bytes": 39548
       },
       {
         "src": "/product/desktop-light-1280.webp",
         "width": 1280,
-        "bytes": 61034
+        "bytes": 59288
       },
       {
         "src": "/product/desktop-light-1920.webp",
         "width": 1920,
-        "bytes": 104540
+        "bytes": 102380
       },
       {
         "src": "/product/desktop-light-2400.webp",
         "width": 2400,
-        "bytes": 146510
+        "bytes": 137794
       },
       {
         "src": "/product/desktop-light-3200.webp",
         "width": 3200,
-        "bytes": 233328
+        "bytes": 203408
       },
       {
         "src": "/product/desktop-light-3840.webp",
         "width": 3840,
-        "bytes": 299142
+        "bytes": 205172
       }
     ]
   },
@@ -170,32 +170,32 @@
       {
         "src": "/product/desktop-initial-dark-640.webp",
         "width": 640,
-        "bytes": 22238
+        "bytes": 23116
       },
       {
         "src": "/product/desktop-initial-dark-960.webp",
         "width": 960,
-        "bytes": 39362
+        "bytes": 40274
       },
       {
         "src": "/product/desktop-initial-dark-1280.webp",
         "width": 1280,
-        "bytes": 57266
+        "bytes": 58982
       },
       {
         "src": "/product/desktop-initial-dark-1920.webp",
         "width": 1920,
-        "bytes": 108906
+        "bytes": 102256
       },
       {
         "src": "/product/desktop-initial-dark-2400.webp",
         "width": 2400,
-        "bytes": 152628
+        "bytes": 137582
       },
       {
         "src": "/product/desktop-initial-dark-2560.webp",
         "width": 2560,
-        "bytes": 161588
+        "bytes": 100804
       }
     ]
   },
@@ -206,32 +206,32 @@
       {
         "src": "/product/desktop-initial-light-640.webp",
         "width": 640,
-        "bytes": 21958
+        "bytes": 22598
       },
       {
         "src": "/product/desktop-initial-light-960.webp",
         "width": 960,
-        "bytes": 40352
+        "bytes": 40536
       },
       {
         "src": "/product/desktop-initial-light-1280.webp",
         "width": 1280,
-        "bytes": 59492
+        "bytes": 58620
       },
       {
         "src": "/product/desktop-initial-light-1920.webp",
         "width": 1920,
-        "bytes": 114182
+        "bytes": 102990
       },
       {
         "src": "/product/desktop-initial-light-2400.webp",
         "width": 2400,
-        "bytes": 160334
+        "bytes": 138074
       },
       {
         "src": "/product/desktop-initial-light-2560.webp",
         "width": 2560,
-        "bytes": 170578
+        "bytes": 102998
       }
     ]
   }
