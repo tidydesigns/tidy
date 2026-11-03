@@ -35,7 +35,7 @@ export function BrowserTabs({
   return (
     <header className="browser-topline flex min-h-11 shrink-0 items-center justify-between gap-2 px-2 py-1.5">
       <div
-        className="browser-tabs flex h-8 min-w-0 flex-[0_1_auto] items-center gap-1 overflow-x-auto [scrollbar-width:none]"
+        className="browser-tabs flex h-8 min-w-0 flex-[0_1_auto] items-center gap-1 overflow-x-auto"
         role="tablist"
         aria-label="Browser tabs"
       >
