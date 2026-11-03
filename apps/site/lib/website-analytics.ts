@@ -383,7 +383,8 @@ export function observeWebsiteSections() {
           observer.unobserve(entry.target);
         }
     },
-    { threshold: 0.25 },
+    // Tall sections may never fit 25% of their area in a short viewport.
+    { threshold: 0, rootMargin: "0px 0px -20% 0px" },
   );
   for (const section of document.querySelectorAll("#product, #desktop-demo, #cloud-footer"))
     observer.observe(section);
