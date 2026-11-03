@@ -1,0 +1,143 @@
+.desktop-navigation,
+.thread-workspace,
+.workspace-side-panel,
+.browser-workspace {
+  font-family: var(--font-instrument-sans);
+}
+
+.desktop-navigation .thread-item {
+  border-radius: 8px;
+}
+
+.desktop-navigation .thread-item.selected {
+  border-color: var(--color-border);
+  background: light-dark(#ffffff, #232323);
+  box-shadow: 0 1px 2px light-dark(#00000006, #00000012);
+}
+
+.desktop-navigation .thread-select {
+  padding: 9px 10px;
+}
+
+.thread-heading {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+.thread-heading .content-heading {
+  font-weight: 500;
+}
+
+.thread-workspace .message {
+  font-family: var(--font-instrument-sans);
+  line-height: 1.7;
+}
+
+.thread-workspace .message-user {
+  border-radius: 12px;
+  background: light-dark(#efefef, #242424);
+}
+
+.thread-workspace .message-markdown :is(h1, h2, h3, h4) {
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+}
+
+.thread-workspace .message-markdown h1 {
+  font-size: 21px;
+}
+
+.thread-workspace .message-markdown h2 {
+  font-size: 18px;
+}
+
+.thread-workspace .tool-activity-group {
+  font-size: 13px;
+}
+
+.thread-workspace .tool-activity-group > summary {
+  gap: 8px;
+  border-radius: 6px;
+}
+
+.thread-workspace .composer-body {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px light-dark(#00000004, #00000016);
+}
+
+.thread-workspace .composer-body:focus-within {
+  border-color: var(--color-control-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-control-border) 35%, transparent);
+}
+
+.thread-workspace .composer-lip {
+  border-radius: 10px 10px 0 0;
+}
+
+.thread-workspace .composer-actions {
+  padding-bottom: 0;
+}
+
+.thread-workspace .prompt-editor {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.workspace-side-panel .workspace-surface-tabs {
+  scrollbar-width: thin;
+}
+
+.workspace-side-panel .repository-navigation-header,
+.workspace-side-panel .repository-file-heading {
+  background: light-dark(#fafafa, #1b1b1b);
+}
+
+.workspace-side-panel .repository-tree-row {
+  border-radius: 6px;
+}
+
+:is(.desktop-navigation, .thread-heading, .composer, .workspace-side-panel)
+  :is(button, summary, input):focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .thread-workspace .tool-activity-group > summary:hover {
+    background: var(--color-hover-surface);
+  }
+}
+
+@container repository-conversation (max-width: 760px) {
+  .thread-heading {
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0 16px 6px;
+  }
+
+  .thread-heading .content-heading {
+    flex-basis: 100%;
+  }
+
+  .thread-heading .thread-context {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .thread-heading .composer-context {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+}
+
+@container repository-conversation (max-width: 560px) {
+  .conversation,
+  .composer {
+    --chat-gutter: 20px;
+  }
+
+  .thread-workspace .prompt-editor {
+    max-height: 160px;
+  }
+}

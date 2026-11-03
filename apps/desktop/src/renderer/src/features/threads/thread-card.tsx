@@ -215,7 +215,7 @@ export function ThreadCard({
             close();
             onRenameRequested?.();
           }}
-          className={`thread-title block w-full truncate text-sm leading-5 font-medium ${thread.doneAt ? "pr-16" : "pr-12"} ${status === "idle" && !selected ? "text-[light-dark(#424242,#d4d4d4)]" : ""}`}
+          className={`thread-title block w-full truncate text-[13px] leading-5 font-medium ${thread.doneAt ? "pr-16" : "pr-12"} ${status === "idle" && !selected ? "text-[light-dark(#424242,#d4d4d4)]" : ""}`}
         >
           {title}
         </span>
