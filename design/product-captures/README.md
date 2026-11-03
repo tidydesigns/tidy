@@ -3,7 +3,7 @@
 These are browser captures of the running Tidy source, with public example data.
 They are not generated artwork or HTML approximations of the interface.
 
-The desktop captures match pinned demo version `2026-11-03.1`. Refresh both
+The desktop captures match pinned demo version `2026-11-03.2`. Refresh both
 `desktop-*` and `desktop-initial-*` captures when updating the desktop demo pin
 so the live preview and image fallbacks stay in sync.
 
