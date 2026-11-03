@@ -35,6 +35,7 @@ import { projectAssetResponse } from "./workspace/project-assets";
 import { WorkspaceService } from "./workspace/workspace-service";
 import {
   registerHarnessUpdateIPC,
+  registerCommunityIPC,
   registerCloudIPC,
   registerUpdateIPC,
   registerWorkspaceIPC,
@@ -337,6 +338,7 @@ app
       installed: invalidateHarnessDetails,
     });
     registerHarnessUpdateIPC(harnessUpdates, entryURL);
+    registerCommunityIPC(entryURL);
     harnessUpdates.start();
     app.on("browser-window-focus", () => {
       void harnessUpdates?.check();

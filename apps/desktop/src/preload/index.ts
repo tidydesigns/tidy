@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { communityStarStatusSchema } from "../shared/contracts/community";
 import {
   terminalInputSchema,
   terminalOutputSchema,
@@ -243,6 +244,14 @@ function workspaceApi(machineId?: string): DesktopAPI {
       },
     },
     customTitlebar: process.platform === "darwin",
+    community: {
+      status: async () =>
+        communityStarStatusSchema.parse(await ipcRenderer.invoke("tidy:community-status")),
+      star: async () => z.boolean().parse(await ipcRenderer.invoke("tidy:community-star")),
+      open: async () => {
+        await ipcRenderer.invoke("tidy:community-open");
+      },
+    },
     onWindowFullscreen(listener) {
       const receive = (_event: Electron.IpcRendererEvent, fullscreen: unknown) => {
         if (typeof fullscreen === "boolean") listener(fullscreen);

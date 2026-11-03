@@ -1,6 +1,7 @@
 import { createFilePrefetch, FilePrefetchContext } from "../features/repository/file-prefetch";
 import { FileNavigationContext } from "../features/repository/file-navigation";
 import { useThreadCompletion } from "../features/threads/use-thread-completion";
+import { recordCommunityThreadStarted } from "../features/community/community-progress";
 import {
   currentDefaultAccess,
   accessDefaultOfferDismissed,
@@ -1749,6 +1750,7 @@ export function App({
           });
       pendingStarts.current.set(id, request);
       const value = await request;
+      if (!selectedThreadId) recordCommunityThreadStarted(value.id);
       setThreads((current) => ({
         ...current,
         [value.id]:

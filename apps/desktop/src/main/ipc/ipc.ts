@@ -21,6 +21,7 @@ import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "
 import { basename } from "node:path";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { trustedRendererURL } from "../app/renderer-security";
+import { CommunityRepository } from "../app/community-repository";
 import { readLocalFile } from "../platform/local-files";
 import { createWorkspaceRequests } from "./workspace-requests";
 import {
@@ -138,6 +139,19 @@ function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
     event.senderFrame === event.sender.mainFrame &&
     trustedRendererURL(event.senderFrame.url, rendererURL),
   );
+}
+
+export function registerCommunityIPC(rendererURL: string) {
+  const repository = new CommunityRepository();
+  for (const action of ["status", "star", "open"] as const) {
+    ipcMain.handle(`tidy:community-${action}`, (event, ...args: unknown[]) => {
+      if (!trustedRequest(event, rendererURL) || args.length)
+        throw new Error("Untrusted desktop request.");
+      return action === "open"
+        ? shell.openExternal("https://github.com/tidydesigns/tidy")
+        : repository[action]();
+    });
+  }
 }
 
 /** Renderer callers supply only an allowlisted harness ID, never a command/path/version. */

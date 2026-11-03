@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ToastViewport } from "@tidy/ui/toast";
 import "@tidy/ui/toast.css";
 import { MachineWorkspace } from "./app/machine-workspace";
+import { CommunityPrompt } from "./features/community/community-prompt";
 import { HarnessUpdateNotices } from "./features/harnesses/harness-updates";
 import "@tidy/ui/fonts.css";
 import "./styles.css";
@@ -21,6 +22,7 @@ window.tidy?.onWindowFullscreen?.((fullscreen) => {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <MachineWorkspace />
+    <CommunityPrompt api={window.tidy?.community} />
     <ToastViewport>
       <HarnessUpdateNotices api={window.tidy} />
     </ToastViewport>
