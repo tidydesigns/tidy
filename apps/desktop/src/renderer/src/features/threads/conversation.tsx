@@ -35,6 +35,7 @@ import { parseChatLink } from "../../../../shared/models/chat-links";
 import { MarkdownPreview } from "../../components/markdown-preview";
 import { MarkdownTable } from "./markdown-table";
 import { MarkdownCodeBlock } from "./markdown-code-block";
+import { remarkTableSource } from "./table-markdown";
 import { TurnStatus } from "./turn-status";
 import { remarkCompleteBlocks, useBlockReveal, useBufferedMarkdown } from "./streamed-markdown";
 
@@ -63,7 +64,7 @@ const MarkdownContent = memo(function MarkdownContent({
   threadId: string;
 }) {
   const markdownPlugins = useMemo<ComponentProps<typeof Markdown>["remarkPlugins"]>(
-    () => [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum }]],
+    () => [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum }], remarkTableSource],
     [text, minimum, streaming],
   );
   const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
@@ -170,7 +171,7 @@ const MessageBody = memo(function MessageBody({
     </div>
   ) : (
     <div
-      className="message-markdown [&_table]:text-sm [&_th]:font-semibold [&_strong]:font-semibold"
+      className="message-markdown [&_strong]:font-semibold"
       data-streaming={streaming && visible ? "" : undefined}
       data-revealing={revealing && visible ? "" : undefined}
     >

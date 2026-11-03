@@ -300,26 +300,6 @@
   margin: 14px 0;
   color: var(--color-muted-ink);
 }
-.message-markdown table {
-  width: max-content;
-  min-width: 100%;
-  border-collapse: collapse;
-  overflow-wrap: normal;
-  font-size: 14px;
-}
-.message-markdown :is(td, th) {
-  min-width: 8rem;
-  max-width: 32rem;
-  padding: 7px 12px;
-  border: 1px solid var(--color-border);
-  text-align: left;
-  overflow-wrap: break-word;
-}
-.markdown-table {
-  min-width: 0;
-  max-width: 100%;
-  margin: 14px 0;
-}
 .markdown-table-toolbar {
   display: flex;
   justify-content: flex-end;
