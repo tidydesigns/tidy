@@ -537,23 +537,33 @@ for (const native of [false, true]) {
     await service.sendMessage({
       projectId: project.id,
       threadId: thread.id,
-      text: "/review changes",
+      text: "Use $HOME then /review changes",
       skillId,
       delivery: "queue",
     });
     const queued = (await store.readThread(project.id, thread.id)).queuedMessages![0];
     expect(queued.skillId).toBe(skillId);
-    await action({ kind: "edit", messageId: queued.id, text: "$review edited arguments" });
+    await action({
+      kind: "edit",
+      messageId: queued.id,
+      text: "Use $PROJECT then $review edited arguments",
+    });
     expect((await read()).queuedMessages![0].skillId).toBe(skillId);
     await action({ kind: "steer", messageId: queued.id });
     const delivered = native ? runs[0].steers[0] : runs[1].input;
     expect(delivered.skill?.invocation.name).toBe("review");
-    expect(delivered.skill?.prompt).toBe("$review edited arguments");
-    expect(delivered.prompt).toEndWith("$review edited arguments");
+    expect(delivered.skill?.prompt).toBe("Use $PROJECT then $review edited arguments");
+    expect(delivered.prompt).toEndWith("Use $PROJECT then $review edited arguments");
     expect((await read()).queuedMessages).toHaveLength(0);
-    expect(
-      applyQueueAction([queued], { kind: "edit", messageId: queued.id, text: "/different" })[0]
-        .skillId,
-    ).toBeUndefined();
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: "Use $PROJECT then /review changes",
+      skillId,
+      delivery: "queue",
+    });
+    const next = (await read()).queuedMessages![0];
+    await action({ kind: "edit", messageId: next.id, text: "Use $PROJECT then /different" });
+    expect((await read()).queuedMessages![0].skillId).toBeUndefined();
   });
 }

@@ -135,7 +135,7 @@ export function SkillPrompt({
     if (visible && virtualized) virtual.reveal(selectedIndex);
     if (visible)
       menu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
-  }, [visible, anchor, selectedIndex, virtualized]);
+  }, [visible, anchor, selectedIndex, virtualized, rowHeight]);
 
   function choose(skill: Skill) {
     if (query === null) return;
@@ -158,7 +158,8 @@ export function SkillPrompt({
       onBlurCapture={(event) => {
         if (
           !(event.relatedTarget instanceof Node) ||
-          !event.currentTarget.contains(event.relatedTarget)
+          (!event.currentTarget.contains(event.relatedTarget) &&
+            !menu.current?.contains(event.relatedTarget))
         )
           setFocused(false);
       }}
@@ -275,6 +276,22 @@ export function SkillPrompt({
             event.stopPropagation();
             setDismissed(true);
             return;
+          }
+          if (
+            visible &&
+            !selected &&
+            event.key === "Tab" &&
+            !event.shiftKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey
+          ) {
+            const retryButton = menu.current?.querySelector<HTMLButtonElement>("button");
+            if (retryButton) {
+              event.preventDefault();
+              retryButton.focus();
+              return;
+            }
           }
           if (visible && matches.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
             event.preventDefault();

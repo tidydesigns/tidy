@@ -760,7 +760,11 @@ export function App({
       const key = `${target.projectId}:${failedStarts.current.has(target.id) ? "new" : target.id}`;
       setDrafts((current) => {
         const previous = current[key] ?? { ...emptyDraft, harness: target.harness };
-        const command = skillCommand(message.text);
+        const command =
+          skillCommand(
+            message.text,
+            availableSkills.map((skill) => skill.name),
+          ) ?? skillCommand(message.text);
         return {
           ...current,
           [key]: {
@@ -1056,10 +1060,14 @@ export function App({
   }
 
   function changePrompt(text: string, attachments?: AttachedFile[]) {
-    const name = skillCommand(text)?.name;
-    const skill = availableSkills.find((skill) => skill.name === name);
     setDrafts((state) => {
       const latest = state[draftKey] ?? draft;
+      const name =
+        skillCommand(
+          text,
+          availableSkills.map((skill) => skill.name),
+        )?.name ?? (latest.skill ? skillCommand(text, [latest.skill.name])?.name : undefined);
+      const skill = availableSkills.find((skill) => skill.name === name);
       const next = {
         ...latest,
         text,
@@ -1585,7 +1593,15 @@ export function App({
     )
       return;
     const submitted = resolveAttachmentReferences(draft.text, draft.attachments ?? []);
-    const command = skillCommand(submitted);
+    const command =
+      skillCommand(
+        submitted,
+        availableSkills.map((skill) => skill.name),
+      ) ??
+      (draft.skill?.harness === selectedHarness
+        ? skillCommand(submitted, [draft.skill.name])
+        : null) ??
+      skillCommand(submitted);
     const rememberedSkill =
       draft.skill?.harness === selectedHarness && draft.skill.name === command?.name
         ? draft.skill

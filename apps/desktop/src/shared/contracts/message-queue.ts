@@ -1,5 +1,5 @@
 import { permissionModeSchema } from "./permissions";
-import { skillIdSchema, skillCommand } from "./skills";
+import { skillIdSchema, skillCommands } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, MAX_ATTACHMENTS } from "./attachments";
 
@@ -48,7 +48,12 @@ export function applyQueueAction(messages: QueuedMessage[], action: QueueAction)
               ...message,
               text: action.text,
               skillId:
-                skillCommand(message.text)?.name === skillCommand(action.text)?.name
+                skillCommands(message.text)
+                  .map((command) => command.name)
+                  .join(" ") ===
+                skillCommands(action.text)
+                  .map((command) => command.name)
+                  .join(" ")
                   ? message.skillId
                   : undefined,
             }

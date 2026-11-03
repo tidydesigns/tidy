@@ -94,7 +94,11 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
                     { type: "text", text: message.skill.context },
                     {
                       type: "text",
-                      text: skillInvocationPrompt(message.skill.prompt, "/"),
+                      text: skillInvocationPrompt(
+                        message.skill.prompt,
+                        "/",
+                        message.skill.invocation.name,
+                      ),
                     },
                   ]
                 : [{ type: "text", text: message.prompt }]),

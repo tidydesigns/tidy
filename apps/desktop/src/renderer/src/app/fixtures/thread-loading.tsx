@@ -4513,6 +4513,99 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   }
 
   await run(
+    "skill picker exposes Retry to keyboard users and keeps selection visible on resize",
+    async (root) => {
+      let retries = 0;
+      const catalog = Array.from({ length: 200 }, (_, index) => ({
+        id: String(index),
+        name: `review-${String(index).padStart(3, "0")}`,
+        description: "Review changes",
+      }));
+      function Composer({ error }: { error: boolean }) {
+        const [text, setText] = useState("$");
+        return (
+          <form
+            className="composer"
+            style={{
+              position: "relative",
+              containerType: "inline-size",
+              containerName: "composer",
+              width: 720,
+              marginTop: 350,
+            }}
+          >
+            <SkillPrompt
+              value={text}
+              onChange={setText}
+              skills={error ? [] : catalog}
+              status={error ? "error" : "ready"}
+              retry={() => {
+                retries++;
+              }}
+            />
+            <button type="button">Model</button>
+          </form>
+        );
+      }
+      flushSync(() => root.render(<Composer error />));
+      const editor = required(host.querySelector<HTMLElement>("[role=textbox]"), "Editor");
+      editor.focus();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      flushSync(() => editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
+      await settle();
+      const retry = required(
+        host.querySelector<HTMLButtonElement>(".skill-picker button"),
+        "Retry",
+      );
+      flushSync(() =>
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+        ),
+      );
+      await settle();
+      check(retry.isConnected && document.activeElement === retry, "Tab cannot reach Retry");
+      flushSync(() => retry.click());
+      check(retries === 1 && document.activeElement === editor, "Retry lost editor focus");
+      flushSync(() => root.render(<Composer error={false} />));
+      await settle();
+      flushSync(() =>
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+        ),
+      );
+      await settle();
+      const owner = required(host.querySelector<HTMLElement>("form"), "Composer");
+      const picker = required(host.querySelector<HTMLElement>(".skill-picker"), "Picker");
+      owner.style.width = "400px";
+      await until(() => {
+        const selected = picker.querySelector<HTMLElement>('[aria-selected="true"]');
+        return Boolean(
+          selected &&
+          selected.getBoundingClientRect().height === 52 &&
+          selected.getBoundingClientRect().bottom <= picker.getBoundingClientRect().bottom,
+        );
+      }, "Resize keeps selected skill visible");
+      picker.scrollTop = 2000;
+      picker.dispatchEvent(new Event("scroll"));
+      await settle();
+      check(picker.scrollTop === 2000, "Manual scrolling snaps back to the selected skill");
+      const active = editor.getAttribute("aria-activedescendant");
+      check(
+        Boolean(active && document.getElementById(active)),
+        "Scrolling removed the active accessibility target",
+      );
+      check(
+        picker.querySelectorAll('[role="option"]').length < 40,
+        "Large catalog renders every option",
+      );
+    },
+  );
+
+  await run(
     "inline skills preserve surrounding text and attach above the composer",
     async (root) => {
       let value = "Please use $rev and keep this";

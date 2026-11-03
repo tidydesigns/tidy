@@ -53,7 +53,7 @@ function codexInput(message: Pick<TurnInput, "prompt" | "skill" | "images">) {
     {
       type: "text",
       text: message.skill
-        ? `${message.skill.context}\n\nUser request:\n\n${skillInvocationPrompt(message.skill.prompt, "$")}`
+        ? `${message.skill.context}\n\nUser request:\n\n${skillInvocationPrompt(message.skill.prompt, "$", message.skill.invocation.name)}`
         : message.prompt,
       text_elements: [],
     },

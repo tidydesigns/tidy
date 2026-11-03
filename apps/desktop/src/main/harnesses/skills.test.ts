@@ -21,7 +21,11 @@ describe("skill catalog boundaries", () => {
         const input = { harness, cwd: "/project" };
         const { skills } = await catalog.list(input);
         expect(
-          await catalog.resolve({ ...input, id: skills[0].id, prompt: `${prefix}review changes` }),
+          await catalog.resolve({
+            ...input,
+            id: skills[0].id,
+            prompt: `Use $HOME then ${prefix}review changes`,
+          }),
         ).toMatchObject({ name: "review" });
         await expect(
           catalog.resolve({ ...input, id: skills[0].id, prompt: `${prefix}other` }),
@@ -183,6 +187,8 @@ describe("skill composer", () => {
       start: 4,
       end: 11,
     });
+    expect(skillCommand(`Use $HOME then ${prefix}review changes`, ["review"])?.name).toBe("review");
+    expect(skillCommand(`Use $HOME then ${prefix}review changes`, ["missing"])).toBeNull();
     expect(skillCommand(`${prefix}plugin:review\nchanges`)?.name).toBe("plugin:review");
     for (const text of [
       `${prefix}review/file`,

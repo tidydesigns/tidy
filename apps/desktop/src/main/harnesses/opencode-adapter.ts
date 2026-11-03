@@ -174,7 +174,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
       messageId = crypto.randomUUID();
       const prompt =
         message.skill?.invocation.kind === "command"
-          ? `${skillInvocationPrompt(message.skill.prompt, "/")}\n\n${message.skill.context}`
+          ? `${skillInvocationPrompt(message.skill.prompt, "/", message.skill.invocation.name)}\n\n${message.skill.context}`
           : message.prompt;
       context.submitting();
       const completion = transport.request(

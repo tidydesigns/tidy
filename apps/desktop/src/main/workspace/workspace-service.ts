@@ -1,3 +1,4 @@
+import { skillCommand } from "../../shared/contracts/skills";
 import {
   threadCompletionSchema,
   type ThreadCompletion,
@@ -1669,6 +1670,16 @@ export class WorkspaceService {
       const updatedQueue = applyQueueAction(queue, action);
       const edited =
         action.kind === "edit" ? updatedQueue.find((item) => item.id === message.id) : undefined;
+      if (edited && message.skillId && !edited.skillId) {
+        const project = this.executionProject(thread);
+        const selected = await this.skills.resolve({
+          harness: thread.harness,
+          cwd: this.store.project(project.id).path,
+          id: message.skillId,
+          prompt: message.text,
+        });
+        if (skillCommand(edited.text, [selected.name])) edited.skillId = message.skillId;
+      }
       if (edited) await this.store.editQueuedMessage(thread, message, edited);
       try {
         await this.persistQueue(thread, updatedQueue);

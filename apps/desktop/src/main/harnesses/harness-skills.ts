@@ -209,7 +209,7 @@ export class HarnessSkills {
   }): Promise<NativeSkill> {
     const entries = await this.entries(input.harness, input.cwd, false, true);
     const entry = entries.find((entry) => entry.public.id === input.id);
-    if (!entry || skillCommand(input.prompt)?.name !== entry.native.name)
+    if (!entry || !skillCommand(input.prompt, [entry.native.name]))
       throw new Error("This skill is no longer available. Select it again before sending.");
     return entry.native;
   }

@@ -890,7 +890,7 @@ test.each(["/", "$"])(
         prompt: "Project context priced /review file",
         skill: {
           invocation: { kind: "command", name: "review", description: "Review" },
-          prompt: `Please ${prefix}review file`,
+          prompt: `Use $HOME then ${prefix}review file`,
           context: "Project context priced",
         },
         images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
@@ -904,7 +904,7 @@ test.each(["/", "$"])(
         recorded.find((event) => event.method === "session/prompt")?.value.params,
       ).toMatchObject({
         prompt: [
-          { type: "text", text: "/review Please file\n\nProject context priced" },
+          { type: "text", text: "/review Use $HOME then file\n\nProject context priced" },
           { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
         ],
       });
