@@ -11,6 +11,7 @@ import { FeedbackProvider, SendFeedback } from "./send-feedback";
 import { organizationCreationStatus } from "@/lib/organizations/creation";
 import { agentsEnabled } from "@/lib/agents/config";
 import { vaultEnabled } from "@/lib/vault/feature-flag";
+import { MacDownloadButton } from "./mac-download-button";
 
 type WorkspaceShellProps = {
   organizationId: string;
@@ -66,6 +67,9 @@ export async function WorkspaceShell({
                     triggerClassName={navClass}
                   />
                 )}
+                <div className="px-3 pt-2">
+                  <MacDownloadButton />
+                </div>
               </div>
               <OrganizationSwitcher
                 organizationId={organizationId}

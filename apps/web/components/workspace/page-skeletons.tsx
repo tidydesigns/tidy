@@ -14,6 +14,7 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
 import { Skeleton as Block } from "@/components/ui/skeleton";
 import { McpLoadingContent } from "@/app/mcp/mcp-loading";
+import { MacDownloadButton } from "./mac-download-button";
 import {
   filesPage,
   settingsPage,
@@ -459,6 +460,9 @@ export function WorkspaceSkeleton({ showThreads = true, emailConfigured }: Skele
             <div className={workspaceNavClass}>
               <Icon name="feedback" size={18} />
               <span data-ph-public>Send feedback</span>
+            </div>
+            <div className="px-3 pt-2">
+              <MacDownloadButton tabIndex={-1} />
             </div>
           </div>
           <div className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2">
