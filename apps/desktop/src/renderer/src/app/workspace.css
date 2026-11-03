@@ -345,25 +345,11 @@ summary:focus-visible {
   }
 }
 
-.thread-workspace {
-  container: repository-conversation / inline-size;
-}
-.composer .prompt-editor {
-  max-height: min(208px, 30dvh);
-  overscroll-behavior: contain;
-  scroll-padding-block: 8px;
-}
 @container repository-conversation (max-width: 560px) {
   .composer,
   .transcript,
   .approval-requests {
     --chat-gutter: 16px;
-  }
-  .composer {
-    margin-bottom: 16px;
-  }
-  .composer .prompt-editor {
-    max-height: min(160px, 28dvh);
   }
   .thread-heading {
     flex-wrap: wrap;
@@ -410,11 +396,5 @@ summary:focus-visible {
   .transcript,
   .approval-requests {
     --chat-gutter: 12px;
-  }
-  .composer-body {
-    padding: 10px;
-  }
-  .composer-actions {
-    gap: 4px;
   }
 }

@@ -42,7 +42,7 @@ export function ApprovalRequests({
     <div className="approval-requests" aria-label="Permission requests">
       {requests.map((request) => (
         <section key={request.id} className="approval-request" aria-label={request.title}>
-          <strong>{request.title}</strong>
+          <strong className="wrap-anywhere">{request.title}</strong>
           <div className="approval-body">
             {request.details && <pre tabIndex={0}>{request.details}</pre>}
             {request.reason && <p>{request.reason}</p>}

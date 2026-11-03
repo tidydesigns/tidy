@@ -49,7 +49,7 @@ export function Settings({
       <aside
         hidden={!active}
         id="desktop-settings-navigation"
-        className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) settings-navigation [&[hidden]]:hidden"
+        className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) settings-navigation [@media(max-width:600px)]:[&:not([hidden])]:col-[1] [@media(max-width:600px)]:[&:not([hidden])]:row-[1] [@media(max-width:600px)]:[&:not([hidden])]:border-r-0 [@media(max-width:600px)]:[&:not([hidden])]:border-b [&[hidden]]:hidden"
         aria-label="Settings"
       >
         <div className="workspace-header flex shrink-0 flex-col gap-1.5 px-1 pt-1 pb-2">
@@ -58,12 +58,15 @@ export function Settings({
             Back to app
           </Button>
         </div>
-        <nav className="settings-sections" aria-label="Settings sections">
-          <span className="settings-label">Settings</span>
+        <nav
+          className="settings-sections flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain px-2 py-[18px] [@media(max-width:600px)]:flex-row [@media(max-width:600px)]:overflow-x-auto [@media(max-width:600px)]:pt-0 [@media(max-width:600px)]:pb-2"
+          aria-label="Settings sections"
+        >
+          <span className="settings-label [@media(max-width:600px)]:hidden">Settings</span>
           {(["account", "appearance", "threads", "terminal", "privacy"] as const).map((item) => (
             <Button
               key={item}
-              className="settings-section"
+              className="settings-section shrink-0 [@media(max-width:600px)]:whitespace-nowrap"
               aria-current={page === item ? "page" : undefined}
               aria-controls={`settings-${item}-panel`}
               onClick={() => setPage(item)}
@@ -73,7 +76,7 @@ export function Settings({
           ))}
           {machines && remote && (
             <Button
-              className="settings-section"
+              className="settings-section shrink-0 [@media(max-width:600px)]:whitespace-nowrap"
               aria-current={page === "remote" ? "page" : undefined}
               aria-controls="settings-remote-panel"
               onClick={() => setPage("remote")}
@@ -85,7 +88,7 @@ export function Settings({
       </aside>
       <main
         hidden={!active}
-        className="workspace settings-workspace [&[hidden]]:hidden"
+        className="workspace settings-workspace px-[clamp(24px,5vw,64px)] py-10 [@media(max-width:600px)]:col-[1]! [@media(max-width:600px)]:row-[2]! [@media(max-width:600px)]:px-4 [@media(max-width:600px)]:py-6 [&[hidden]]:hidden"
         aria-labelledby="settings-title"
       >
         <div className="settings-content">

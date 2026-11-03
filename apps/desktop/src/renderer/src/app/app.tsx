@@ -2471,7 +2471,7 @@ export function App({
                 )}
               >
                 <div
-                  className={`thread-workspace relative flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
+                  className={`thread-workspace @container/repository-conversation relative flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
                   data-new-thread={!selectedThreadId || undefined}
                 >
                   <div
@@ -2603,7 +2603,7 @@ export function App({
                     />
                   ) : null}
                   <form
-                    className={`composer @container/composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
+                    className={`composer @container/composer [@container_repository-conversation_(max-width:560px)]:mb-4 relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
                         event.preventDefault();
@@ -2720,7 +2720,7 @@ export function App({
                         )}
                       </AnimatedHeight>
                     )}
-                    <div className="composer-body relative z-[1] rounded-2xl border border-border bg-(--desktop-composer-surface) p-3 max-[700px]:p-2.5 focus-within:border-control-border">
+                    <div className="composer-body [@container_repository-conversation_(max-width:380px)]:p-2.5 relative z-[1] rounded-2xl border border-border bg-(--desktop-composer-surface) p-3 max-[700px]:p-2.5 focus-within:border-control-border">
                       {machine && !machine.connected && (
                         <p
                           role="status"
@@ -2839,7 +2839,7 @@ export function App({
                       )}
                       <SkillPrompt
                         ref={promptEditor}
-                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] @max-[560px]/composer:max-h-[min(160px,30dvh)] placeholder:text-muted-ink focus:outline-none"
+                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(208px,30dvh)] overscroll-contain scroll-py-2 [@container_repository-conversation_(max-width:560px)]:max-h-[min(160px,28dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
                         status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
@@ -2913,7 +2913,7 @@ export function App({
                           }
                         }}
                       />
-                      <div className="composer-actions flex min-w-0 flex-nowrap items-center gap-2 py-2">
+                      <div className="composer-actions [@container_repository-conversation_(max-width:380px)]:gap-1 flex min-w-0 flex-nowrap items-center gap-2 py-2">
                         <ComposerControls>
                           <div className="composer-settings contents">
                             <HarnessControls

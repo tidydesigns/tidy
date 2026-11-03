@@ -99,7 +99,7 @@ export function DesktopShell({
     >
       <div
         ref={shell}
-        className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${inlineSidebar ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${!settingsOpen ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
+        className={`desktop [@media(max-width:600px)]:has-[>.settings-navigation:not([hidden])]:grid-cols-1 [@media(max-width:600px)]:has-[>.settings-navigation:not([hidden])]:grid-rows-[auto_minmax(0,1fr)] relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${inlineSidebar ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${!settingsOpen ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
       >
         <header className="desktop-titlebar hidden" />
         {children}
