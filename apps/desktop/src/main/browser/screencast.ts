@@ -6,6 +6,7 @@ type FrameView = Pick<Extract<BrowserOutput, { kind: "frame" }>, "tabId" | "view
 export type BrowserViewer = {
   id: string;
   visible: boolean;
+  videoDisabled?: boolean;
   send(event: BrowserOutput): void;
   inflight: Set<number>;
   pending?: Uint8Array;

@@ -140,6 +140,8 @@ const point = { x: z.number().finite().min(0).max(7680), y: z.number().finite().
 export const browserInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("ack"), frameId: z.number().int().positive().safe() }).strict(),
   z.object({ kind: z.literal("take-control") }).strict(),
+  z.object({ kind: z.literal("video-keyframe") }).strict(),
+  z.object({ kind: z.literal("video-disabled") }).strict(),
   z.object({ kind: z.literal("release-control") }).strict(),
   z.object({ kind: z.literal("visibility"), visible: z.boolean() }).strict(),
   z
@@ -234,6 +236,7 @@ export const browserOutputSchema = z.discriminatedUnion("kind", [
   ...browserEventSchema.options,
   z.object({
     kind: z.literal("frame"),
+    codec: z.literal("h264").optional(),
     tabId: z.uuid(),
     viewId: z.uuid(),
     frameId: z.number().int().positive().safe(),

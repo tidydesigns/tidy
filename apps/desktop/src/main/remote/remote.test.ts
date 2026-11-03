@@ -1958,3 +1958,33 @@ test("file reference reads use the thread worktree on its host", async () => {
   ).rejects.toThrow("This file or folder is missing. It may have moved or been deleted.");
   expect(client.status.kind).toBe("connected");
 });
+
+test("authenticated browser streams preserve H.264 metadata and binary payloads", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const scope = { projectId: f.project.id, threadId: randomUUID() };
+  const frame = {
+    kind: "frame" as const,
+    codec: "h264" as const,
+    tabId: randomUUID(),
+    viewId: randomUUID(),
+    frameId: 123456789012,
+    data: Buffer.from([1, 1, 0, 0, 0, 1, 0, 0, 0, 10, 0, 1, 1, 0, 0, 0, 0, 0, 1, 103, 100, 0, 52]),
+  };
+  const attach = f.service.browser.watch.bind(f.service.browser);
+  const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+    const watch = await attach(...args);
+    args[2](frame);
+    return watch;
+  });
+  const events: BrowserOutput[] = [];
+  const watch = client.watchBrowser(scope, randomUUID(), (event) => events.push(event));
+  try {
+    await until(() => events.some((event) => event.kind === "frame"));
+    expect(events.find((event) => event.kind === "frame")).toEqual(frame);
+  } finally {
+    watch.close();
+    observe.mockRestore();
+  }
+});

@@ -203,7 +203,7 @@ export class RemoteClient {
           .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
           .parse(await response.json());
         if (closed || version !== generation) return;
-        const params = new URLSearchParams({ ...scope, viewerId, ticket });
+        const params = new URLSearchParams({ ...scope, viewerId, ticket, video: "1" });
         const next = new WebSocket(
           `${active.origin.replace("http:", "ws:")}/browser-stream?${params}`,
           { maxPayload: 8 * 1024 * 1024, perMessageDeflate: false, handshakeTimeout: 15000 },

@@ -12,6 +12,11 @@ const supportedKeys = new Set<string>([
   "PATH",
   "TIDY_BROWSER_EXECUTABLE",
   "TIDY_BROWSER_SANDBOX",
+  "TIDY_BROWSER_STREAMING",
+  "TIDY_VOXL_EXECUTABLE",
+  "TIDY_XVFB_EXECUTABLE",
+  "TIDY_XRANDR_EXECUTABLE",
+  "TIDY_BROWSER_WINDOW_MANAGER_EXECUTABLE",
 ]);
 const environmentSchema = z.record(z.string(), z.string().max(64 * 1024));
 const environmentPath = (directory: string) => join(directory, "service-environment.json");

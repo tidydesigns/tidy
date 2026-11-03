@@ -244,6 +244,13 @@ export function createRemoteHost({
             return;
           }
           if (url.pathname === "/browser-stream") {
+            if (
+              process.env.TIDY_BROWSER_STREAMING === "voxl" &&
+              url.searchParams.get("video") !== "1"
+            ) {
+              client.close(1008, "Update the viewer to use browser video.");
+              return;
+            }
             const scope = browserScopeSchema.safeParse({
               projectId: url.searchParams.get("projectId"),
               threadId: url.searchParams.get("threadId"),

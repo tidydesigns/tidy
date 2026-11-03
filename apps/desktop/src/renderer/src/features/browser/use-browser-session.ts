@@ -60,6 +60,8 @@ export function useBrowserSession({
       visible: () => visibleRef.current,
       acknowledge: (frameId) => send({ kind: "ack", frameId }),
       painted: setPainted,
+      resyncVideo: () => send({ kind: "video-keyframe" }),
+      disableVideo: () => send({ kind: "video-disabled" }),
     });
     const unwatch = api.watch(scope, (event) => {
       if (stopped) return;
