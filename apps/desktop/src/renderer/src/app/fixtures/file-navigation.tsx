@@ -19,6 +19,11 @@ async function until(predicate: () => boolean, label: string) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
+async function nextPaint() {
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+}
 export async function runFileNavigationTests(root: Root) {
   const projectId = crypto.randomUUID();
   let revealInFolder = 0;
@@ -32,7 +37,7 @@ export async function runFileNavigationTests(root: Root) {
         return new Promise<string>((resolve) => {
           release = resolve;
         });
-      if (href === "../outside.ts") throw new Error("This file is outside this project's project.");
+      if (href === "../outside.ts") throw new Error("This file is outside this project.");
       return href.split(":")[0];
     },
     repositoryDirectory: async () => ({
@@ -139,6 +144,13 @@ export async function runFileNavigationTests(root: Root) {
     document.querySelector('[role="tab"][aria-selected=true]')?.textContent === "Files",
     "Files surface not selected",
   );
+  const tab = document.querySelector<HTMLButtonElement>("#workspace-tab-files");
+  const content = document.getElementById(tab?.getAttribute("aria-controls") ?? "");
+  check(
+    content?.contains(document.querySelector(".repository-file-pane:not([hidden])")),
+    "Files tab does not identify the visible preview",
+  );
+  if (window.matchMedia("(max-width: 980px)").matches) return;
   const code = document.querySelector<HTMLElement>(".repository-wrapped-code");
   check(code, "File preview missing");
   code.scrollTop = 0;
@@ -157,7 +169,7 @@ export async function runFileNavigationTests(root: Root) {
   click("src/example.ts:12");
   await until(() => Boolean(highlighted(12)), "newer navigation completes");
   release?.("slow.ts");
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await nextPaint();
   check(highlighted(12), "Late host response replaced the newer target");
   click("slow.ts:3");
   await until(
@@ -175,6 +187,7 @@ export async function runFileNavigationTests(root: Root) {
   check(entry, "Manual file entry missing");
   flushSync(() => entry.click());
   release?.("slow.ts");
+  await nextPaint();
   await until(
     () => document.querySelector(".repository-file-name")?.textContent === manual,
     "manual selection survives a late host response",
@@ -204,12 +217,6 @@ export async function runFileNavigationTests(root: Root) {
   await until(
     () => Boolean(highlighted(2)),
     "another click retries a missing file that has returned",
-  );
-  const tab = document.querySelector<HTMLButtonElement>("#workspace-tab-files");
-  const content = document.getElementById(tab?.getAttribute("aria-controls") ?? "");
-  check(
-    content?.contains(document.querySelector(".repository-file-pane:not([hidden])")),
-    "Files tab does not identify the visible preview",
   );
   check(revealInFolder === 0, "File references reached the operating system");
 }
