@@ -1,3 +1,4 @@
+import { runFileLocationTests } from "./file-location";
 import { FileNavigationContext } from "../../features/repository/file-navigation";
 import { runFileNavigationTests } from "./file-navigation";
 import { runBrowserInputTests } from "./browser-input";
@@ -411,6 +412,8 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run("file locations preserve focus and reveal exact characters", runFileLocationTests);
 
   await run(
     "chat file references reveal sidebar lines and ignore stale host responses",

@@ -1,7 +1,9 @@
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { resolveRepositoryLink } from "./repository-link";
+import { resolveRepositoryLink, resolveRepositoryReference } from "./repository-link";
 
 const root = join(homedir(), "file-navigation-project");
 test("resolves relative, absolute, encoded and file URL references on the host", () => {
@@ -31,4 +33,29 @@ test("rejects paths outside the selected checkout, metadata and unsafe destinati
 test("absolute paths retain checkout identity rather than rebasing onto another worktree", () => {
   expect(() => resolveRepositoryLink(`${root}/worktree`, `${root}/src/a.ts`)).toThrow("outside");
   expect(resolveRepositoryLink(`${root}/worktree`, "src/a.ts")).toBe("src/a.ts");
+});
+
+test("absolute aliases open only when their real file stays inside the project", async () => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), "tidy-file-alias-")));
+  try {
+    const project = join(scratch, "project");
+    const alias = join(scratch, "alias");
+    await mkdir(project);
+    await writeFile(join(project, "name #1.ts"), "export const value = 1;");
+    await symlink(project, alias);
+    expect(await resolveRepositoryReference(project, `${alias}/name%20%231.ts:4`)).toBe(
+      "name #1.ts",
+    );
+    await writeFile(join(scratch, "outside.ts"), "outside");
+    await expect(resolveRepositoryReference(project, join(scratch, "outside.ts"))).rejects.toThrow(
+      "outside",
+    );
+    await mkdir(join(project, ".git"));
+    await writeFile(join(project, ".git/config.json"), "{}");
+    await expect(
+      resolveRepositoryReference(project, join(alias, ".git/config.json")),
+    ).rejects.toThrow();
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 });

@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { parseChatLink } from "../../shared/models/chat-links";
@@ -15,4 +17,23 @@ export function resolveRepositoryLink(root: string, href: string) {
   const parsed = repositoryPathSchema.safeParse(path.split(sep).join("/"));
   if (!parsed.success) throw new Error("This file cannot be previewed inside this project.");
   return parsed.data;
+}
+
+export async function resolveRepositoryReference(root: string, href: string) {
+  try {
+    return resolveRepositoryLink(root, href);
+  } catch (error) {
+    const link = parseChatLink(href);
+    if (
+      link?.kind !== "file" ||
+      !isAbsolute(link.path) ||
+      !(error instanceof Error) ||
+      !error.message.includes("outside this thread's project")
+    )
+      throw error;
+    const actual = await realpath(link.path).catch(() => {
+      throw error;
+    });
+    return resolveRepositoryLink(root, pathToFileURL(actual).href);
+  }
 }

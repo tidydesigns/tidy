@@ -19,7 +19,7 @@ const serviceHosts = {
 export type LinkService = (typeof serviceHosts)[keyof typeof serviceHosts];
 export type ChatLink =
   | { kind: "external"; url: string; service: LinkService | null }
-  | { kind: "file"; path: string; name: string; line?: number; column?: number };
+  | { kind: "file"; path: string; name: string; line?: number; column?: number; endLine?: number };
 
 export function parseChatLink(href: string | undefined): ChatLink | null {
   if (!href || href.length > 4096 || /[\u0000-\u001f\u007f]/.test(href)) return null;
@@ -48,11 +48,11 @@ export function parseChatLink(href: string | undefined): ChatLink | null {
     }
   }
   const position = path.match(
-    /(?::([1-9]\d*)(?::([1-9]\d*))?|#L([1-9]\d*)(?:C([1-9]\d*))?(?:-L[1-9]\d*)?)$/,
+    /(?::(?<colonLine>[1-9]\d*)(?::(?<colonColumn>[1-9]\d*))?(?:-(?<colonEnd>[1-9]\d*))?|#L(?<hashLine>[1-9]\d*)(?:C(?<hashColumn>[1-9]\d*))?(?:-L(?<hashEnd>[1-9]\d*))?)$/,
   );
   if (position) path = path.slice(0, position.index);
   if (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:[\\/]/i.test(path)) return null;
-  if (/[?#]/.test(path)) return null;
+  if (/[?#]/.test(path) || path.replace(/^[a-z]:[\\/]/i, "").includes(":")) return null;
   try {
     path = decodeURIComponent(path).replaceAll("\\", "/");
   } catch {
@@ -60,19 +60,36 @@ export function parseChatLink(href: string | undefined): ChatLink | null {
   }
   if (!path || /[\u0000-\u001f\u007f]/.test(path) || path.startsWith("//")) return null;
   const name = path.split("/").at(-1);
+  if (!name || name === "." || name === "..") return null;
   if (
-    !name ||
-    (!/\.[a-z\d_-]+$/i.test(name) && !/^(?:Dockerfile|Makefile|LICENSE|README)$/i.test(name))
+    !name.includes(".") &&
+    /\s/.test(name) &&
+    !path.includes("/") &&
+    !position &&
+    !/%[a-f\d]{2}/i.test(href)
   )
     return null;
-  const line = position ? Number(position[1] ?? position[3]) : undefined;
-  const column = position?.[2] || position?.[4] ? Number(position[2] ?? position[4]) : undefined;
+  const lineText = position?.groups?.colonLine ?? position?.groups?.hashLine;
+  const columnText = position?.groups?.colonColumn ?? position?.groups?.hashColumn;
+  const endText = position?.groups?.colonEnd ?? position?.groups?.hashEnd;
+  const line = lineText ? Number(lineText) : undefined;
+  const column = columnText ? Number(columnText) : undefined;
+  const endLine = endText ? Number(endText) : undefined;
   if (
     (line !== undefined && !Number.isSafeInteger(line)) ||
-    (column !== undefined && !Number.isSafeInteger(column))
+    (column !== undefined && !Number.isSafeInteger(column)) ||
+    (endLine !== undefined &&
+      (!Number.isSafeInteger(endLine) || line === undefined || endLine < line))
   )
     return null;
-  return { kind: "file", path, name, ...(line ? { line } : {}), ...(column ? { column } : {}) };
+  return {
+    kind: "file",
+    path,
+    name,
+    ...(line ? { line } : {}),
+    ...(column ? { column } : {}),
+    ...(endLine ? { endLine } : {}),
+  };
 }
 
 export function fileIconName(path: string) {

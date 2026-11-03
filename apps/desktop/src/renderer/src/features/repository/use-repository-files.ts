@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { repositoryRead } from "./repository-read";
+import type { FilePrefetch } from "./file-prefetch";
 import type { DesktopAPI } from "../../../../shared/contracts/desktop";
 import type {
   RepositoryChanges,
@@ -21,6 +22,8 @@ export function useRepositoryFiles({
   selected,
   expanded,
   continuous = false,
+  requestId,
+  prefetch,
 }: {
   api: RepositoryAPI;
   projectId: string;
@@ -28,6 +31,8 @@ export function useRepositoryFiles({
   selected: string | null;
   expanded: ReadonlySet<string>;
   continuous?: boolean;
+  requestId?: string;
+  prefetch?: FilePrefetch | null;
 }) {
   const [directories, setDirectories] = useState(new Map<string, RepositoryDirectory>());
   const [changes, setChanges] = useState<RepositoryChanges>();
@@ -182,6 +187,7 @@ export function useRepositoryFiles({
   }
   const refreshingRef = useRef(false);
   const fileRunning = useRef(new Map<symbol, string>());
+  const requestGenerations = useRef(new Map<symbol, number>());
   const latestFileRequest = useRef(new Map<string, symbol>());
   const changesInitialized = useRef(false);
   const lastReconciliation = useRef(Date.now());
@@ -303,6 +309,8 @@ export function useRepositoryFiles({
             fileGeneration.current.set(path, (fileGeneration.current.get(path) ?? 0) + 1);
         for (const path of fileCache.current.keys())
           if (touches(path)) fileCache.current.delete(path);
+        if (invalidateAll) prefetch?.invalidate();
+        else if (invalidated.size) prefetch?.invalidate([...invalidated]);
         if (latest.current.selected && touches(latest.current.selected))
           setRevision((value) => value + 1);
         if (initialized && (invalidateAll || invalidated.size))
@@ -323,7 +331,7 @@ export function useRepositoryFiles({
           void refresh(pending.full ? undefined : [...pending.paths], pending.reconcile);
       }
     },
-    [api, projectId, loadDirectory],
+    [api, projectId, loadDirectory, prefetch],
   );
 
   useEffect(() => {
@@ -377,6 +385,7 @@ export function useRepositoryFiles({
       fileRunning.current.set(request, wanted.path);
       latestFileRequest.current.set(wanted.path, request);
       const generation = fileGeneration.current.get(wanted.path) ?? 0;
+      requestGenerations.current.set(request, generation);
       const previousPath =
         changesRef.current?.changes.find((change) => change.path === wanted.path)?.previousPath ??
         undefined;
@@ -437,6 +446,7 @@ export function useRepositoryFiles({
           );
       } finally {
         fileRunning.current.delete(request);
+        requestGenerations.current.delete(request);
         if (![...fileRunning.current.values()].includes(wanted.path))
           fileGeneration.current.delete(wanted.path);
         if (latestFileRequest.current.get(wanted.path) === request)
@@ -451,19 +461,34 @@ export function useRepositoryFiles({
     continuous &&
     ((!changes && !changesError) ||
       Boolean(changes?.changes.some((change) => change.path === selected)));
+  const previousRequest = useRef(requestId);
   useEffect(() => {
+    const requestedAgain = requestId !== undefined && previousRequest.current !== requestId;
+    previousRequest.current = requestId;
     wantedFile.current = null;
     setFileError("");
     if (!active || !selected) return;
     if (deferPreview) return;
     const cached = fileCache.current.get(selected);
-    if (cached) {
+    if (cached && !(requestedAgain && cached.kind === "unavailable")) {
       setFile({ path: selected, content: cached });
       return;
     }
+    if (
+      [...fileRunning.current].some(
+        ([request, path]) =>
+          path === selected &&
+          requestGenerations.current.get(request) === (fileGeneration.current.get(path) ?? 0),
+      )
+    )
+      return;
+    if (requestedAgain && cached?.kind === "unavailable") {
+      fileCache.current.delete(selected);
+      prefetch?.invalidate([selected]);
+    }
     wantedFile.current = { path: selected };
     void requestFile();
-  }, [selected, active, revision, requestFile, deferPreview]);
+  }, [selected, active, revision, requestFile, deferPreview, requestId, prefetch]);
 
   return {
     directories,

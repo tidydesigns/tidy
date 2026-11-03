@@ -6,21 +6,20 @@ import type { RepositoryFile } from "../../../../shared/contracts/repository-fil
 import type { FileRows } from "./file-rows";
 import { useVirtualWindow } from "./virtual-window";
 import { useMeasuredWindow, rowAtOffset } from "./measured-window";
-import { CodeCell, codeRowKind } from "./code-cell";
+import { CodeCell, codeRowKind, fileColumnRange } from "./code-cell";
 import { RepositoryIcon } from "./repository-icons";
 import { rememberScroll } from "./use-repository-scroll";
 import FileRowsWorker from "./file-rows.worker?worker";
 
 const emptyRows: FileRows["rows"] = [];
 const unavailableText = {
-  filtered: "This file uses external Git filters. Review its changes in your editor.",
-  binary: "Binary or non-UTF-8 file. A text preview is unavailable.",
-  oversized:
-    "This file exceeds the preview limit (1 MiB file or 2 MiB diff). Open it in your editor.",
-  symlink: "This symbolic link has an unavailable target or points outside the project.",
+  filtered: "This file needs a tool that isn't available here.",
+  binary: "This file can't be shown as text.",
+  oversized: "This file is too large to preview.",
+  symlink: "This file points to a missing file or a file outside this project.",
   unsupported: "This file type cannot be previewed.",
-  missing: "This file is no longer available. Refresh to update the file list.",
-  conflict: "This file has merge conflicts. Resolve them in your editor before reviewing its diff.",
+  missing: "This file isn't available in this folder. It may have moved or been deleted.",
+  conflict: "This file has unresolved changes.",
 } satisfies Record<Extract<RepositoryFile, { kind: "unavailable" }>["reason"], string>;
 
 export const FileContent = memo(function FileContent({
@@ -30,7 +29,9 @@ export const FileContent = memo(function FileContent({
   visible,
   positions,
   target,
+  onRetry,
 }: {
+  onRetry?: () => void;
   target?: FileLineTarget;
   visible: boolean;
   positions: Map<string, number>;
@@ -158,35 +159,124 @@ export const FileContent = memo(function FileContent({
       (wrap && measured.width === 0)
     )
       return;
-    if (revealed.current === target.id) return;
-    const top = wrap ? measured.offsets[targetRow.index] : targetRow.index * 24;
-    node.scrollTop = Math.max(0, top - node.clientHeight / 3);
-    node.focus({ preventScroll: true });
-    rememberScroll(positions, `file-wrap-row:${path}`, targetRow.index);
-    rememberScroll(positions, `file:${path}`, node.scrollTop);
-    revealed.current = target.id;
+    const key = `${target.id}:${wrap}`;
+    if (revealed.current === key) return;
+    let frame: number;
+    let stable = 0;
+    const cancel = () => {
+      revealed.current = key;
+      cancelAnimationFrame(frame);
+    };
+    const reveal = () => {
+      const number = node.querySelector<HTMLElement>(`[aria-label="New line ${targetRow.line}"]`);
+      const row = number?.closest<HTMLElement>(".repository-code-row");
+      const destination = row?.querySelector<HTMLElement>("[data-file-column]") ?? number;
+      if (!destination) {
+        const top = wrap ? measured.offsets[targetRow.index] : targetRow.index * 24;
+        node.scrollTop = Math.max(0, top - node.clientHeight / 3);
+        stable = 0;
+      } else {
+        const area = node.getBoundingClientRect();
+        const character = destination.getBoundingClientRect();
+        const inside =
+          character.top >= area.top &&
+          character.bottom <= area.bottom &&
+          character.left >= area.left &&
+          character.right <= area.right;
+        stable = inside ? stable + 1 : 0;
+        if (!inside) {
+          node.scrollTop += character.top - area.top - node.clientHeight / 3;
+          if (character.left < area.left || character.right > area.right)
+            node.scrollLeft += character.left - area.left - node.clientWidth / 3;
+        }
+        if (stable >= 2) {
+          revealed.current = key;
+          rememberScroll(positions, `file-wrap-row:${path}`, targetRow.index);
+          rememberScroll(positions, `file:${path}`, node.scrollTop);
+          return;
+        }
+      }
+      frame = requestAnimationFrame(reveal);
+    };
+    frame = requestAnimationFrame(reveal);
+    for (const event of ["wheel", "pointerdown", "touchstart", "keydown"])
+      node.addEventListener(event, cancel, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const event of ["wheel", "pointerdown", "touchstart", "keydown"])
+        node.removeEventListener(event, cancel);
+    };
   }, [
     target,
-    targetRow?.index,
-    file,
+    targetRow,
     active,
     visible,
-    available,
     wrap,
     measured.offsets,
+    measured.start,
+    measured.end,
     measured.width,
+    virtual.start,
     positions,
     path,
   ]);
+  const selectedRow = available?.result.rows[targetRow?.index ?? -1];
+  const columnAvailable = Boolean(
+    targetRow?.exact &&
+    target?.column &&
+    selectedRow?.kind === "lines" &&
+    selectedRow.after &&
+    fileColumnRange(selectedRow.after, target.column),
+  );
+  const columnClipped = Boolean(
+    !columnAvailable &&
+    target?.column &&
+    selectedRow?.kind === "lines" &&
+    selectedRow.after?.sourceLength &&
+    target.column <= selectedRow.after.sourceLength,
+  );
+  const highlightsRow = (index: number) => {
+    if (!targetRow || !target) return false;
+    if (!targetRow.exact || !target.endLine) return index === targetRow.index;
+    const row = available?.result.rows[index];
+    return (
+      row?.kind === "lines" &&
+      Boolean(row.after && row.after.number >= target.line && row.after.number <= target.endLine)
+    );
+  };
   if (file.kind === "unavailable")
     return (
-      <p className="repository-empty" role="status">
-        {unavailableText[file.reason]}
-      </p>
+      <div className="repository-empty" role="status">
+        <p>{unavailableText[file.reason]}</p>
+        {file.reason === "missing" && onRetry && (
+          <Button className="quiet-button" onClick={onRetry}>
+            Retry
+          </Button>
+        )}
+      </div>
     );
   const result = available?.result;
   const displayedFile = available?.file.kind === "text" ? available.file : file;
   const panes = result?.split ? (["before", "after"] as const) : (["after"] as const);
+  function locationLabel() {
+    if (!target || !targetRow) return "This file is empty.";
+    const unavailable =
+      result?.limited || displayedFile.truncated ? "is outside this preview" : "is unavailable";
+    if (!targetRow.exact)
+      return `Line ${target.line} ${unavailable}. Showing line ${targetRow.line}.`;
+    if (target.endLine && target.endLine > target.line) {
+      const complete = result?.rows.some(
+        (row) => row.kind === "lines" && row.after?.number === target.endLine,
+      );
+      return complete
+        ? `Lines ${target.line} to ${target.endLine}`
+        : `Line ${target.endLine} ${unavailable}. Showing available lines.`;
+    }
+    if (!target.column) return `Line ${targetRow.line}`;
+    if (columnAvailable) return `Line ${targetRow.line}, column ${target.column}`;
+    return `Line ${targetRow.line}. Column ${target.column} ${columnClipped ? "is outside this preview" : "is unavailable"}.`;
+  }
+
   return (
     <>
       <div
@@ -207,17 +297,11 @@ export const FileContent = memo(function FileContent({
                 : displayedFile.comparison === "head"
                   ? "Unchanged from HEAD"
                   : displayedFile.truncated
-                    ? "File contents · first 1 MiB shown"
-                    : "File contents")}
+                    ? "Current file · preview limited"
+                    : "Current file")}
         </span>
         {target && target.path === path && available?.file === file && (
-          <span className="shrink-0 text-xs text-muted-ink">
-            {targetRow
-              ? targetRow.exact
-                ? `Line ${targetRow.line}${target.column ? ` · Column ${target.column}` : ""}`
-                : `Line ${target.line} unavailable · showing ${targetRow.line}`
-              : "No lines to reveal"}
-          </span>
+          <span className="min-w-0 text-xs text-muted-ink">{locationLabel()}</span>
         )}
         {error && (
           <Button
@@ -316,15 +400,19 @@ export const FileContent = memo(function FileContent({
                   >
                     {panes.map((side) => (
                       <div
-                        className={`repository-code-row ${targetRow?.index === index ? "bg-(--color-hover-surface) ring-1 ring-inset ring-(--color-control-border)" : ""}`}
-                        data-highlighted={targetRow?.index === index || undefined}
+                        className={`repository-code-row ${highlightsRow(index) ? "bg-(--color-hover-surface) ring-1 ring-inset ring-(--color-control-border)" : ""}`}
+                        data-highlighted={highlightsRow(index) || undefined}
                         data-kind={codeRowKind(row, side)}
                         key={side}
                       >
                         <CodeCell
                           row={row}
                           side={side}
-                          column={targetRow?.index === index ? target?.column : undefined}
+                          column={
+                            targetRow?.exact && targetRow.index === index && columnAvailable
+                              ? target?.column
+                              : undefined
+                          }
                         />
                       </div>
                     ))}
@@ -384,15 +472,19 @@ export const FileContent = memo(function FileContent({
                   return (
                     <div
                       key={index}
-                      className={`repository-code-row ${targetRow?.index === index ? "bg-(--color-hover-surface) ring-1 ring-inset ring-(--color-control-border)" : ""}`}
-                      data-highlighted={targetRow?.index === index || undefined}
+                      className={`repository-code-row ${highlightsRow(index) ? "bg-(--color-hover-surface) ring-1 ring-inset ring-(--color-control-border)" : ""}`}
+                      data-highlighted={highlightsRow(index) || undefined}
                       data-kind={codeRowKind(row, side)}
                       style={{ top: (virtual.start + offset) * 24 }}
                     >
                       <CodeCell
                         row={row}
                         side={side}
-                        column={targetRow?.index === index ? target?.column : undefined}
+                        column={
+                          targetRow?.exact && targetRow.index === index && columnAvailable
+                            ? target?.column
+                            : undefined
+                        }
                       />
                     </div>
                   );

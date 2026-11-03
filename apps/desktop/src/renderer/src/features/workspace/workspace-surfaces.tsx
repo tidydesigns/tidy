@@ -29,6 +29,10 @@ const RepositoryBrowser = lazyView<ComponentProps<typeof RepositoryComponent>>(
     })),
   { label: "repository files" },
 );
+export function preloadFileViewer() {
+  return RepositoryBrowser.preload();
+}
+
 const BrowserWorkspace = lazyView<ComponentProps<typeof BrowserComponent>>(
   () =>
     import("../browser/browser-workspace").then((module) => ({ default: module.BrowserWorkspace })),
@@ -84,6 +88,7 @@ export function WorkspaceSurfaces({
   open,
   request,
   onClose,
+  connected = true,
 }: {
   projectId: string;
   repositoryAPI?: RepositoryAPI;
@@ -93,6 +98,7 @@ export function WorkspaceSurfaces({
   open: boolean;
   request?: SurfaceRequest;
   onClose(): void;
+  connected?: boolean;
 }) {
   const [panel, setPanel] = useSessionState<z.infer<typeof panelSchema>>(
     `repository-surfaces:${projectId}`,
@@ -437,6 +443,7 @@ export function WorkspaceSurfaces({
             active={active && (selected === "files" || selected === "diff")}
             surface={selected === "diff" ? "diff" : "files"}
             fileRequest={request?.surface === "files" ? request.file : undefined}
+            connected={connected}
           />
         </div>
       )}

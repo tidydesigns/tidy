@@ -1,5 +1,15 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, mkdir, rm, stat, readdir, readFile, writeFile, truncate } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  stat,
+  readdir,
+  readFile,
+  writeFile,
+  truncate,
+  chmod,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -571,7 +581,7 @@ test("replaced host identity stops reconnect", async () => {
   await f.restart(true);
   await until(() => client.status.kind === "blocked");
   expect(client.status.kind === "blocked" && client.status.message).toContain("identity changed");
-  await expect(client.operation("bootstrap")).rejects.toThrow("disconnected");
+  await expect(client.operation("bootstrap")).rejects.toThrow("offline");
 });
 
 test("authentication rejects unknown sessions and browser origins; tickets are single use", async () => {
@@ -1038,7 +1048,7 @@ for (const capabilities of [undefined, ["thread-naming"]]) {
         () => client.operation("repository-file", { projectId, path: "sample.txt" }),
       ])
         await expect(operation()).rejects.toThrow(
-          "Repository files need a backend update. Choose Update backend in Settings → Remote machines.",
+          "Update this machine in Settings > Remote machines to open files.",
         );
       expect(requests).not.toHaveBeenCalled();
       expect(client.status.kind).toBe("connected");
@@ -1066,10 +1076,10 @@ test("file-capable older hosts reject search locally while retaining file browsi
     requests.mockClear();
     await expect(
       client.operation("repository-search", { projectId: f.project.id, query: "sample" }),
-    ).rejects.toThrow("backend update");
+    ).rejects.toThrow("Update this machine");
     await expect(
       client.operation("repository-link", { projectId: f.project.id, href: "sample.txt:2" }),
-    ).rejects.toThrow("backend update");
+    ).rejects.toThrow("Update this machine");
     expect(requests).not.toHaveBeenCalled();
     expect(
       await client.operation("repository-directory", { projectId: f.project.id, path: "" }),
@@ -1078,6 +1088,117 @@ test("file-capable older hosts reject search locally while retaining file browsi
     requests.mockRestore();
     frames.mockRestore();
   }
+});
+
+test("stalled file reads expire without disconnecting the session and ignore late replies", async () => {
+  const f = await fixture();
+  await writeFile(join(f.projectPath, "sample.txt"), "late file contents\n");
+  const { client, drops } = f.client();
+  await until(() => client.status.kind === "connected");
+  let release = () => {};
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered = false;
+  const project = f.service.repositoryProject.bind(f.service);
+  const read = spyOn(f.service, "repositoryProject").mockImplementationOnce(async (...args) => {
+    entered = true;
+    await blocked;
+    return project(...args);
+  });
+  cleanups.push(() => read.mockRestore());
+  cleanups.push(() => release());
+  const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+  let lateReply = false;
+  const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+    const frame = parse(...args);
+    if (
+      frame.type === "result" &&
+      z
+        .object({
+          ok: z.literal(true),
+          data: z.object({ text: z.literal("late file contents\n") }),
+        })
+        .safeParse(frame.response).success
+    )
+      lateReply = true;
+    return frame;
+  });
+  cleanups.push(() => frames.mockRestore());
+  const schedule = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout");
+  let expire: () => void = () => {
+    throw new Error("Missing request timer");
+  };
+  timer.mockImplementationOnce(((callback: () => void) => {
+    expire = () => callback();
+    return schedule(() => {}, 0);
+  }) as typeof setTimeout);
+  const pending = client.request("repository-file", {
+    projectId: f.project.id,
+    path: "sample.txt",
+    view: "file",
+  });
+  const failure = pending.catch((error: unknown) => error);
+  expect(timer.mock.calls[0]?.[1]).toBe(15_000);
+  timer.mockRestore();
+  await until(() => entered);
+  expire();
+  expect(await failure).toMatchObject({ message: "This file took too long to open. Try again." });
+  expect(client.status.kind).toBe("connected");
+  expect(await client.operation("project-snapshot", f.project.id)).toMatchObject({
+    project: { id: f.project.id },
+  });
+  release();
+  await until(() => lateReply);
+  expect(
+    await client.operation("repository-file", {
+      projectId: f.project.id,
+      path: "sample.txt",
+      view: "file",
+    }),
+  ).toMatchObject({ kind: "text", text: "late file contents\n" });
+  expect(client.status.kind).toBe("connected");
+  expect(drops).toHaveLength(1);
+});
+
+test.skipIf(process.getuid?.() === 0)(
+  "files without read access explain permission failures",
+  async () => {
+    const f = await fixture();
+    const path = join(f.projectPath, "private.txt");
+    await writeFile(path, "private contents");
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    await chmod(path, 0);
+    try {
+      await expect(
+        client.operation("repository-file", {
+          projectId: f.project.id,
+          path: "private.txt",
+          view: "file",
+        }),
+      ).rejects.toThrow("You don't have permission to open this file or folder.");
+    } finally {
+      await chmod(path, 0o600);
+    }
+    expect(client.status.kind).toBe("connected");
+  },
+);
+
+test("missing project folders have a short explanation without system errors", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  await rm(f.projectPath, { recursive: true });
+  await expect(
+    client.operation("repository-file", {
+      projectId: f.project.id,
+      path: "sample.txt",
+      view: "file",
+    }),
+  ).rejects.toThrow("This file or folder is missing. It may have moved or been deleted.");
+  expect(client.status.kind).toBe("connected");
 });
 
 test("workspace reads bypass durable mutation receipts", async () => {
@@ -1811,4 +1932,19 @@ test("file reference reads use the thread worktree on its host", async () => {
   await expect(
     client.operation("repository-link", { ...scope, href: `${f.projectPath}/sample.ts:1` }),
   ).rejects.toThrow("outside");
+  await rm(thread.worktree.root, { recursive: true });
+  await expect(
+    client.operation("repository-link", {
+      ...scope,
+      href: "sample.ts:1",
+    }),
+  ).rejects.toThrow("This file or folder is missing. It may have moved or been deleted.");
+  await expect(
+    client.operation("repository-file", {
+      ...scope,
+      path: "sample.ts",
+      view: "file",
+    }),
+  ).rejects.toThrow("This file or folder is missing. It may have moved or been deleted.");
+  expect(client.status.kind).toBe("connected");
 });

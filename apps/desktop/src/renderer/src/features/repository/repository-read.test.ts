@@ -8,7 +8,9 @@ test("repository reads release stalled consumers with a retryable deadline", asy
       queueMicrotask(callback);
       return 0;
     }) as typeof setTimeout);
-    await expect(repositoryRead(new Promise<never>(() => {}))).rejects.toThrow("timed out");
+    await expect(repositoryRead(new Promise<never>(() => {}))).rejects.toThrow(
+      "This file took too long to open. Try again.",
+    );
     expect(await repositoryRead(Promise.resolve("recovered"))).toBe("recovered");
   } finally {
     timer.mockRestore();

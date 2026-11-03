@@ -51,6 +51,7 @@ test("file links preserve spaces, Windows paths, line positions, and encoded fil
     path: "src/button.tsx",
     name: "button.tsx",
     line: 24,
+    endLine: 28,
   });
   expect(parseChatLink("file:///project/My%20files/a%23b.ts#L2")).toEqual({
     kind: "file",

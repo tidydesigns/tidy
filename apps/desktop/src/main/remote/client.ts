@@ -485,7 +485,7 @@ export class RemoteClient {
         ),
       );
     if (this.closed || this.socket?.readyState !== WebSocket.OPEN)
-      return Promise.reject(new Error("Remote machine is disconnected. Wait for reconnection."));
+      return Promise.reject(new Error("This machine is offline. Try again when it reconnects."));
     if (name.startsWith("mobile-") && !this.supportsMobilePreview)
       return Promise.reject(
         new Error(
@@ -499,9 +499,7 @@ export class RemoteClient {
         ["repository-directory", "repository-changes", "repository-file"].includes(name))
     )
       return Promise.reject(
-        new Error(
-          "Repository files need a backend update. Choose Update backend in Settings → Remote machines.",
-        ),
+        new Error("Update this machine in Settings > Remote machines to open files."),
       );
     if (
       [...this.pending.values()].filter((item) => !item.recovering).length >= 64 ||
@@ -549,6 +547,13 @@ export class RemoteClient {
         ),
       );
     const socket = this.socket;
+    const repositoryRead = [
+      "repository-directory",
+      "repository-search",
+      "repository-link",
+      "repository-changes",
+      "repository-file",
+    ].includes(name);
     const id = randomUUID();
     const frame = JSON.stringify({ id, name, input, ...context });
     if (Buffer.byteLength(frame) > MAX_REMOTE_BYTES || socket.bufferedAmount > MAX_REMOTE_BYTES)
@@ -559,12 +564,20 @@ export class RemoteClient {
           this.pending.delete(id);
           reject(
             new Error(
-              "Request timed out. It may have completed; check refreshed state before retrying.",
+              repositoryRead
+                ? "This file took too long to open. Try again."
+                : "Request timed out. It may have completed; check refreshed state before retrying.",
             ),
           );
-          socket.terminate();
+          if (!repositoryRead) socket.terminate();
         },
-        name === "setup-project" ? 330_000 : isRemoteMutation(name) ? 120_000 : 60_000,
+        repositoryRead
+          ? 15_000
+          : name === "setup-project"
+            ? 330_000
+            : isRemoteMutation(name)
+              ? 120_000
+              : 60_000,
       );
       this.pending.set(id, {
         resolve,

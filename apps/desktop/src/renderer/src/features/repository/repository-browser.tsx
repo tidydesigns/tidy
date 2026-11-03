@@ -1,7 +1,17 @@
+import { FilePrefetchContext } from "./file-prefetch";
+import { fileOpenError } from "./file-open-error";
 import { repositoryRead } from "./repository-read";
 import type { FileNavigationRequest, FileLineTarget } from "./file-navigation";
 import { parseChatLink } from "../../../../shared/models/chat-links";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { z } from "zod";
 import { Button } from "@tidy/ui/button";
 import { useSessionState } from "../../app/session-state";
@@ -33,20 +43,23 @@ export function RepositoryBrowser({
   active,
   surface,
   fileRequest,
+  connected = true,
 }: {
   api: RepositoryAPI;
   projectId: string;
   active: boolean;
   surface: "files" | "diff";
   fileRequest?: FileNavigationRequest;
+  connected?: boolean;
 }) {
+  const prefetch = useContext(FilePrefetchContext);
   const [navigation, setNavigation] = useSessionState(`repository:${projectId}`, navigationSchema, {
     selected: null,
     expanded: [],
   });
   const [lineTarget, setLineTarget] = useState<FileLineTarget>();
   const [linkState, setLinkState] = useState<
-    { kind: "pending" } | { kind: "error"; message: string }
+    { kind: "pending" } | { kind: "error"; message: string; retry: boolean }
   >();
   const [linkAttempt, setLinkAttempt] = useState(0);
   const linkGeneration = useRef(0);
@@ -56,13 +69,15 @@ export function RepositoryBrowser({
     setLinkState({ kind: "pending" });
     setLineTarget(undefined);
     const link = parseChatLink(fileRequest.href);
-    const resolve = api.resolveRepositoryLink
-      ? repositoryRead(api.resolveRepositoryLink(projectId, fileRequest.href))
-      : Promise.reject(
-          new Error(
-            "Reconnect or update the machine running this thread to preview file references.",
-          ),
-        );
+    const resolve = prefetch
+      ? prefetch.resolve(fileRequest.href)
+      : api.resolveRepositoryLink
+        ? repositoryRead(api.resolveRepositoryLink(projectId, fileRequest.href))
+        : Promise.reject(
+            new Error(
+              "Reconnect or update the machine running this thread to preview file references.",
+            ),
+          );
     void resolve.then(
       (path) => {
         if (linkGeneration.current !== generation) return;
@@ -83,6 +98,7 @@ export function RepositoryBrowser({
           path,
           line: link?.kind === "file" ? (link.line ?? 1) : 1,
           ...(link?.kind === "file" && link.column ? { column: link.column } : {}),
+          ...(link?.kind === "file" && link.endLine ? { endLine: link.endLine } : {}),
         });
         setLinkState(undefined);
       },
@@ -90,14 +106,14 @@ export function RepositoryBrowser({
         if (linkGeneration.current === generation)
           setLinkState({
             kind: "error",
-            message: cause instanceof Error ? cause.message : "Could not open this file.",
+            ...fileOpenError(cause),
           });
       },
     );
     return () => {
       if (linkGeneration.current === generation) linkGeneration.current++;
     };
-  }, [fileRequest?.id, api, projectId, linkAttempt]);
+  }, [fileRequest?.id, api, projectId, linkAttempt, prefetch]);
   function cancelLinkNavigation() {
     linkGeneration.current++;
     setLinkState(undefined);
@@ -123,9 +139,11 @@ export function RepositoryBrowser({
     () => ({
       ...api,
       repositoryFile: (id, path, previousPath) =>
-        api.repositoryFile(id, path, previousPath, "file"),
+        prefetch
+          ? prefetch.read(path, previousPath)
+          : api.repositoryFile(id, path, previousPath, "file"),
     }),
-    [api],
+    [api, prefetch],
   );
   const scrollPositions = useRepositoryScroll(projectId);
   const fileExpanded = useMemo(() => new Set(navigation.expanded), [navigation.expanded]);
@@ -135,6 +153,8 @@ export function RepositoryBrowser({
     active,
     selected: surface === "files" ? navigation.selected : null,
     expanded: fileExpanded,
+    prefetch,
+    requestId: lineTarget?.id,
   });
   const search = useRepositorySearch(
     api,
@@ -195,6 +215,22 @@ export function RepositoryBrowser({
     rows.find((row) => row.path === selected) ??
     rows[0];
   const activeIndex = activeRow ? rows.indexOf(activeRow) : -1;
+  const revealedTreeTarget = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (
+      !active ||
+      surface !== "files" ||
+      !lineTarget ||
+      navigation.selected !== lineTarget.path ||
+      revealedTreeTarget.current === lineTarget.id
+    )
+      return;
+    const index = rows.findIndex((row) => row.path === lineTarget.path);
+    if (index < 0) return;
+    virtual.reveal(index);
+    revealedTreeTarget.current = lineTarget.id;
+  }, [active, surface, rows, lineTarget, navigation.selected]);
+
   const treeRestoration = useRef<{ view: string; top: number; pending: boolean } | null>(null);
   useLayoutEffect(() => {
     const node = virtual.ref.current;
@@ -514,18 +550,21 @@ export function RepositoryBrowser({
     </div>
   );
   function errorNotice(message: string) {
+    const failure = fileOpenError(message);
     return message ? (
       <div className="repository-notice" role="alert">
-        <span>{message}</span>
-        <Button
-          className="quiet-button"
-          onClick={() => {
-            setTreeError("");
-            void repository.refresh();
-          }}
-        >
-          Retry
-        </Button>
+        <span>{failure.message}</span>
+        {failure.retry && (
+          <Button
+            className="quiet-button"
+            onClick={() => {
+              setTreeError("");
+              void repository.refresh();
+            }}
+          >
+            Retry
+          </Button>
+        )}
       </div>
     ) : null;
   }
@@ -536,6 +575,9 @@ export function RepositoryBrowser({
         className="repository-panes @max-[420px]/repository-surface:[&[data-file-preview=true]>.repository-explorer]:hidden"
         data-file-preview={surface === "files" && Boolean(navigation.selected || linkState)}
         data-preview={surface === "diff" || Boolean(navigation.selected || linkState) || undefined}
+        id={surface === "files" ? "workspace-surface-files" : undefined}
+        role={surface === "files" ? "tabpanel" : undefined}
+        aria-labelledby={surface === "files" ? "workspace-tab-files" : undefined}
       >
         <div className="repository-file-pane" hidden={surface !== "diff"}>
           {(reviewMounted || surface === "diff") && (
@@ -596,6 +638,11 @@ export function RepositoryBrowser({
               <RepositoryIcon name="close" />
             </Button>
           </div>
+          {!connected && repository.file && (
+            <p className="px-3 py-2 text-xs text-muted-ink" role="status">
+              This machine is offline. Showing the last loaded file.
+            </p>
+          )}
           {linkState && (
             <div
               className="flex items-center gap-3 px-3 py-2 text-xs text-muted-ink"
@@ -605,7 +652,7 @@ export function RepositoryBrowser({
                 {linkState.kind === "pending" ? "Opening file…" : linkState.message}
                 {repository.file ? ` Showing ${repository.file.path}.` : ""}
               </span>
-              {linkState.kind === "error" && (
+              {linkState.kind === "error" && linkState.retry && (
                 <Button
                   className="quiet-button"
                   onClick={() => setLinkAttempt((value) => value + 1)}
@@ -629,6 +676,7 @@ export function RepositoryBrowser({
               active={active && surface === "files"}
               visible={surface === "files"}
               positions={scrollPositions}
+              onRetry={() => void repository.refresh()}
               target={
                 !linkState && lineTarget?.path === navigation.selected ? lineTarget : undefined
               }
@@ -642,7 +690,6 @@ export function RepositoryBrowser({
           resizable={surface === "diff" || Boolean(navigation.selected || linkState)}
         >
           <div
-            id="workspace-surface-files"
             role="region"
             aria-label={view === "changes" ? "Changed files navigation" : "File navigation"}
             className="repository-navigation"

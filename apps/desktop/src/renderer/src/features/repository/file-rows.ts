@@ -24,6 +24,7 @@ export function visibleTreeRows(
 export type CodeLine = {
   text: string;
   number: number;
+  sourceLength?: number;
   emphasis?: [number, number];
   tokens?: { text: string; classes: string }[];
 };
@@ -135,7 +136,11 @@ export function prepareFileRows(file: Extract<RepositoryFile, { kind: "text" }>)
       result.rows.push({
         kind: "lines",
         before: null,
-        after: { text: clip(line), number: ++next },
+        after: {
+          text: clip(line),
+          number: ++next,
+          ...(line.length > 4000 ? { sourceLength: line.length } : {}),
+        },
         changed: file.comparison === "empty" || file.comparison === "unborn",
       });
       if (file.comparison === "empty" || file.comparison === "unborn") result.added++;
@@ -151,11 +156,19 @@ export function prepareFileRows(file: Extract<RepositoryFile, { kind: "text" }>)
       result.rows.push({ kind: "hunk", before: old, after: next, ...(hidden ? { hidden } : {}) });
     } else if (inHunk && line.startsWith("-")) {
       if (added.length) flush();
-      removed.push({ text: clip(line.slice(1)), number: old++ });
+      removed.push({
+        text: clip(line.slice(1)),
+        number: old++,
+        ...(line.length > 4001 ? { sourceLength: line.length - 1 } : {}),
+      });
       result.removed++;
       lastSide = "before";
     } else if (inHunk && line.startsWith("+")) {
-      added.push({ text: clip(line.slice(1)), number: next++ });
+      added.push({
+        text: clip(line.slice(1)),
+        number: next++,
+        ...(line.length > 4001 ? { sourceLength: line.length - 1 } : {}),
+      });
       result.added++;
       lastSide = "after";
     } else if (inHunk && line.startsWith(" ")) {
@@ -164,8 +177,16 @@ export function prepareFileRows(file: Extract<RepositoryFile, { kind: "text" }>)
       const text = clip(line.slice(1));
       result.rows.push({
         kind: "lines",
-        before: { text, number: old++ },
-        after: { text, number: next++ },
+        before: {
+          text,
+          number: old++,
+          ...(line.length > 4001 ? { sourceLength: line.length - 1 } : {}),
+        },
+        after: {
+          text,
+          number: next++,
+          ...(line.length > 4001 ? { sourceLength: line.length - 1 } : {}),
+        },
         changed: false,
       });
     } else if (inHunk && line.startsWith("\\")) {

@@ -1,9 +1,22 @@
 import type { CodeLine, CodeRow } from "./file-rows";
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+export function fileColumnRange(line: CodeLine, column: number): [number, number] | null {
+  const offset = column - 1;
+  const visibleLength =
+    line.sourceLength && line.sourceLength > 4000
+      ? line.text.length - " … [line clipped]".length
+      : line.text.length;
+  if (!Number.isSafeInteger(column) || offset < 0 || offset >= visibleLength) return null;
+  for (const part of graphemes.segment(line.text.slice(0, visibleLength))) {
+    const end = part.index + part.segment.length;
+    if (offset < end) return [part.index, end];
+  }
+  return null;
+}
+
 function LineText({ line, column }: { line: CodeLine; column?: number }) {
-  const emphasis = column
-    ? [Math.min(column - 1, Math.max(0, line.text.length - 1)), Math.min(column, line.text.length)]
-    : line.emphasis;
+  const emphasis = column ? fileColumnRange(line, column) : line.emphasis;
   let offset = 0;
   return (line.tokens ?? [{ text: line.text || " ", classes: "" }]).map((token, index) => {
     const start = offset;
@@ -15,7 +28,7 @@ function LineText({ line, column }: { line: CodeLine; column?: number }) {
         {to > from ? (
           <>
             {token.text.slice(0, from)}
-            <mark>{token.text.slice(from, to)}</mark>
+            <mark data-file-column={column ? true : undefined}>{token.text.slice(from, to)}</mark>
             {token.text.slice(to)}
           </>
         ) : (

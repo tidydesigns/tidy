@@ -22,6 +22,7 @@ async function until(predicate: () => boolean, label: string) {
 export async function runFileNavigationTests(root: Root) {
   const projectId = crypto.randomUUID();
   let revealInFolder = 0;
+  let missingReads = 0;
   const manual = "manual.ts";
   let release: ((path: string) => void) | undefined;
   const api: RepositoryAPI = {
@@ -31,7 +32,7 @@ export async function runFileNavigationTests(root: Root) {
         return new Promise<string>((resolve) => {
           release = resolve;
         });
-      if (href === "../outside.ts") throw new Error("This file is outside this thread's project.");
+      if (href === "../outside.ts") throw new Error("This file is outside this project's project.");
       return href.split(":")[0];
     },
     repositoryDirectory: async () => ({
@@ -40,7 +41,7 @@ export async function runFileNavigationTests(root: Root) {
     }),
     repositoryChanges: async () => ({ repository: false, head: null, changes: [] }),
     repositoryFile: async (_, path) =>
-      path === "missing.ts"
+      path === "missing.ts" && missingReads++ === 0
         ? { kind: "unavailable", reason: "missing" }
         : {
             kind: "text",
@@ -120,7 +121,11 @@ export async function runFileNavigationTests(root: Root) {
       `[data-highlighted=true] [aria-label="New line ${line}"]`,
     );
     if (!number) return false;
-    const bounds = number.getBoundingClientRect();
+    const bounds =
+      number
+        .closest(".repository-code-row")
+        ?.querySelector("[data-file-column]")
+        ?.getBoundingClientRect() ?? number.getBoundingClientRect();
     const pane = number.closest(".repository-wrapped-code")?.getBoundingClientRect();
     return pane && bounds.top >= pane.top && bounds.bottom <= pane.bottom;
   }
@@ -144,7 +149,7 @@ export async function runFileNavigationTests(root: Root) {
   click("src/example.ts:900");
   await until(() => Boolean(highlighted(400)), "outdated line is bounded to end of file");
   check(
-    document.body.textContent?.includes("Line 900 unavailable · showing 400"),
+    document.body.textContent?.includes("Line 900 is unavailable. Showing line 400."),
     "Missing stale-line explanation",
   );
   click("slow.ts:3");
@@ -176,13 +181,35 @@ export async function runFileNavigationTests(root: Root) {
   );
   click("../outside.ts");
   await until(
-    () => Boolean(document.body.textContent?.includes("outside this thread")),
+    () => Boolean(document.body.textContent?.includes("outside this project")),
     "outside project error",
+  );
+  const outsideNotice = [...document.querySelectorAll<HTMLElement>('[role="alert"]')].find((node) =>
+    node.textContent?.includes("outside this project"),
+  );
+  check(
+    outsideNotice && !outsideNotice.querySelector("button"),
+    "Outside-project restriction offered an ineffective Retry",
   );
   click("missing.ts:2");
   await until(
-    () => Boolean(document.body.textContent?.includes("This file is no longer available")),
+    () => Boolean(document.body.textContent?.includes("This file isn't available in this folder.")),
     "missing file state",
+  );
+  const missingNotice = [...document.querySelectorAll<HTMLElement>('[role="status"]')].find(
+    (node) => node.textContent?.includes("This file isn't available"),
+  );
+  check(missingNotice?.querySelector("button"), "Missing file did not offer Retry");
+  click("missing.ts:2");
+  await until(
+    () => Boolean(highlighted(2)),
+    "another click retries a missing file that has returned",
+  );
+  const tab = document.querySelector<HTMLButtonElement>("#workspace-tab-files");
+  const content = document.getElementById(tab?.getAttribute("aria-controls") ?? "");
+  check(
+    content?.contains(document.querySelector(".repository-file-pane:not([hidden])")),
+    "Files tab does not identify the visible preview",
   );
   check(revealInFolder === 0, "File references reached the operating system");
 }

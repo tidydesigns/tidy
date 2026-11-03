@@ -1,4 +1,5 @@
 import { FileNavigationContext } from "../features/repository/file-navigation";
+import { FilePrefetchContext } from "../features/repository/file-prefetch";
 import { ReferenceIcon } from "./reference-icon";
 import { PullRequestIcon } from "./pull-request-icon";
 import { pullRequestURL } from "../../../shared/contracts/pull-request";
@@ -23,6 +24,7 @@ export function ChatLink({
   className?: string;
 }) {
   const openFile = useContext(FileNavigationContext);
+  const filePrefetch = useContext(FilePrefetchContext);
   const openBrowser = useContext(BrowserNavigationContext);
   const link = parseChatLink(href);
   if (!link || !href) return <span>{children}</span>;
@@ -30,7 +32,10 @@ export function ChatLink({
   const icon = file
     ? fileIconName(link.path)
     : (link.service ?? (link.url.startsWith("mailto:") ? "mail" : "web"));
-  const position = file && link.line ? `:${link.line}${link.column ? `:${link.column}` : ""}` : "";
+  const position =
+    file && link.line
+      ? `:${link.line}${link.column ? `:${link.column}` : ""}${link.endLine ? `-${link.endLine}` : ""}`
+      : "";
   const plainLabel = typeof children === "string" ? children : null;
   const pathLabel =
     file &&
@@ -58,6 +63,12 @@ export function ChatLink({
       className={`${file ? "chat-file-link" : "chat-web-link"} ${className}`.trim()}
       href={href}
       title={file ? `Open file: ${link.path}${position}` : link.url}
+      onPointerEnter={() => {
+        if (file && openFile) filePrefetch?.prefetch(href);
+      }}
+      onFocus={() => {
+        if (file && openFile) filePrefetch?.prefetch(href);
+      }}
       onClick={(event) => {
         event.preventDefault();
         open();
@@ -77,6 +88,7 @@ export function ChatLink({
       {file && link.line && (
         <span className="chat-link-position">
           · L{link.line}
+          {link.endLine ? `-L${link.endLine}` : ""}
           {link.column ? `:C${link.column}` : ""}
         </span>
       )}

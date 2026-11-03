@@ -91,3 +91,14 @@ test("service icons require the actual destination and a standard port", () => {
     service: null,
   });
 });
+
+test("file references include extensionless names and preserve complete ranges", () => {
+  for (const name of ["Justfile", "Procfile", "LICENSE-MIT", "src/command", ".env.local"])
+    expect(parseChatLink(`${name}:12`)).toMatchObject({ kind: "file", path: name, line: 12 });
+  expect(parseChatLink("src/file.ts#L20-L35")).toMatchObject({ line: 20, endLine: 35 });
+  expect(parseChatLink("src/file.ts:20-35")).toMatchObject({ line: 20, endLine: 35 });
+  expect(parseChatLink("src/file.ts#L35-L20")).toBeNull();
+  expect(parseChatLink("src/file.ts:0")).toBeNull();
+  expect(parseChatLink("My%20command")).toMatchObject({ kind: "file", path: "My command" });
+  expect(parseChatLink("src/file.ts#L20-L9007199254740992")).toBeNull();
+});

@@ -35,10 +35,12 @@ function repositoryProbe(api: RepositoryAPI) {
     selected,
     active,
     continuous,
+    requestId,
   }: {
     selected: string;
     active: boolean;
     continuous: boolean;
+    requestId?: string;
   }) {
     state = useRepositoryFiles({
       api,
@@ -47,6 +49,7 @@ function repositoryProbe(api: RepositoryAPI) {
       selected,
       expanded,
       continuous,
+      requestId,
     });
     return null;
   }
@@ -55,8 +58,10 @@ function repositoryProbe(api: RepositoryAPI) {
     get current() {
       return state;
     },
-    render: (selected = "a", active = true, continuous = false) =>
-      act(async () => root.render(createElement(Probe, { selected, active, continuous }))),
+    render: (selected = "a", active = true, continuous = false, requestId?: string) =>
+      act(async () =>
+        root.render(createElement(Probe, { selected, active, continuous, requestId })),
+      ),
     async close() {
       try {
         await act(async () => root.unmount());
@@ -616,6 +621,61 @@ test("status reconciliation reloads each cached parent once and skips unopened p
     await act(async () => probe.current?.refresh([], true));
     expect(reads).toEqual(["src"]);
     expect(probe.current?.contentRevision.paths).toEqual(["src/a", "src/b", "unopened/c"]);
+  } finally {
+    await probe.close();
+  }
+});
+
+for (const failure of ["throw", "missing"] as const)
+  test(`a repeated file reference retries ${failure} and retains a successful warm preview`, async () => {
+    let reads = 0;
+    const api: RepositoryAPI = {
+      onEvent: () => () => {},
+      repositoryDirectory: async () => ({ entries: [], limited: false }),
+      repositoryChanges: async () => ({ repository: false, head: null, changes: [] }),
+      repositoryFile: async () => {
+        reads++;
+        if (reads === 1) {
+          if (failure === "throw") throw new Error("Temporary read error");
+          return { kind: "unavailable", reason: "missing" };
+        }
+        return { kind: "text", view: "file", comparison: "none", text: "Recovered" };
+      },
+    };
+    const probe = repositoryProbe(api);
+    try {
+      await probe.render("a", true, false, "first");
+      expect(reads).toBe(1);
+      await probe.render("a", true, false, "retry");
+      expect(reads).toBe(2);
+      expect(probe.current?.file?.content).toMatchObject({ kind: "text", text: "Recovered" });
+      await probe.render("a", true, false, "warm");
+      expect(reads).toBe(2);
+    } finally {
+      await probe.close();
+    }
+  });
+
+test("repeated references share an in-flight file read", async () => {
+  const pending = deferred<RepositoryFile>();
+  let reads = 0;
+  const probe = repositoryProbe({
+    onEvent: () => () => {},
+    repositoryDirectory: async () => ({ entries: [], limited: false }),
+    repositoryChanges: async () => ({ repository: false, head: null, changes: [] }),
+    repositoryFile: () => {
+      reads++;
+      return pending.promise;
+    },
+  });
+  try {
+    await probe.render("a", true, false, "first");
+    await probe.render("a", true, false, "repeated");
+    expect(reads).toBe(1);
+    await act(async () =>
+      pending.resolve({ kind: "text", view: "file", comparison: "none", text: "Available" }),
+    );
+    expect(probe.current?.file?.content).toMatchObject({ kind: "text", text: "Available" });
   } finally {
     await probe.close();
   }

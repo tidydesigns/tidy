@@ -54,6 +54,12 @@ test("media and unknown files use file chips", () => {
   }
 });
 
+test("file ranges display both their start and end lines", () => {
+  const output = render("src/Button.tsx#L20-L35");
+  expect(output).toContain("· L20-L35");
+  expect(output).toContain('title="Open file: src/Button.tsx:20-35"');
+});
+
 test("unsupported links cannot render a clickable destination", () => {
   for (const href of [
     undefined,
