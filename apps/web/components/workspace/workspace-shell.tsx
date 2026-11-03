@@ -12,6 +12,7 @@ import { organizationCreationStatus } from "@/lib/organizations/creation";
 import { agentsEnabled } from "@/lib/agents/config";
 import { vaultEnabled } from "@/lib/vault/feature-flag";
 import { MacDownloadButton } from "./mac-download-button";
+import { CommunityPrompt } from "@/components/community/community-prompt";
 
 type WorkspaceShellProps = {
   organizationId: string;
@@ -83,6 +84,7 @@ export async function WorkspaceShell({
             {children}
           </div>
         </div>
+        <CommunityPrompt key={user.id} userId={user.id} />
       </OrganizationNamesProvider>
     </FeedbackProvider>
   );
