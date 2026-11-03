@@ -66,6 +66,7 @@ export function TerminalDock({
   ready,
   active,
   home,
+  dockHome,
   fullscreen,
   onFullscreenChange,
   onOpenRemoteSettings,
@@ -78,10 +79,24 @@ export function TerminalDock({
   ready: boolean;
   active: boolean;
   home: HTMLElement | null;
+  dockHome: HTMLElement | null;
   fullscreen: boolean;
   onFullscreenChange(value: boolean): void;
   onOpenRemoteSettings?(): void;
 }) {
+  const [portalHome] = useState(() => {
+    const element = document.createElement("div");
+    element.className = "terminal-dock-home contents";
+    return element;
+  });
+  useLayoutEffect(() => {
+    if (!dockHome) return;
+    const focused = document.activeElement;
+    dockHome.append(portalHome);
+    if (focused instanceof HTMLElement && portalHome.contains(focused))
+      focused.focus({ preventScroll: true });
+  }, [dockHome, portalHome]);
+  useLayoutEffect(() => () => portalHome.remove(), [portalHome]);
   const theme = useSyncExternalStore(subscribeTerminalTheme, currentTerminalTheme);
   const fontSize = useSyncExternalStore(subscribeTerminalFontSize, currentTerminalFontSize);
   const [state, setState] = useSessionState<TerminalState>("terminals", terminalStateSchema, {});
@@ -96,6 +111,26 @@ export function TerminalDock({
   const [focusTerminal, setFocusTerminal] = useState(true);
   const dock = useRef<HTMLDivElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const element = dock.current;
+    if (!element) return;
+    const update = () => {
+      const separator = element.querySelector('[role="separator"]');
+      const actualHeight = Math.round(element.getBoundingClientRect().height);
+      if (!separator || !actualHeight) return;
+      separator.setAttribute("aria-valuenow", String(actualHeight));
+      separator.setAttribute("aria-valuemin", String(Math.min(140, actualHeight)));
+      separator.setAttribute("aria-valuemax", String(Math.floor(window.innerHeight * 0.65)));
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [fullscreen]);
   const focusReported = useRef(false);
   const valid = Boolean(project && !project.cloud && available && api.terminal);
   const current = project ? (state[project.id] ?? emptyTerminals) : emptyTerminals;
@@ -271,7 +306,7 @@ export function TerminalDock({
     return () => window.removeEventListener("keydown", key, true);
   }, [active, valid, mac]);
 
-  return (
+  return createPortal(
     <>
       {home &&
         valid &&
@@ -293,7 +328,7 @@ export function TerminalDock({
       <div
         ref={dock}
         id="workspace-terminal"
-        className={`terminal-dock ${fullscreen ? "terminal-dock-fullscreen" : ""}`}
+        className={`terminal-dock order-1 ${fullscreen ? "terminal-dock-fullscreen" : ""}`}
         hidden={!open}
         style={!fullscreen ? { height: `min(${height}px, 65vh)` } : undefined}
       >
@@ -304,9 +339,6 @@ export function TerminalDock({
             tabIndex={0}
             aria-label="Resize terminal"
             aria-orientation="horizontal"
-            aria-valuemin={140}
-            aria-valuemax={Math.floor(window.innerHeight * 0.65)}
-            aria-valuenow={height}
             onKeyDown={(event) => {
               if (event.key === "ArrowUp" || event.key === "ArrowDown") {
                 event.preventDefault();
@@ -447,6 +479,7 @@ export function TerminalDock({
             ))}
         </div>
       </div>
-    </>
+    </>,
+    portalHome,
   );
 }

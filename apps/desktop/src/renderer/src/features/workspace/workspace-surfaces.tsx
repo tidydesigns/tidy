@@ -88,6 +88,7 @@ export function WorkspaceSurfaces({
   open,
   request,
   onClose,
+  onExpandedChange,
   connected = true,
 }: {
   projectId: string;
@@ -98,6 +99,7 @@ export function WorkspaceSurfaces({
   open: boolean;
   request?: SurfaceRequest;
   onClose(): void;
+  onExpandedChange?(expanded: boolean): void;
   connected?: boolean;
 }) {
   const [panel, setPanel] = useSessionState<z.infer<typeof panelSchema>>(
@@ -120,6 +122,10 @@ export function WorkspaceSurfaces({
   const pane = useRef<HTMLDialogElement>(null);
   const compact = useMediaQuery("(max-width: 980px)");
   usePanelDialog(pane, open && active, compact);
+  useLayoutEffect(() => {
+    onExpandedChange?.(open && expanded && !compact);
+    return () => onExpandedChange?.(false);
+  }, [onExpandedChange, open, expanded, compact]);
   const separator = useRef<HTMLDivElement>(null);
   const resizing = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const browserKey = browser ? `${browser.scope.projectId}:${browser.scope.threadId}` : null;

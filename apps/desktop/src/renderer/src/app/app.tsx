@@ -220,6 +220,7 @@ export function App({
     z.boolean(),
     false,
   );
+  const [repositoryExpanded, setRepositoryExpanded] = useState(false);
   const [repositoryMounted, setRepositoryMounted] = useState(repositoryOpen);
   const wasRepositoryOpen = useRef(repositoryOpen);
   useLayoutEffect(() => {
@@ -228,6 +229,8 @@ export function App({
     wasRepositoryOpen.current = repositoryOpen;
   }, [repositoryOpen]);
   const [terminalHome, setTerminalHome] = useState<HTMLElement | null>(null);
+  const [threadTerminalHome, setThreadTerminalHome] = useState<HTMLDivElement | null>(null);
+  const [workspaceHome, setWorkspaceHome] = useState<HTMLElement | null>(null);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [opening, setOpening] = useState(false);
@@ -2368,6 +2371,7 @@ export function App({
         </div>
       </SidebarNavigation>
       <main
+        ref={setWorkspaceHome}
         className={`workspace ${terminalFullscreen ? "workspace-terminal-fullscreen" : ""}`}
         hidden={settingsOpen}
       >
@@ -3133,6 +3137,7 @@ export function App({
                       onUpdate={updateLocalDesign}
                     />
                   )}
+                  <div ref={setThreadTerminalHome} className="contents" />
                 </div>
                 {surfaceProject &&
                   (repositoryAPI || api?.browser || api?.mobile) &&
@@ -3163,6 +3168,7 @@ export function App({
                             : undefined
                         }
                         open={repositoryOpen}
+                        onExpandedChange={setRepositoryExpanded}
                         active={!settingsOpen && mode === "code" && repositoryOpen}
                         request={
                           surfaceRequest?.scope ===
@@ -3207,6 +3213,11 @@ export function App({
             ready={!loading}
             active={!settingsOpen}
             home={terminalHome}
+            dockHome={
+              mode === "code" && !terminalFullscreen && !repositoryExpanded
+                ? threadTerminalHome
+                : workspaceHome
+            }
             fullscreen={terminalFullscreen}
             onFullscreenChange={setTerminalFullscreen}
             onOpenRemoteSettings={() => {

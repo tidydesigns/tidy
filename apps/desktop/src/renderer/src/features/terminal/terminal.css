@@ -45,7 +45,7 @@
 .terminal-session[hidden] {
   display: none;
 }
-.workspace-terminal-fullscreen > :not(.terminal-dock) {
+.workspace-terminal-fullscreen > :not(.terminal-dock-home) {
   visibility: hidden;
 }
 .terminal-dock-fullscreen {
