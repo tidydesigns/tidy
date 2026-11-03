@@ -24,14 +24,17 @@ export async function resolveRepositoryReference(root: string, href: string) {
     return resolveRepositoryLink(root, href);
   } catch (error) {
     const link = parseChatLink(href);
+    if (link?.kind !== "file") throw error;
+    const expanded = link.path.startsWith("~/")
+      ? resolve(homedir(), link.path.slice(2))
+      : link.path;
     if (
-      link?.kind !== "file" ||
-      !isAbsolute(link.path) ||
+      !isAbsolute(expanded) ||
       !(error instanceof Error) ||
       !error.message.includes("outside this thread's project")
     )
       throw error;
-    const actual = await realpath(link.path).catch(() => {
+    const actual = await realpath(expanded).catch(() => {
       throw error;
     });
     return resolveRepositoryLink(root, pathToFileURL(actual).href);

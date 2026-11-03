@@ -549,9 +549,8 @@ export function RepositoryBrowser({
       )}
     </div>
   );
-  function errorNotice(message: string) {
-    const failure = fileOpenError(message);
-    return message ? (
+  function errorNotice(failure: { message: string; retry: boolean }) {
+    return failure.message ? (
       <div className="repository-notice" role="alert">
         <span>{failure.message}</span>
         {failure.retry && (
@@ -587,7 +586,7 @@ export function RepositoryBrowser({
               aria-labelledby="workspace-tab-diff"
               className="repository-review flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
             >
-              {errorNotice(repository.changesError)}
+              {repository.changesError && errorNotice(fileOpenError(repository.changesError))}
               <ContinuousReview
                 api={api}
                 projectId={projectId}
@@ -662,7 +661,7 @@ export function RepositoryBrowser({
               )}
             </div>
           )}
-          {!linkState && errorNotice(repository.fileError)}
+          {!linkState && repository.fileError && errorNotice(fileOpenError(repository.fileError))}
           {navigation.selected && repository.file?.path !== navigation.selected && (
             <p className="repository-loading" role="status">
               {repository.fileError ? "File unavailable" : `Loading ${navigation.selected}…`}
@@ -751,9 +750,11 @@ export function RepositoryBrowser({
                 </Button>
               )}
             </div>
-            {errorNotice(
-              treeError || (view === "files" ? search.error || repository.directoryError : ""),
-            )}
+            {errorNotice({
+              message:
+                treeError || (view === "files" ? search.error || repository.directoryError : ""),
+              retry: true,
+            })}
             {treePane}
           </div>
         </RepositoryExplorer>

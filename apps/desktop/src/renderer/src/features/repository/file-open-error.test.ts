@@ -9,6 +9,12 @@ test("temporary failures explain what to do and allow another attempt", () => {
     message: "This file took too long to open. Try again.",
     retry: true,
   });
+  expect(
+    fileOpenError(new Error("This machine is busy opening files. Try again shortly.")),
+  ).toEqual({
+    message: "This machine is busy opening files. Try again shortly.",
+    retry: true,
+  });
   expect(fileOpenError(new Error("ENOENT: open /private/project/file.ts"))).toEqual({
     message: "This file isn't available in this folder. It may have moved or been deleted.",
     retry: true,

@@ -29,6 +29,8 @@ export function fileOpenError(cause: unknown): { message: string; retry: boolean
     };
   if (/changed while opening/i.test(text))
     return { message: "This file changed while opening. Try again.", retry: true };
+  if (/busy opening files/i.test(text))
+    return { message: "This machine is busy opening files. Try again shortly.", retry: true };
   if (/offline|disconnect|reconnect/i.test(text))
     return { message: "This machine is offline. Try again when it reconnects.", retry: true };
   if (/path.*too long|no longer a folder/i.test(text))

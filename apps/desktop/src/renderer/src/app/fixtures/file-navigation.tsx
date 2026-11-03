@@ -28,6 +28,9 @@ export async function runFileNavigationTests(root: Root) {
   const projectId = crypto.randomUUID();
   let revealInFolder = 0;
   let missingReads = 0;
+  let directoryReads = 0;
+  const folderError =
+    "The folder cache is full. Collapse some folders, then refresh to continue browsing.";
   const manual = "manual.ts";
   let release: ((path: string) => void) | undefined;
   const api: RepositoryAPI = {
@@ -40,10 +43,13 @@ export async function runFileNavigationTests(root: Root) {
       if (href === "../outside.ts") throw new Error("This file is outside this project.");
       return href.split(":")[0];
     },
-    repositoryDirectory: async () => ({
-      entries: [{ path: "manual.ts", name: "manual.ts", kind: "file" }],
-      limited: false,
-    }),
+    repositoryDirectory: async () => {
+      if (directoryReads++ === 0) throw new Error(folderError);
+      return {
+        entries: [{ path: "manual.ts", name: "manual.ts", kind: "file" }],
+        limited: false,
+      };
+    },
     repositoryChanges: async () => ({ repository: false, head: null, changes: [] }),
     repositoryFile: async (_, path) =>
       path === "missing.ts" && missingReads++ === 0
@@ -150,20 +156,32 @@ export async function runFileNavigationTests(root: Root) {
     content?.contains(document.querySelector(".repository-file-pane:not([hidden])")),
     "Files tab does not identify the visible preview",
   );
-  if (window.matchMedia("(max-width: 980px)").matches) return;
-  const code = document.querySelector<HTMLElement>(".repository-wrapped-code");
-  check(code, "File preview missing");
-  code.scrollTop = 0;
-  click("src/example.ts:240:8");
-  await until(() => Boolean(highlighted(240)), "repeated click reveals the same line again");
-  click("src/example.ts:12");
-  await until(() => Boolean(highlighted(12)), "another line in the same file");
-  click("src/example.ts:900");
-  await until(() => Boolean(highlighted(400)), "outdated line is bounded to end of file");
-  check(
-    document.body.textContent?.includes("Line 900 is unavailable. Showing line 400."),
-    "Missing stale-line explanation",
+  await until(
+    () => Boolean(document.body.textContent?.includes(folderError)),
+    "folder recovery guidance",
   );
+  const folderNotice = [...document.querySelectorAll<HTMLElement>('[role="alert"]')].find((node) =>
+    node.textContent?.includes(folderError),
+  );
+  const retryFolder = folderNotice?.querySelector<HTMLButtonElement>("button");
+  check(retryFolder, "Folder notice did not offer Retry");
+  flushSync(() => retryFolder.click());
+  await until(() => !document.body.textContent?.includes(folderError), "folder retry recovers");
+  if (!window.matchMedia("(max-width: 980px)").matches) {
+    const code = document.querySelector<HTMLElement>(".repository-wrapped-code");
+    check(code, "File preview missing");
+    code.scrollTop = 0;
+    click("src/example.ts:240:8");
+    await until(() => Boolean(highlighted(240)), "repeated click reveals the same line again");
+    click("src/example.ts:12");
+    await until(() => Boolean(highlighted(12)), "another line in the same file");
+    click("src/example.ts:900");
+    await until(() => Boolean(highlighted(400)), "outdated line is bounded to end of file");
+    check(
+      document.body.textContent?.includes("Line 900 is unavailable. Showing line 400."),
+      "Missing stale-line explanation",
+    );
+  }
   click("slow.ts:3");
   await until(() => Boolean(release), "delayed host path resolution");
   click("src/example.ts:12");

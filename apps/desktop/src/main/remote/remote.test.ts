@@ -1099,17 +1099,17 @@ test("stalled file reads expire without disconnecting the session and ignore lat
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let entered = false;
+  let entered = 0;
   const project = f.service.repositoryProject.bind(f.service);
-  const read = spyOn(f.service, "repositoryProject").mockImplementationOnce(async (...args) => {
-    entered = true;
+  const read = spyOn(f.service, "repositoryProject").mockImplementation(async (...args) => {
+    entered++;
     await blocked;
     return project(...args);
   });
   cleanups.push(() => read.mockRestore());
   cleanups.push(() => release());
   const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
-  let lateReply = false;
+  let lateReplies = 0;
   const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
     const frame = parse(...args);
     if (
@@ -1121,36 +1121,46 @@ test("stalled file reads expire without disconnecting the session and ignore lat
         })
         .safeParse(frame.response).success
     )
-      lateReply = true;
+      lateReplies++;
     return frame;
   });
   cleanups.push(() => frames.mockRestore());
   const schedule = globalThis.setTimeout;
-  const timer = spyOn(globalThis, "setTimeout");
-  let expire: () => void = () => {
-    throw new Error("Missing request timer");
-  };
-  timer.mockImplementationOnce(((callback: () => void) => {
-    expire = () => callback();
-    return schedule(() => {}, 0);
-  }) as typeof setTimeout);
-  const pending = client.request("repository-file", {
-    projectId: f.project.id,
-    path: "sample.txt",
-    view: "file",
-  });
-  const failure = pending.catch((error: unknown) => error);
-  expect(timer.mock.calls[0]?.[1]).toBe(15_000);
-  timer.mockRestore();
-  await until(() => entered);
-  expire();
-  expect(await failure).toMatchObject({ message: "This file took too long to open. Try again." });
+  for (let index = 0; index < 8; index++) {
+    const timer = spyOn(globalThis, "setTimeout");
+    let expire: () => void = () => {
+      throw new Error("Missing request timer");
+    };
+    timer.mockImplementationOnce(((callback: () => void) => {
+      expire = () => callback();
+      return schedule(() => {}, 0);
+    }) as typeof setTimeout);
+    const pending = client.request("repository-file", {
+      projectId: f.project.id,
+      path: "sample.txt",
+      view: "file",
+    });
+    const failure = pending.catch((error: unknown) => error);
+    expect(timer.mock.calls[0]?.[1]).toBe(15_000);
+    timer.mockRestore();
+    await until(() => entered === index + 1);
+    expire();
+    expect(await failure).toMatchObject({ message: "This file took too long to open. Try again." });
+  }
+  await expect(
+    client.operation("repository-file", {
+      projectId: f.project.id,
+      path: "sample.txt",
+      view: "file",
+    }),
+  ).rejects.toThrow("busy opening files");
+  expect(entered).toBe(8);
   expect(client.status.kind).toBe("connected");
   expect(await client.operation("project-snapshot", f.project.id)).toMatchObject({
     project: { id: f.project.id },
   });
   release();
-  await until(() => lateReply);
+  await until(() => lateReplies === 8);
   expect(
     await client.operation("repository-file", {
       projectId: f.project.id,

@@ -1,8 +1,7 @@
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { resolveRepositoryLink, resolveRepositoryReference } from "./repository-link";
 
 const root = join(homedir(), "file-navigation-project");
@@ -36,7 +35,7 @@ test("absolute paths retain checkout identity rather than rebasing onto another 
 });
 
 test("absolute aliases open only when their real file stays inside the project", async () => {
-  const scratch = await realpath(await mkdtemp(join(tmpdir(), "tidy-file-alias-")));
+  const scratch = await realpath(await mkdtemp(join(homedir(), ".tidy-file-alias-")));
   try {
     const project = join(scratch, "project");
     const alias = join(scratch, "alias");
@@ -44,6 +43,10 @@ test("absolute aliases open only when their real file stays inside the project",
     await writeFile(join(project, "name #1.ts"), "export const value = 1;");
     await symlink(project, alias);
     expect(await resolveRepositoryReference(project, `${alias}/name%20%231.ts:4`)).toBe(
+      "name #1.ts",
+    );
+    const homeAlias = `~/${relative(homedir(), alias).split("\\").join("/")}`;
+    expect(await resolveRepositoryReference(project, `${homeAlias}/name%20%231.ts:4`)).toBe(
       "name #1.ts",
     );
     await writeFile(join(scratch, "outside.ts"), "outside");
@@ -54,6 +57,9 @@ test("absolute aliases open only when their real file stays inside the project",
     await writeFile(join(project, ".git/config.json"), "{}");
     await expect(
       resolveRepositoryReference(project, join(alias, ".git/config.json")),
+    ).rejects.toThrow();
+    await expect(
+      resolveRepositoryReference(project, `${homeAlias}/.git/config.json`),
     ).rejects.toThrow();
   } finally {
     await rm(scratch, { recursive: true, force: true });
