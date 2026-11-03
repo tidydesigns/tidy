@@ -21,6 +21,7 @@ describe("command search", () => {
 
   test("ignores case, surrounding whitespace, and accents", () => {
     expect(searchScore("Café redesign", "", "  CAFE  ")).toBeGreaterThanOrEqual(0);
+    expect(searchScore("Preferences", "Café", "cafe")).toBeGreaterThanOrEqual(0);
     expect(searchScore("Settings", "", "   ")).toBe(0);
   });
 });

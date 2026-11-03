@@ -246,6 +246,8 @@ export function TerminalDock({
   };
   const shortcut = (action: TerminalShortcut) => {
     if (!valid || !active) return;
+    if (document.querySelector("dialog:modal") && !dock.current?.contains(document.activeElement))
+      return;
     if (action === "toggle") {
       toggle();
       return;

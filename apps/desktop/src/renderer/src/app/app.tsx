@@ -443,9 +443,11 @@ export function App({
     setAccessOffer(undefined);
   }, [draftKey]);
   useLayoutEffect(() => {
-    if (!focusComposerAfterSelection.current) return;
+    if (!focusComposerAfterSelection.current || opening) return;
+    const composer = document.getElementById("thread-prompt");
+    if (!composer) return;
     focusComposerAfterSelection.current = false;
-    document.getElementById("thread-prompt")?.focus({ preventScroll: true });
+    composer.focus({ preventScroll: true });
   });
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const storedDraft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
@@ -2141,6 +2143,10 @@ export function App({
         }}
         onProject={(projectId, snapshot) => {
           setSettingsOpen(false);
+          navigation.current++;
+          machine?.cancelProjectNavigation();
+          setOpening(false);
+          focusComposerAfterSelection.current = false;
           if (projectId !== project?.id || location !== "cloud")
             void chooseProject(projectId, snapshot);
         }}
@@ -2151,6 +2157,10 @@ export function App({
           setSettingsOpen(false);
           setMode("code");
           setThreadQueries((current) => ({ ...current, [projectId]: "" }));
+          const current = snapshots[projectId];
+          const summary = snapshot?.threads.find((item) => item.id === threadId);
+          if (current && summary && !current.threads.some((item) => item.id === summary.id))
+            applySnapshot({ ...current, threads: [...current.threads, summary] }, false, current);
           selectThread(projectId, threadId);
           focusComposerAfterSelection.current = !threadId;
           if (projectId !== project?.id) void chooseProject(projectId, snapshot);
