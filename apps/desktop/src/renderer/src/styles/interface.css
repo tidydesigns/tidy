@@ -126,6 +126,7 @@
   }
 
   .thread-heading .composer-context {
+    flex-wrap: nowrap;
     justify-content: flex-start;
     gap: 8px;
   }
@@ -138,6 +139,6 @@
   }
 
   .thread-workspace .prompt-editor {
-    max-height: 160px;
+    max-height: min(144px, 22dvh);
   }
 }

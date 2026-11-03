@@ -707,3 +707,20 @@
 .workspace-side-panel[data-expanded] .repository-review-body {
   font-size: 13px;
 }
+
+@container repository-surface (max-width: 560px) {
+  .repository-panes[data-preview="true"][data-file-preview="false"] {
+    flex-direction: column;
+  }
+
+  .repository-panes[data-preview="true"][data-file-preview="false"] > .repository-explorer {
+    width: 100% !important;
+    flex-basis: clamp(112px, 25%, 180px) !important;
+    border-left: 0;
+    border-top: 1px solid var(--repository-hairline);
+  }
+
+  .repository-panes[data-preview="true"][data-file-preview="false"] .repository-explorer-resize {
+    display: none;
+  }
+}
