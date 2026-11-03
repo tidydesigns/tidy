@@ -7,8 +7,9 @@ import { readConsent, consentCookie, CONSENT_VERSION, ESSENTIAL_ONLY } from "@/l
 import { recordConsent, receiptToken, RECEIPT_COOKIE } from "@/lib/privacy/consent-store";
 
 async function record(request: Request) {
+  const appUrl = new URL(process.env.BETTER_AUTH_URL || request.url);
   if (
-    request.headers.get("origin") !== new URL(process.env.BETTER_AUTH_URL || request.url).origin ||
+    request.headers.get("origin") !== appUrl.origin ||
     request.headers.get("x-tidy-privacy") !== "1"
   )
     return new Response(null, { status: 403, headers: privateHeaders });
@@ -56,7 +57,7 @@ async function record(request: Request) {
       session?.user.id ?? null,
       receiptToken(request.headers.get("cookie")),
     );
-    const secure = new URL(process.env.BETTER_AUTH_URL || request.url).protocol === "https:";
+    const secure = appUrl.protocol === "https:";
     const headers = new Headers(privateHeaders);
     headers.append(
       "Set-Cookie",

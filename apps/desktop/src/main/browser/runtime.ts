@@ -16,6 +16,9 @@ import { launch, type Browser } from "puppeteer-core";
 import type { ChildProcess } from "node:child_process";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
+const sandboxFailurePattern = /sandbox|namespace|apparmor/i;
+const missingLibraryPattern = /shared libraries|not found|ENOENT/;
+
 export class BrowserRuntime {
   private pending?: Promise<Browser>;
   private closing = false;
@@ -142,11 +145,11 @@ export class BrowserRuntime {
     } catch (error) {
       if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
       const message = scratchStorageError(error, directory ?? "Tidy browser storage").message;
-      if (/sandbox|namespace|apparmor/i.test(message))
+      if (sandboxFailurePattern.test(message))
         throw new Error(
           "Chrome's sandbox is blocked on this host. Allow unprivileged user namespaces or configure a supported Chrome executable. The sandbox is never disabled automatically.",
         );
-      if (/shared libraries|not found|ENOENT/.test(message))
+      if (missingLibraryPattern.test(message))
         throw new Error(
           "Chrome could not start on this host. Install its operating-system dependencies, or set TIDY_BROWSER_EXECUTABLE to an installed Chrome or Chromium executable.",
         );

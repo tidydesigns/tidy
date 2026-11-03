@@ -3,28 +3,31 @@ import type { Thread } from "../contracts/desktop";
 import type { ToolActivity } from "../contracts/tool-activity";
 import { pullRequestURL } from "../contracts/pull-request";
 
+const shellCommandPattern =
+  /^(?:\/(?:usr\/)?bin\/)?(?:bash|zsh|sh)\s+-[a-z]*c\s+(['"])([\s\S]*)\1$/;
+const createPullRequestPattern = /(?:^|&&|;)\s*gh\s+pr\s+create(?:\s|$)([\s\S]*)$/;
+const unsafeCommandPattern = /(?:[;&|\n]|(?:^|\s)--dry-run(?:\s|$))/;
+const createPullRequestToolPattern = /(?:^|[\s._/])create_pull_request$/;
+
 const createdResponse = z.object({ html_url: z.string() });
 
 export function createdPullRequest(tool: ToolActivity): string | null {
   if (tool.status !== "completed" || (tool.exitCode !== undefined && tool.exitCode !== 0))
     return null;
   if (!tool.output) return null;
-  const command = (tool.input ?? tool.title).replace(
-    /^(?:\/(?:usr\/)?bin\/)?(?:bash|zsh|sh)\s+-[a-z]*c\s+(['"])([\s\S]*)\1$/,
-    "$2",
-  );
-  const creation = command.match(/(?:^|&&|;)\s*gh\s+pr\s+create(?:\s|$)([\s\S]*)$/);
+  const command = (tool.input ?? tool.title).replace(shellCommandPattern, "$2");
+  const creation = command.match(createPullRequestPattern);
   if (
     (tool.kind === "command" || tool.kind === "test") &&
     creation &&
-    !/(?:[;&|\n]|(?:^|\s)--dry-run(?:\s|$))/.test(creation[1])
+    !unsafeCommandPattern.test(creation[1])
   ) {
     for (const line of tool.output.split("\n").reverse()) {
       const url = pullRequestURL(line.trim());
       if (url) return url;
     }
   }
-  if (/(?:^|[\s._/])create_pull_request$/.test(tool.toolName)) {
+  if (createPullRequestToolPattern.test(tool.toolName)) {
     try {
       const response = createdResponse.safeParse(JSON.parse(tool.output));
       if (response.success) return pullRequestURL(response.data.html_url);

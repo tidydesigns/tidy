@@ -4,6 +4,9 @@ import { useSyncExternalStore } from "react";
 import Image from "../host-image";
 import type { PresenceStore } from "../lib/realtime/presence-store";
 import type { ConnectionState } from "./use-file-room";
+
+const wordSeparatorPattern = /\s+/;
+
 export function CollaboratorAvatars({
   store,
   connection,
@@ -38,7 +41,7 @@ export function CollaboratorAvatars({
             />
           ) : (
             peer.name
-              .split(/\s+/)
+              .split(wordSeparatorPattern)
               .filter(Boolean)
               .slice(0, 2)
               .map((part) => part[0])

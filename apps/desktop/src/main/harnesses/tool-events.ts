@@ -4,6 +4,18 @@ import {
   type ToolActivityUpdate,
 } from "../../shared/contracts/tool-activity";
 import type { HarnessId } from "../../shared/contracts/desktop";
+
+const terminalOscPattern = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const terminalCsiPattern = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const carriageReturnPattern = /\r\n?/g;
+const terminalControlsPattern = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+const sensitiveInputKeyPattern =
+  /(?:^|_)(?:thinking|reasoning|signature|encrypted_content|password|secret|api_key|authorization|access_token|refresh_token)(?:$|_)/i;
+const testCommandPattern =
+  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:test(?:[\w:-]*)?|vitest|jest|playwright)\b|\b(?:pytest|vitest|jest|rspec|ctest)\b|\b(?:cargo|go|dotnet|gradle|mvn|xcodebuild|playwright)\s+test\b|\bpython\S*\s+-m\s+(?:pytest|unittest)\b/i;
+const searchCommandPattern = /(?:^|[\s;&|])(?:rg|grep|find|fd)\s/;
+
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : "");
@@ -12,10 +24,10 @@ const integer = (value: unknown) =>
 /** Only visible text is retained. Terminal escape sequences never reach the UI or saved transcript. */
 export function plainToolText(value: string) {
   return value
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+    .replace(terminalOscPattern, "")
+    .replace(terminalCsiPattern, "")
+    .replace(carriageReturnPattern, "\n")
+    .replace(terminalControlsPattern, "");
 }
 function contentText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -31,24 +43,14 @@ function safeInput(value: unknown): string {
   return (
     JSON.stringify(
       value,
-      (key, item) =>
-        /(?:^|_)(?:thinking|reasoning|signature|encrypted_content|password|secret|api_key|authorization|access_token|refresh_token)(?:$|_)/i.test(
-          key,
-        )
-          ? "[redacted]"
-          : item,
+      (key, item) => (sensitiveInputKeyPattern.test(key) ? "[redacted]" : item),
       2,
     ) ?? ""
   );
 }
 export function commandKind(command: string): ToolActivityUpdate["kind"] {
-  if (
-    /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:test(?:[\w:-]*)?|vitest|jest|playwright)\b|\b(?:pytest|vitest|jest|rspec|ctest)\b|\b(?:cargo|go|dotnet|gradle|mvn|xcodebuild|playwright)\s+test\b|\bpython\S*\s+-m\s+(?:pytest|unittest)\b/i.test(
-      command,
-    )
-  )
-    return "test";
-  if (/(?:^|[\s;&|])(?:rg|grep|find|fd)\s/.test(command)) return "search";
+  if (testCommandPattern.test(command)) return "test";
+  if (searchCommandPattern.test(command)) return "search";
   return "command";
 }
 /** Fold repeated native events into one tool call. Never inspect thinking/auth/control payloads. */

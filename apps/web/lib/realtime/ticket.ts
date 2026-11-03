@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+const base64PaddingPattern = /=+$/;
+const ticketEncodingPattern = /^[A-Za-z0-9_-]+$/;
+
 export const ticketSchema = z
   .object({
     purpose: z.literal("file-room"),
@@ -19,10 +22,10 @@ function encode(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...bytes))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
-    .replace(/=+$/, "");
+    .replace(base64PaddingPattern, "");
 }
 function decode(value: string) {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("Invalid ticket encoding.");
+  if (!ticketEncodingPattern.test(value)) throw new Error("Invalid ticket encoding.");
   const bytes = Uint8Array.from(atob(value.replaceAll("-", "+").replaceAll("_", "/")), (char) =>
     char.charCodeAt(0),
   );

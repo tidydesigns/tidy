@@ -29,14 +29,18 @@ type Consent = AnalyticsChoices & {
   lastExportAt: Date | null;
   notice: string;
 };
+type NativeConsent = Pick<
+  Consent,
+  "id" | "revision" | "expiresAt" | "accountId" | "usage" | "diagnostics"
+>;
 export async function nativeConsent(token: string, choices?: AnalyticsChoices, revision?: number) {
   const client = await db.connect();
   await client.query("begin");
   try {
     let row = token
       ? (
-          await client.query<Consent>(
-            'select * from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
+          await client.query<NativeConsent>(
+            'select id,revision,"expiresAt","accountId",usage,diagnostics from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
             [analyticsHash(token)],
           )
         ).rows[0]
@@ -47,8 +51,8 @@ export async function nativeConsent(token: string, choices?: AnalyticsChoices, r
       if (!row) {
         token = randomBytes(32).toString("hex");
         row = (
-          await client.query<Consent>(
-            `insert into "desktopAnalyticsConsent" (id,"tokenHash",usage,diagnostics,notice,"expiresAt") values ($1,$2,$3,$4,$5,clock_timestamp()+interval '90 days') returning *`,
+          await client.query<NativeConsent>(
+            `insert into "desktopAnalyticsConsent" (id,"tokenHash",usage,diagnostics,notice,"expiresAt") values ($1,$2,$3,$4,$5,clock_timestamp()+interval '90 days') returning id,revision,"expiresAt","accountId",usage,diagnostics`,
             [
               randomUUID(),
               analyticsHash(token),
@@ -65,8 +69,8 @@ export async function nativeConsent(token: string, choices?: AnalyticsChoices, r
           [row.id, choices.usage, choices.diagnostics],
         );
         row = (
-          await client.query<Consent>(
-            `update "desktopAnalyticsConsent" set usage=$2,diagnostics=$3,revision=revision+1,notice=$4,"expiresAt"=clock_timestamp()+interval '90 days',"accountId"=case when $2 then "accountId" else null end,"linkedAt"=case when $2 then "linkedAt" else null end,"challengeHash"=null,"challengeExpiresAt"=null where id=$1 returning *`,
+          await client.query<NativeConsent>(
+            `update "desktopAnalyticsConsent" set usage=$2,diagnostics=$3,revision=revision+1,notice=$4,"expiresAt"=clock_timestamp()+interval '90 days',"accountId"=case when $2 then "accountId" else null end,"linkedAt"=case when $2 then "linkedAt" else null end,"challengeHash"=null,"challengeExpiresAt"=null where id=$1 returning id,revision,"expiresAt","accountId",usage,diagnostics`,
             [row.id, choices.usage, choices.diagnostics, ANALYTICS_NOTICE],
           )
         ).rows[0];
@@ -94,8 +98,10 @@ export async function captureNative(token: string, revision: number, events: Ana
   await client.query("begin");
   try {
     const row = (
-      await client.query<Consent>(
-        `select * from "desktopAnalyticsConsent" where "tokenHash"=$1 and "expiresAt">clock_timestamp() and notice=$2 for update`,
+      await client.query<
+        Pick<Consent, "id" | "revision" | "usage" | "diagnostics" | "linkedAt" | "accountId">
+      >(
+        `select id,revision,usage,diagnostics,"linkedAt","accountId" from "desktopAnalyticsConsent" where "tokenHash"=$1 and "expiresAt">clock_timestamp() and notice=$2 for update`,
         [analyticsHash(token), ANALYTICS_NOTICE],
       )
     ).rows[0];
@@ -146,8 +152,8 @@ export async function eraseNative(token: string, unlink = false) {
   await client.query("begin");
   try {
     const row = (
-      await client.query<Consent>(
-        'select * from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
+      await client.query<Pick<Consent, "id">>(
+        'select id from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
         [analyticsHash(token)],
       )
     ).rows[0];
@@ -188,7 +194,7 @@ export async function exportNative(token: string) {
   try {
     const row = (
       await client.query<Consent>(
-        'select * from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
+        'select id,usage,diagnostics,notice,revision,"createdAt","linkedAt","lastExportAt","expiresAt","accountId" from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
         [analyticsHash(token)],
       )
     ).rows[0];
@@ -243,8 +249,8 @@ export async function linkAnalyticsAccount(challenge: string, userId: string) {
   await client.query("begin");
   try {
     const row = (
-      await client.query<Consent>(
-        `select * from "desktopAnalyticsConsent" where "challengeHash"=$1 and "challengeExpiresAt">clock_timestamp() and "expiresAt">clock_timestamp() and usage=true and notice=$2 for update`,
+      await client.query<Pick<Consent, "id" | "accountId">>(
+        `select id,"accountId" from "desktopAnalyticsConsent" where "challengeHash"=$1 and "challengeExpiresAt">clock_timestamp() and "expiresAt">clock_timestamp() and usage=true and notice=$2 for update`,
         [analyticsHash(challenge), ANALYTICS_NOTICE],
       )
     ).rows[0];

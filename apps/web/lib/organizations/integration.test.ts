@@ -105,6 +105,7 @@ beforeAll(async () => {
     "schema-design-folders.sql",
     "schema-design-rectangles.sql",
     "schema-design-document.sql",
+    "20261103-document-initialization.sql",
     "schema-github.sql",
     "schema-design-comments.sql",
     "schema-design-comment-coordinates.sql",

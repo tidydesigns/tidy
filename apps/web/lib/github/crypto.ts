@@ -7,10 +7,13 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
+const encryptionKeyPattern = /^[A-Za-z0-9+/]{43}=$/;
+const githubSignaturePattern = /^sha256=[a-f0-9]{64}$/;
+
 export type Sealed = { iv: string; tag: string; body: string };
 function key() {
   const value = process.env.VAULT_ENCRYPTION_KEY;
-  if (!value || !/^[A-Za-z0-9+/]{43}=$/.test(value))
+  if (!value || !encryptionKeyPattern.test(value))
     throw new Error("GitHub token encryption is not configured.");
   return Buffer.from(value, "base64");
 }
@@ -44,7 +47,7 @@ export function pkceChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 export function validWebhook(body: string, signature: string | null, secret: string) {
-  if (!signature || !/^sha256=[a-f0-9]{64}$/.test(signature)) return false;
+  if (!signature || !githubSignaturePattern.test(signature)) return false;
   const expected = createHmac("sha256", secret).update(body).digest();
   return timingSafeEqual(expected, Buffer.from(signature.slice(7), "hex"));
 }

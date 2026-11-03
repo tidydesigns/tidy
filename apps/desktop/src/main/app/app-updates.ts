@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { AppUpdateState } from "../../shared/contracts/app-updates";
 
+const releaseTagPattern = /^desktop-v/;
+const integerPattern = /^\d+$/;
+
 const repository = "tidydesigns/tidy";
 const interval = 30 * 60 * 1000;
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.([1-9]\d*))?$/;
@@ -50,7 +53,7 @@ export function selectAppUpdate(
   if (!parts(current) || !["arm64", "x64"].includes(arch)) return null;
   let selected: Candidate | null = null;
   for (const release of releases) {
-    const version = release.tag_name.replace(/^desktop-v/, "");
+    const version = release.tag_name.replace(releaseTagPattern, "");
     if (!release.tag_name.startsWith("desktop-v") || !parts(version) || release.draft) continue;
     const beta = parts(version)!.beta !== null;
     if (release.prerelease !== beta || (parts(current)!.beta === null && beta)) continue;
@@ -191,7 +194,7 @@ export class AppUpdates {
           const retryAfter =
             retry === null
               ? 0
-              : /^\d+$/.test(retry)
+              : integerPattern.test(retry)
                 ? now + Number(retry) * 1000
                 : Date.parse(retry);
           const reset =

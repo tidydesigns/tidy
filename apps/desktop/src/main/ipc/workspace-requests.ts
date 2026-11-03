@@ -55,6 +55,8 @@ import { messageDeliverySchema, queueRequestSchema } from "../../shared/contract
 import { chatImageRequestSchema } from "../../shared/contracts/chat-images";
 import { chatLinkRequestSchema, openChatLink } from "../workspace/chat-links";
 
+const designAssetDataPattern = /^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+
 export type WorkspacePlatform<Context> = {
   chooseProject(context: Context): Promise<string | null>;
   chooseDesign(context: Context): Promise<{ name: string; document: unknown } | null>;
@@ -210,7 +212,7 @@ export function createWorkspaceRequests<Context>(
       throw new Error("This design is too large to transfer. Choose a smaller reference.");
     for (const id of Object.keys(design.assets)) {
       const value = await store.readSyncAsset(input.projectId, id);
-      if (!value || !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(value))
+      if (!value || !designAssetDataPattern.test(value))
         throw new Error(
           "A design image is unavailable. Open the design on its machine and try again.",
         );

@@ -1,5 +1,7 @@
 import type { DesignDocument } from "./document";
 
+const whitespacePattern = /\s+/g;
+
 export type ImportNote = DesignDocument["warnings"][number];
 export type ImportNoteStatus = NonNullable<ImportNote["status"]>;
 
@@ -7,7 +9,7 @@ export function importNoteKey(note: ImportNote) {
   return JSON.stringify([
     note.importKey ?? "",
     note.nodeId ?? "",
-    note.message.trim().replace(/\s+/g, " "),
+    note.message.trim().replace(whitespacePattern, " "),
   ]);
 }
 

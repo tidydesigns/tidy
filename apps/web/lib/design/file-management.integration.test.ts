@@ -117,6 +117,28 @@ afterAll(async () => {
 });
 
 integration(
+  "file-change initialization stays synchronized with legacy and current document writes",
+  async () => {
+    const { readFileChanges } = await import("./changes");
+    for (const value of [undefined, null, false, true, "true", "false", 0]) {
+      const content: Record<string, unknown> = { ...blankDesignDocument() };
+      if (value === undefined) delete content.legacyConverted;
+      else content.legacyConverted = value;
+      await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+        content,
+        "file",
+      ]);
+      const initialized = value === true || value === "true";
+      const unchanged = await readFileChanges("viewer", "file", 7);
+      expect(unchanged).toMatchObject({ initialized, revision: 7, content: null, patches: [] });
+      const snapshot = await readFileChanges("viewer", "file", null);
+      expect(snapshot).toMatchObject({ initialized, revision: 7, content, patches: null });
+      expect(await readFileChanges("outsider", "file", 7)).toBeNull();
+    }
+  },
+);
+
+integration(
   "browser creation and copies run as the actual restricted login and preserve content with fresh identities",
   async () => {
     expect((await db.query("select current_user,session_user")).rows[0]).toEqual({

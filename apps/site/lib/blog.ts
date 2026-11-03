@@ -4,6 +4,14 @@ import { cache } from "react";
 import matter from "gray-matter";
 import { readBlogCover, type BlogCover } from "./blog-cover";
 
+const postDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+const lineBreakPattern = /\r?\n/;
+const codeFencePattern = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const headingPattern = /^#(?:[ \t]|$)/;
+const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const frontmatterPattern = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/;
+const wordSeparatorPattern = /\s+/;
+
 export type BlogPost = {
   slug: string;
   title: string;
@@ -22,7 +30,7 @@ export type BlogPost = {
 };
 
 function isDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (typeof value !== "string" || !postDatePattern.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
@@ -30,8 +38,8 @@ function isDate(value: unknown): value is string {
 /** Ignore Markdown code fences when checking for a duplicate page title. */
 function hasPageHeading(markdown: string) {
   let fence: string | undefined;
-  for (const line of markdown.split(/\r?\n/)) {
-    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  for (const line of markdown.split(lineBreakPattern)) {
+    const marker = codeFencePattern.exec(line);
     if (fence) {
       if (
         marker &&
@@ -47,7 +55,7 @@ function hasPageHeading(markdown: string) {
       fence = marker[1];
       continue;
     }
-    if (/^#(?:[ \t]|$)/.test(line)) return true;
+    if (headingPattern.test(line)) return true;
   }
   return false;
 }
@@ -56,9 +64,9 @@ export function parsePost(slug: string, source: string): BlogPost {
   const fail = (message: string): never => {
     throw new Error(`Blog post ${slug}: ${message}`);
   };
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) fail("use a kebab-case filename");
+  if (!slugPattern.test(slug)) fail("use a kebab-case filename");
   // Only YAML front matter is accepted; never enable executable front-matter engines.
-  if (!/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.test(source)) fail("missing YAML front matter");
+  if (!frontmatterPattern.test(source)) fail("missing YAML front matter");
   const { data, content } = matter(source);
   const string = (key: string) => {
     const value: unknown = data[key];
@@ -71,10 +79,7 @@ export function parsePost(slug: string, source: string): BlogPost {
   }
   if (data.draft !== undefined && typeof data.draft !== "boolean") fail("draft must be a boolean");
   if (data.artwork !== "cloud-coral" && data.artwork !== "cloud-spectrum") fail("unknown artwork");
-  if (
-    data.cover !== undefined &&
-    (typeof data.cover !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.cover))
-  )
+  if (data.cover !== undefined && (typeof data.cover !== "string" || !slugPattern.test(data.cover)))
     fail("cover must be a kebab-case image name");
   if (!content.trim()) fail("empty article");
   if (hasPageHeading(content)) fail("start article headings at ##; the page provides the title");
@@ -91,7 +96,7 @@ export function parsePost(slug: string, source: string): BlogPost {
     coverAlt: data.cover === undefined ? undefined : string("coverAlt"),
     draft: data.draft === true,
     body: content.trim(),
-    readingMinutes: Math.max(1, Math.ceil(content.trim().split(/\s+/).length / 220)),
+    readingMinutes: Math.max(1, Math.ceil(content.trim().split(wordSeparatorPattern).length / 220)),
   };
 }
 

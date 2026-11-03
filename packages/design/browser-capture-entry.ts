@@ -2,6 +2,8 @@ import { captureElement } from "./browser-capture";
 import { currentViewport, sameViewport, type CaptureViewport } from "./capture-effects";
 import { captureSourceUrl } from "./capture-source";
 
+const pngDataUrlPattern = /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/;
+
 function rootFor(selector?: string) {
   const root = selector ? document.querySelector(selector) : document.body;
   if (!root) throw new Error("Capture selector did not match an element.");
@@ -40,7 +42,7 @@ const api = {
         "Screenshot needs matching prepare() metadata. Keep the page and viewport unchanged between prepare, screenshot and capture.",
       );
     }
-    if (options.screenshot && !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(options.screenshot))
+    if (options.screenshot && !pngDataUrlPattern.test(options.screenshot))
       throw new Error("Supply a PNG viewport screenshot as a base64 data URL.");
     return captureElement(
       rootFor(options.selector),

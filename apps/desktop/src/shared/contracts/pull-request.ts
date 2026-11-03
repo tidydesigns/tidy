@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+const invalidLinkCharacterPattern = /[\u0000-\u0020\u007f]/;
+const pullRequestPathPattern =
+  /^\/([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+)\/pull\/([1-9]\d*)(?:\/(?:files|commits|checks))?\/?$/i;
+
 export const threadPullRequestsSchema = z
   .array(
     z
@@ -13,7 +17,7 @@ export const pullRequestStateSchema = z.enum(["open", "draft", "merged", "closed
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>;
 
 export function pullRequestURL(href: string | undefined): string | null {
-  if (!href || href.length > 4096 || /[\u0000-\u0020\u007f]/.test(href)) return null;
+  if (!href || href.length > 4096 || invalidLinkCharacterPattern.test(href)) return null;
   try {
     const url = new URL(href);
     if (
@@ -24,9 +28,7 @@ export function pullRequestURL(href: string | undefined): string | null {
       url.password
     )
       return null;
-    const match = url.pathname.match(
-      /^\/([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+)\/pull\/([1-9]\d*)(?:\/(?:files|commits|checks))?\/?$/i,
-    );
+    const match = url.pathname.match(pullRequestPathPattern);
     if (!match || match[2] === "." || match[2] === ".." || !Number.isSafeInteger(Number(match[3])))
       return null;
     return `https://github.com/${match[1]?.toLowerCase()}/${match[2]?.toLowerCase()}/pull/${match[3]}`;

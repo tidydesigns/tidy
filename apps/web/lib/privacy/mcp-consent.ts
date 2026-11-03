@@ -5,6 +5,9 @@ import { PrivacyError } from "./access";
 import type { PoolClient } from "pg";
 
 import { MCP_NOTICE_VERSION } from "./consent";
+
+const tokenHashPattern = /^[a-f0-9]{64}$/;
+
 export const mcpAnalyticsId = (consentId: string) => `mcp:${consentId}`;
 
 // Only a recorded choice enables account linking. An OAuth grant or browser
@@ -41,7 +44,7 @@ export function mcpIntentToken(cookie: string | null) {
     .map((part) => part.trim())
     .filter((part) => part.startsWith(`${MCP_INTENT_COOKIE}=`));
   const token = matches?.length === 1 ? matches[0].slice(MCP_INTENT_COOKIE.length + 1) : "";
-  return /^[a-f0-9]{64}$/.test(token) ? token : undefined;
+  return tokenHashPattern.test(token) ? token : undefined;
 }
 
 async function lockAccount(client: PoolClient, userId: string, sessionId: string) {

@@ -8,6 +8,12 @@ import {
   repositoryContextSchema,
 } from "../../shared/contracts/repository-context";
 
+const branchInUsePattern = /already (?:checked out|used by worktree)/i;
+const overwrittenChangesPattern = /would be overwritten|would be lost/i;
+const indexLockPattern = /index\.lock/i;
+const unresolvedIndexPattern = /cannot switch branch while|resolve your current index/i;
+const invalidBranchPattern = /invalid reference|a branch is expected/i;
+
 const execute = promisify(execFile);
 
 export async function git(cwd: string, args: string[], timeout = 10_000) {
@@ -89,11 +95,10 @@ function classifyBranchSwitchError(error: unknown): BranchSwitchReason {
   if ("code" in error && error.code === "ENOENT") return "git-unavailable";
   if ("killed" in error && error.killed === true) return "timeout";
   const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
-  if (/already (?:checked out|used by worktree)/i.test(stderr)) return "branch-in-use";
-  if (/would be overwritten|would be lost/i.test(stderr)) return "local-changes";
-  if (/index\.lock/i.test(stderr)) return "index-locked";
-  if (/cannot switch branch while|resolve your current index/i.test(stderr))
-    return "operation-in-progress";
-  if (/invalid reference|a branch is expected/i.test(stderr)) return "missing-branch";
+  if (branchInUsePattern.test(stderr)) return "branch-in-use";
+  if (overwrittenChangesPattern.test(stderr)) return "local-changes";
+  if (indexLockPattern.test(stderr)) return "index-locked";
+  if (unresolvedIndexPattern.test(stderr)) return "operation-in-progress";
+  if (invalidBranchPattern.test(stderr)) return "missing-branch";
   return "failed";
 }

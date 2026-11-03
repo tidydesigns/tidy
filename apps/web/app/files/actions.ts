@@ -20,6 +20,9 @@ import {
   renameDesignFolderForUser,
 } from "@/lib/design/folder-service";
 
+const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const controlCharactersPattern = /[\u0000-\u001f\u007f]/;
+
 export async function createDesignFile(
   folderId: string | null = null,
   organizationId?: string,
@@ -50,10 +53,7 @@ export async function createDraftFile(
   folderId: string | null,
   organizationId: string,
 ): Promise<{ error?: string }> {
-  if (
-    typeof id !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
-  )
+  if (typeof id !== "string" || !uuidV4Pattern.test(id))
     return { error: "Invalid file identifier." };
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return { error: "Sign in to create a file." };
@@ -65,7 +65,7 @@ export async function createDraftFile(
 
 function validName(name: string) {
   const trimmed = name.trim();
-  return trimmed.length > 0 && trimmed.length <= 120 && !/[\u0000-\u001f\u007f]/.test(trimmed)
+  return trimmed.length > 0 && trimmed.length <= 120 && !controlCharactersPattern.test(trimmed)
     ? trimmed
     : null;
 }

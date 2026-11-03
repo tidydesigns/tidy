@@ -19,6 +19,9 @@ import {
   exportNative,
 } from "@/lib/analytics/store";
 
+const bearerPrefixPattern = /^Bearer /;
+const telemetryTokenPattern = /^[a-f0-9]{64}$/;
+
 const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 async function handle(request: Request, context: { params: Promise<{ action: string }> }) {
   if (!analyticsStorageEnabled()) return new Response(null, { status: 503, headers });
@@ -29,8 +32,9 @@ async function handle(request: Request, context: { params: Promise<{ action: str
     const { action } = await context.params;
     if (!analyticsEnabled() && !["erase", "unlink", "status", "export"].includes(action))
       return new Response(null, { status: 503, headers });
-    const token = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-    if (token && !/^[a-f0-9]{64}$/.test(token)) return new Response(null, { status: 401, headers });
+    const token = (request.headers.get("authorization") ?? "").replace(bearerPrefixPattern, "");
+    if (token && !telemetryTokenPattern.test(token))
+      return new Response(null, { status: 401, headers });
     await reservePersonalAttempts(
       "privacy-consent",
       `${action === "events" || action === "receipt" ? "native-telemetry" : "native"}:${request.headers.get("cf-connecting-ip") || "unknown"}`,

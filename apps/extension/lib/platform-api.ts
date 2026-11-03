@@ -1,5 +1,7 @@
 import { MAX_CAPTURE_BYTES } from "@tidy/design/web-capture";
 
+const integerPattern = /^\d+$/;
+
 export class PlatformError extends Error {
   constructor(
     message: string,
@@ -48,7 +50,7 @@ export function serializeCaptureRequest(value: unknown): string {
 }
 export function platformRetryAfter(value: string | null, now = Date.now()) {
   if (!value) return 0;
-  const seconds = /^\d+$/.test(value.trim())
+  const seconds = integerPattern.test(value.trim())
     ? Number(value)
     : Math.ceil((Date.parse(value) - now) / 1000);
   return Number.isFinite(seconds) ? Math.min(3600, Math.max(0, seconds)) : 0;

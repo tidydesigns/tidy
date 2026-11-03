@@ -1,6 +1,9 @@
 import type { DesignSummary, Thread } from "../../../../../shared/contracts/desktop";
 import type { ToolActivity } from "../../../../../shared/contracts/tool-activity";
 
+const backslashesPattern = /\\+/g;
+const designReferencePattern = /(?:^|[\s/'"`=:])\.tidy\/designs\/([\da-f-]+)\.json(?![\w.-])/gi;
+
 /** Resolve activity against known project designs; tool text never becomes a filesystem target. */
 export function threadDesigns(
   thread: Pick<Thread, "messages" | "toolActivities" | "designIds">,
@@ -29,12 +32,10 @@ export function threadDesigns(
       const paths = tool.files?.filter((file) => file.kind !== "deleted").map((file) => file.path);
       const text =
         `${tool.title}\n${tool.input ?? ""}\n${tool.output ?? ""}\n${paths?.join("\n") ?? ""}`.replace(
-          /\\+/g,
+          backslashesPattern,
           "/",
         );
-      const matches = [
-        ...text.matchAll(/(?:^|[\s/'"`=:])\.tidy\/designs\/([\da-f-]+)\.json(?![\w.-])/gi),
-      ];
+      const matches = [...text.matchAll(designReferencePattern)];
       targets = matches
         .reverse()
         .filter(

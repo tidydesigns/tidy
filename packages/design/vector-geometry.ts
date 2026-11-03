@@ -1,4 +1,11 @@
+const pathSeparatorPattern = /[\s,]/;
+const pathNumberPattern = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/;
+const pathCommandPattern = /[a-zA-Z]/;
+const cubicCommandPattern = /[CS]/;
+const quadraticCommandPattern = /[QT]/;
+
 export type VectorPoint = { x: number; y: number };
+
 export type VectorAnchor = VectorPoint & {
   id: string;
   in?: VectorPoint;
@@ -103,11 +110,11 @@ export function parsePathContours(d: string): VectorContour[] {
   let contour: VectorContour | undefined,
     serial = 0;
   const skip = () => {
-    while (/[\s,]/.test(d[index] ?? "!") && index < d.length) index++;
+    while (pathSeparatorPattern.test(d[index] ?? "!") && index < d.length) index++;
   };
   const number = () => {
     skip();
-    const match = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(d.slice(index));
+    const match = pathNumberPattern.exec(d.slice(index));
     if (!match) throw new Error("Invalid SVG path number.");
     index += match[0].length;
     const value = Number(match[0]);
@@ -132,7 +139,7 @@ export function parsePathContours(d: string): VectorContour[] {
   while (true) {
     skip();
     if (index >= d.length) break;
-    if (/[a-zA-Z]/.test(d[index]!)) command = d[index++]!;
+    if (pathCommandPattern.test(d[index]!)) command = d[index++]!;
     else if (!command) throw new Error("Missing SVG path command.");
     const upper = command.toUpperCase(),
       relative = command !== upper;
@@ -172,7 +179,7 @@ export function parsePathContours(d: string): VectorContour[] {
       const out =
         upper === "C"
           ? point()
-          : /[CS]/.test(previous) && tail?.in
+          : cubicCommandPattern.test(previous) && tail?.in
             ? { x: 2 * origin.x - tail.in.x, y: 2 * origin.y - tail.in.y }
             : origin;
       const incoming = point(),
@@ -182,7 +189,7 @@ export function parsePathContours(d: string): VectorContour[] {
       const control: VectorPoint =
         upper === "Q"
           ? point()
-          : /[QT]/.test(previous) && quadratic
+          : quadraticCommandPattern.test(previous) && quadratic
             ? { x: 2 * origin.x - quadratic.x, y: 2 * origin.y - quadratic.y }
             : origin;
       const end = point();
@@ -207,7 +214,7 @@ export function parsePathContours(d: string): VectorContour[] {
       else for (const segment of segments) append(segment.end, segment.in, segment.out);
     } else throw new Error("Unsupported SVG path command.");
     previous = upper;
-    if (!/[QT]/.test(upper)) quadratic = undefined;
+    if (!quadraticCommandPattern.test(upper)) quadratic = undefined;
   }
   if (!contours.length) throw new Error("Empty SVG path.");
   return contours;

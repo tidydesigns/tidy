@@ -4,6 +4,9 @@ import { APIError } from "better-auth/api";
 import { db } from "@/lib/db";
 import { inDatabaseScope } from "@/lib/database-scope";
 import { OAUTH_CLIENT_LIMITS } from "./client-registration-budget";
+
+const oauthPathPattern = /^\/(admin\/)?oauth2\//;
+
 export { OAUTH_CLIENT_LIMITS } from "./client-registration-budget";
 
 async function clientTransaction<T>(write: () => Promise<T>) {
@@ -60,7 +63,7 @@ export const clientAdmissionPlugin = {
     const transaction = adapter.transaction.bind(adapter);
     adapter.transaction = (callback) => {
       const path = tryGetCurrentAuthEndpointContext()?.path ?? "";
-      if (!/^\/(admin\/)?oauth2\//.test(path)) return transaction(callback);
+      if (!oauthPathPattern.test(path)) return transaction(callback);
       // The provider otherwise clones its adapter for transactions, losing init
       // decorators. Use the decorated adapter within one scoped pg transaction,
       // including resource links and any nested admission savepoint.

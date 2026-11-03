@@ -4,7 +4,15 @@ const { randomUUID, createHash } = require('node:crypto');
 const database = process.versions.bun
   ? new (require('bun:sqlite').Database)(workerData.path, { create: true })
   : new (require('node:sqlite').DatabaseSync)(workerData.path);
-const statement = (sql) => process.versions.bun ? database.query(sql) : database.prepare(sql);
+const statements = new Map();
+const statement = (sql) => {
+  if (process.versions.bun) return database.query(sql);
+  if (!statements.has(sql)) {
+    if (statements.size >= 64) statements.clear();
+    statements.set(sql, database.prepare(sql));
+  }
+  return statements.get(sql);
+};
 const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
 const transaction = (work) => {
   database.exec('BEGIN IMMEDIATE');
@@ -19,8 +27,9 @@ const nextSequence = () => {
 const decode = (row) => row ? JSON.parse(row.record) : undefined;
 const get = (id) => decode(statement('SELECT record FROM tasks WHERE id = ?').get(id)) || decode(statement('SELECT record FROM task_tombstones WHERE id = ?').get(id));
 const save = (task) => {
-  statement('UPDATE tasks SET state = ?, sequence = ?, delivered = ?, record = ? WHERE id = ?')
+  const result = statement('UPDATE tasks SET state = ?, sequence = ?, delivered = ?, record = ? WHERE id = ?')
     .run(task.state, task.sequence, Number(task.delivered), JSON.stringify(task), task.id);
+  if (result.changes) remember('tasks', task);
   return task;
 };
 const retentionMs = 30 * 24 * 60 * 60 * 1000;
@@ -39,6 +48,7 @@ const maintain = (before) => {
     const { summary, error, deliveryError, prompt, settings, ...identity } = task;
     const record = { ...identity, promptHash: task.promptHash || createHash('sha256').update(prompt).digest('hex'), prompt: '[Archived assignment]', settings: settings.permissionMode ? { permissionMode: settings.permissionMode } : {}, archived: true, error: 'This delivered result was archived after the 30-day retention window. Its request ID and child ownership are preserved.' };
     statement('INSERT INTO task_tombstones VALUES (?, ?, ?, ?, ?, ?)').run(task.id, task.projectId, task.parentThreadId, task.requestId, row.fingerprint, JSON.stringify(record));
+    remember('task_tombstones', record);
     statement('DELETE FROM tasks WHERE id = ?').run(task.id);
     compactedTasks++;
     room--;
@@ -53,16 +63,53 @@ const maintain = (before) => {
   }
   return { compactedTasks, expiredReceipts, capacityReached: !room, hasMore: tasks.length > compactedTasks || receipts.length > expiredReceipts || tasks.length === 100 || receipts.length === 100 };
 };
+const whitespacePattern = /\s+/g;
+const remember = (table, task) => {
+  let page = null;
+  let incoming = null;
+  if (task && typeof task === 'object') {
+    if (table === 'tasks' && typeof task.prompt === 'string' && task.settings != null &&
+        (task.summary == null || typeof task.summary === 'string') &&
+        (task.error == null || typeof task.error === 'string')) {
+      const { id, childThreadId, originatingMessageId, sequence, state, kind, harness, createdAt } = task;
+      page = JSON.stringify({ id, childThreadId, originatingMessageId, sequence, state, kind, harness, createdAt,
+        prompt: task.prompt.replace(whitespacePattern, ' ').slice(0, 160),
+        settings: { model: task.settings.model, effort: task.settings.effort },
+        summary: task.summary?.slice(-1000), error: task.error?.slice(0, 1000) });
+    }
+    if (task.promptHash || typeof task.prompt === 'string') {
+      const { id, parentThreadId, kind, childThreadId, promptHash } = task;
+      incoming = JSON.stringify({ id, parentThreadId, kind, childThreadId, promptHash,
+        prompt: promptHash ? undefined : task.prompt });
+    }
+  }
+  statement('INSERT OR REPLACE INTO task_read_models (source, id, page, incoming) VALUES (?, ?, ?, ?)')
+    .run(table, task.id, page, incoming);
+};
+const incomingFields = (table) => "COALESCE((SELECT incoming FROM task_read_models WHERE source = '" + table + "' AND id = " + table + ".id), record) AS record";
+const pageFields = "tasks.rowid AS position, models.page AS projected, CASE WHEN models.page IS NULL THEN tasks.record END AS record";
+const pageJoin = " LEFT JOIN task_read_models AS models ON models.source = 'tasks' AND models.id = tasks.id";
+const decodePage = (row) => JSON.parse(row.projected ?? row.record);
 function dispatch(kind, input) {
   if (kind === 'initialize') {
-    database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 3000; CREATE TABLE IF NOT EXISTS metadata (id INTEGER PRIMARY KEY CHECK (id = 1), sequence INTEGER NOT NULL); INSERT OR IGNORE INTO metadata VALUES (1, 0); CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_thread_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, state TEXT NOT NULL, sequence INTEGER NOT NULL, delivered INTEGER NOT NULL, record TEXT NOT NULL, UNIQUE(project_id, parent_thread_id, request_id)); CREATE INDEX IF NOT EXISTS task_owner_sequence ON tasks(project_id, parent_thread_id, sequence); CREATE INDEX IF NOT EXISTS task_delivery ON tasks(delivered, state, sequence); CREATE TABLE IF NOT EXISTS operation_receipts (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS task_children (project_id TEXT NOT NULL, child_thread_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, PRIMARY KEY(project_id, child_thread_id)); INSERT INTO task_children SELECT project_id, json_extract(record, \'$.childThreadId\'), id FROM tasks WHERE (json_extract(record, \'$.kind\') IS NULL OR json_extract(record, \'$.kind\') = \'initial\') AND NOT EXISTS (SELECT 1 FROM task_children WHERE task_children.task_id = tasks.id);');
-    // SQLite appends rowid to secondary indexes, matching the history cursor.
-    database.exec('CREATE INDEX IF NOT EXISTS task_owner_position ON tasks(project_id, parent_thread_id); CREATE INDEX IF NOT EXISTS task_owner_state ON tasks(project_id, parent_thread_id, state);');
-    database.exec('CREATE TABLE IF NOT EXISTS task_tombstones (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_thread_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, record TEXT NOT NULL, UNIQUE(project_id, parent_thread_id, request_id)); CREATE TABLE IF NOT EXISTS receipt_tombstones (key TEXT PRIMARY KEY);');
-    if (!statement("PRAGMA table_info(operation_receipts)").all().some(column => column.name === 'updated_at')) database.exec('ALTER TABLE operation_receipts ADD COLUMN updated_at TEXT');
-    statement('UPDATE operation_receipts SET updated_at = ? WHERE updated_at IS NULL').run(new Date().toISOString());
-    database.exec('CREATE TABLE IF NOT EXISTS thread_receivers (project_id TEXT NOT NULL, thread_id TEXT NOT NULL, grant_id TEXT NOT NULL, PRIMARY KEY(project_id, thread_id));');
-    if (!statement("PRAGMA table_info(thread_receivers)").all().some(column => column.name === 'project_scope')) database.exec('ALTER TABLE thread_receivers ADD COLUMN project_scope TEXT');
+    database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 3000;');
+    transaction(() => {
+      database.exec('CREATE TABLE IF NOT EXISTS metadata (id INTEGER PRIMARY KEY CHECK (id = 1), sequence INTEGER NOT NULL); INSERT OR IGNORE INTO metadata VALUES (1, 0); CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_thread_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, state TEXT NOT NULL, sequence INTEGER NOT NULL, delivered INTEGER NOT NULL, record TEXT NOT NULL, UNIQUE(project_id, parent_thread_id, request_id)); CREATE INDEX IF NOT EXISTS task_owner_sequence ON tasks(project_id, parent_thread_id, sequence); CREATE INDEX IF NOT EXISTS task_delivery ON tasks(delivered, state, sequence); CREATE TABLE IF NOT EXISTS operation_receipts (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS task_children (project_id TEXT NOT NULL, child_thread_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, PRIMARY KEY(project_id, child_thread_id)); INSERT INTO task_children SELECT project_id, json_extract(record, \'$.childThreadId\'), id FROM tasks WHERE (json_extract(record, \'$.kind\') IS NULL OR json_extract(record, \'$.kind\') = \'initial\') AND NOT EXISTS (SELECT 1 FROM task_children WHERE task_children.task_id = tasks.id);');
+      // SQLite appends rowid to secondary indexes, matching the history cursor.
+      database.exec('CREATE INDEX IF NOT EXISTS task_owner_position ON tasks(project_id, parent_thread_id); CREATE INDEX IF NOT EXISTS task_owner_state ON tasks(project_id, parent_thread_id, state);');
+      database.exec('CREATE TABLE IF NOT EXISTS task_tombstones (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_thread_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, record TEXT NOT NULL, UNIQUE(project_id, parent_thread_id, request_id)); CREATE TABLE IF NOT EXISTS receipt_tombstones (key TEXT PRIMARY KEY);');
+      database.exec('CREATE TABLE IF NOT EXISTS task_read_models (source TEXT NOT NULL, id TEXT NOT NULL, page TEXT, incoming TEXT, PRIMARY KEY(source, id)) WITHOUT ROWID');
+      for (const table of ['tasks', 'task_tombstones']) {
+        for (const event of ['INSERT', 'UPDATE', 'DELETE']) {
+          const conflict = event === 'DELETE' ? 'id = OLD.id' : "id = NEW.id OR (project_id = NEW.project_id AND parent_thread_id = NEW.parent_thread_id AND request_id = NEW.request_id)" + (event === 'UPDATE' ? ' OR id = OLD.id' : '');
+          database.exec("CREATE TRIGGER IF NOT EXISTS " + table + "_invalidate_read_models_" + event.toLowerCase() + " BEFORE " + event + " ON " + table + " BEGIN DELETE FROM task_read_models WHERE source = '" + table + "' AND id IN (SELECT id FROM " + table + " WHERE " + conflict + "); END");
+        }
+      }
+      if (!statement("PRAGMA table_info(operation_receipts)").all().some(column => column.name === 'updated_at')) database.exec('ALTER TABLE operation_receipts ADD COLUMN updated_at TEXT');
+      statement('UPDATE operation_receipts SET updated_at = ? WHERE updated_at IS NULL').run(new Date().toISOString());
+      database.exec('CREATE TABLE IF NOT EXISTS thread_receivers (project_id TEXT NOT NULL, thread_id TEXT NOT NULL, grant_id TEXT NOT NULL, PRIMARY KEY(project_id, thread_id));');
+      if (!statement("PRAGMA table_info(thread_receivers)").all().some(column => column.name === 'project_scope')) database.exec('ALTER TABLE thread_receivers ADD COLUMN project_scope TEXT');
+    });
     if (input.recover) transaction(() => {
       while (true) {
         const rows = statement("SELECT record FROM tasks WHERE state IN ('queued', 'running', 'cancel_requested') LIMIT 100").all();
@@ -80,7 +127,7 @@ function dispatch(kind, input) {
     const ids = [...candidates.keys()];
     if (!ids.length) return [];
     const placeholders = ids.map(() => '?').join(',');
-    const rows = statement('SELECT record FROM tasks WHERE project_id = ? AND id IN (' + placeholders + ') UNION ALL SELECT record FROM task_tombstones WHERE project_id = ? AND id IN (' + placeholders + ')').all(input.projectId, ...ids, input.projectId, ...ids);
+    const rows = statement('SELECT ' + incomingFields('tasks') + ' FROM tasks WHERE project_id = ? AND id IN (' + placeholders + ') UNION ALL SELECT ' + incomingFields('task_tombstones') + ' FROM task_tombstones WHERE project_id = ? AND id IN (' + placeholders + ')').all(input.projectId, ...ids, input.projectId, ...ids);
     return rows.flatMap(row => {
       const task = decode(row);
       const hash = task.promptHash || createHash('sha256').update(task.prompt).digest('hex');
@@ -117,6 +164,7 @@ function dispatch(kind, input) {
     const now = new Date().toISOString();
     const task = { ...value, promptHash: createHash('sha256').update(value.prompt).digest('hex'), id: randomUUID(), state: 'queued', sequence: nextSequence(), createdAt: now, updatedAt: now, delivered: false };
     statement('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(task.id, task.projectId, task.parentThreadId, task.requestId, fingerprint, task.state, task.sequence, 0, JSON.stringify(task));
+    remember('tasks', task);
     if (!childOwner && value.kind !== 'message') statement('INSERT INTO task_children VALUES (?, ?, ?)').run(task.projectId, task.childThreadId, task.id);
     return task;
   });
@@ -124,22 +172,22 @@ function dispatch(kind, input) {
   if (kind === 'for-child') { const owner = statement('SELECT task_id FROM task_children WHERE project_id = ? AND child_thread_id = ?').get(input.projectId, input.childThreadId); return owner ? get(owner.task_id) ?? null : null; }
   if (kind === 'get') return get(input.id) ?? null;
   if (kind === 'thread-page') {
-    const filter = input.taskIds ? ' AND id IN (' + input.taskIds.map(() => '?').join(',') + ')' : '';
+    const filter = input.taskIds ? ' AND tasks.id IN (' + input.taskIds.map(() => '?').join(',') + ')' : '';
     const historyIndex = input.taskIds ? '' : ' INDEXED BY task_owner_position';
-    const rows = statement('SELECT rowid AS position, record FROM tasks' + historyIndex + ' WHERE project_id = ? AND parent_thread_id = ?' + (input.before ? ' AND rowid < ?' : '') + filter + ' ORDER BY rowid DESC LIMIT 51')
+    const rows = statement('SELECT ' + pageFields + ' FROM tasks' + historyIndex + pageJoin + ' WHERE tasks.project_id = ? AND tasks.parent_thread_id = ?' + (input.before ? ' AND tasks.rowid < ?' : '') + filter + ' ORDER BY tasks.rowid DESC LIMIT 51')
       .all(input.projectId, input.parentThreadId, ...(input.before ? [input.before] : []), ...(input.taskIds || []));
     const active = !input.before && !input.taskIds
-      ? statement("SELECT rowid AS position, record FROM tasks INDEXED BY task_owner_state WHERE project_id = ? AND parent_thread_id = ? AND state IN ('queued', 'running', 'cancel_requested') ORDER BY CASE WHEN state = 'queued' THEN 1 ELSE 0 END, rowid DESC LIMIT 50").all(input.projectId, input.parentThreadId)
+      ? statement("SELECT " + pageFields + " FROM tasks INDEXED BY task_owner_state" + pageJoin + " WHERE tasks.project_id = ? AND tasks.parent_thread_id = ? AND tasks.state IN ('queued', 'running', 'cancel_requested') ORDER BY CASE WHEN tasks.state = 'queued' THEN 1 ELSE 0 END, tasks.rowid DESC LIMIT 50").all(input.projectId, input.parentThreadId)
       : [];
     const tasks = [];
     const included = new Set();
     let bytes = 2048;
     const append = (row) => {
-      const task = decode(row);
+      const task = decodePage(row);
       if (included.has(task.id)) return true;
       const value = {
         id: task.id, childThreadId: task.childThreadId, originatingMessageId: task.originatingMessageId,
-        sequence: task.sequence, label: task.prompt.replace(/\s+/g, ' ').slice(0, 160),
+        sequence: task.sequence, label: row.projected !== null ? task.prompt : (typeof task.prompt === 'string' ? task.prompt.replace(whitespacePattern, ' ') : task.prompt.replace(/\s+/g, ' ')).slice(0, 160),
         state: task.state, kind: task.kind || 'initial', harness: task.harness,
         model: task.settings.model, effort: task.settings.effort, createdAt: task.createdAt,
         summary: task.summary?.slice(-1000), error: task.error?.slice(0, 1000),

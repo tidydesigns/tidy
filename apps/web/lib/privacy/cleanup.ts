@@ -99,7 +99,7 @@ export async function processPrivacyCleanup(limit = 1) {
       await db.query<CleanupJob>(`update "privacyCleanup" set
       "nextAttemptAt"=now()+interval '5 minutes', attempts=attempts+1
       where id=(select id from "privacyCleanup" where "nextAttemptAt"<=now()
-        order by "nextAttemptAt" for update skip locked limit 1) returning *`)
+        order by "nextAttemptAt" for update skip locked limit 1) returning id,kind,subject,attempts`)
     ).rows[0];
     if (!job) break;
     try {

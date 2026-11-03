@@ -21,6 +21,10 @@ import { authorizationRefreshDelay, sameAuthorizations } from "@/lib/mcp/authori
 import { McpConnectionsSkeleton, McpPageHeading } from "./mcp-loading";
 import styles from "./mcp-connection.module.css";
 
+const claudeClientPattern = /claude/i;
+const opencodeClientPattern = /opencode/i;
+const openaiClientPattern = /codex|openai/i;
+
 function ManualSetup({ resourceUrl }: { resourceUrl: string }) {
   const [selectedAgent, setAgent] = useState<Agent>("codex");
   const showAdditionalClients = useFeatureFlag("mcp-pi-gemini");
@@ -86,11 +90,11 @@ function EmptySetup(props: SetupPromptProps) {
 }
 
 function AgentLogo({ name }: { name: string }) {
-  const agent = /claude/i.test(name)
+  const agent = claudeClientPattern.test(name)
     ? "claude"
-    : /opencode/i.test(name)
+    : opencodeClientPattern.test(name)
       ? "opencode"
-      : /codex|openai/i.test(name)
+      : openaiClientPattern.test(name)
         ? "codex"
         : null;
   return agent ? (

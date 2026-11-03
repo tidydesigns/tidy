@@ -1,5 +1,8 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 
+const clientVersionPattern =
+  /^v?(\d{1,6}(?:\.\d{1,6}){0,2}(?:-(?:alpha|beta|rc|canary|dev|preview|nightly)(?:[.-]\d{1,8})?)?)$/i;
+
 // Exact aliases only: never emit arbitrary client names, titles or vendor strings.
 const clientNames = new Map([
   ["codex", "codex"],
@@ -28,9 +31,7 @@ export function normalizeMcpClient(value: unknown): McpClientDiagnostics {
   // for compatibility debugging. Reject paths, hashes, custom builds and free text.
   const release =
     typeof version === "string" && version.length <= 40 && version.trim() === version
-      ? /^v?(\d{1,6}(?:\.\d{1,6}){0,2}(?:-(?:alpha|beta|rc|canary|dev|preview|nightly)(?:[.-]\d{1,8})?)?)$/i.exec(
-          version,
-        )?.[1]
+      ? clientVersionPattern.exec(version)?.[1]
       : undefined;
   return { name: client, ...(release ? { version: release.toLowerCase() } : {}) };
 }

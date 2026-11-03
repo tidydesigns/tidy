@@ -46,11 +46,12 @@ export async function createRequestTrace(request: Request, runtime: TracingRunti
     posthogCollectionEnabled(request.headers.get("cookie"), "diagnostics") &&
     runtime.key &&
     runtime.host &&
-    runtime.enabled === "1" &&
-    !new URL(request.url).pathname.startsWith("/_next/") &&
-    new URL(request.url).pathname !== "/api/t" &&
-    !new URL(request.url).pathname.startsWith("/api/t/"),
+    runtime.enabled === "1",
   );
+  if (configured) {
+    const path = new URL(request.url).pathname;
+    configured = !path.startsWith("/_next/") && path !== "/api/t" && !path.startsWith("/api/t/");
+  }
   if (configured) {
     try {
       configured = Boolean(

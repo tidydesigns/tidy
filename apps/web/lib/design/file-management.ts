@@ -20,6 +20,8 @@ import { thumbnailIsCurrent, thumbnailVersion } from "./thumbnail-version";
 import { documentSchemaReady } from "./document-service";
 import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "./document";
 
+const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function publicError(error: unknown, fallback: string) {
   reportHandledError(error, "files.manage");
   if (
@@ -195,10 +197,7 @@ export async function createBrowserFileForUser(
   draftId?: string,
 ): Promise<FileManagementResult> {
   try {
-    if (
-      draftId !== undefined &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draftId)
-    )
+    if (draftId !== undefined && !uuidV4Pattern.test(draftId))
       throw new FileManagementError("Invalid file identifier.");
     if (folderId !== null && !validId(folderId))
       throw new FileManagementError("File or folder not found or access denied.");

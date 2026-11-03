@@ -17,6 +17,10 @@ import type { DesktopEvent } from "../../shared/contracts/desktop";
 import type { WorkspaceService } from "../workspace/workspace-service";
 import { SessionStore } from "./session-store";
 
+const bearerPrefixPattern = /^Bearer /;
+const loopbackHostPattern = /^127\.0\.0\.1:\d+$/;
+const trailingSlashPattern = /\/$/;
+
 export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
 const hostCapabilities = [
@@ -116,13 +120,13 @@ export function createRemoteHost({
   });
   const authenticated = async (request: IncomingMessage) => {
     const clientId = request.headers["x-tidy-client"];
-    const token = request.headers.authorization?.replace(/^Bearer /, "");
+    const token = request.headers.authorization?.replace(bearerPrefixPattern, "");
     return typeof clientId === "string" && token && (await sessions.validate(clientId, token))
       ? { clientId, token }
       : null;
   };
   const trusted = (request: IncomingMessage) =>
-    !request.headers.origin && /^127\.0\.0\.1:\d+$/.test(request.headers.host ?? "");
+    !request.headers.origin && loopbackHostPattern.test(request.headers.host ?? "");
   const server = createServer((request, response) => {
     const send = (status: number, value: unknown) => {
       response.writeHead(status, {
@@ -345,7 +349,7 @@ export function createRemoteHost({
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((entry) => ({
                         name: entry.name,
-                        path: `${path.replace(/\/$/, "")}/${entry.name}`,
+                        path: `${path.replace(trailingSlashPattern, "")}/${entry.name}`,
                       })),
                   };
                 } else {

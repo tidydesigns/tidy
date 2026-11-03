@@ -9,6 +9,8 @@ import {
 } from "./guard-store";
 import { waitForSignal } from "./request-lifecycle";
 
+const jsonContentTypePattern = /^application\/(?:json|[\w.+-]+\+json)(?:\s*;|$)/i;
+
 export class AuthGuard extends DurableObject<CloudflareEnv> {
   private store: AuthGuardStore;
   private connections?: ConnectionLeases;
@@ -84,11 +86,7 @@ export class AuthGuard extends DurableObject<CloudflareEnv> {
         void response.body?.cancel().catch(() => {});
         return new Response(null, { status: 502 });
       }
-      if (
-        !/^application\/(?:json|[\w.+-]+\+json)(?:\s*;|$)/i.test(
-          response.headers.get("content-type") ?? "",
-        )
-      ) {
+      if (!jsonContentTypePattern.test(response.headers.get("content-type") ?? "")) {
         void response.body?.cancel().catch(() => {});
         return new Response(null, { status: 502 });
       }

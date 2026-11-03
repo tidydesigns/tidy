@@ -1,11 +1,13 @@
 import { verifyTicket } from "./ticket";
 
+const liveFilePath = /^\/api\/files\/([^/]+)\/live$/;
+
 export async function upgradeFileRoom(
   request: Request,
   env: CloudflareEnv,
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  const match = /^\/api\/files\/([^/]+)\/live$/.exec(url.pathname);
+  const match = liveFilePath.exec(url.pathname);
   if (!match) return null;
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
     return new Response(null, { status: 426 });

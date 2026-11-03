@@ -11,6 +11,8 @@ import {
   type McpClientDiagnostics,
 } from "./client-diagnostics";
 
+const analyticsSessionPattern = /^[a-zA-Z0-9._-]{1,100}$/;
+
 type CallMetric = {
   tool: string;
   durationMs: number;
@@ -75,7 +77,7 @@ export async function sendMcpMetric(id: string | undefined, metric: CallMetric, 
           ...(metric.failed ? { $mcp_error_type: "tool_error" } : {}),
           $process_person_profile: false,
           $geoip_disable: true,
-          ...(runtime.release && /^[a-zA-Z0-9._-]{1,100}$/.test(runtime.release)
+          ...(runtime.release && analyticsSessionPattern.test(runtime.release)
             ? { $app_version: runtime.release }
             : {}),
         },

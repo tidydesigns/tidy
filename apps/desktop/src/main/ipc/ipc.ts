@@ -48,6 +48,8 @@ import {
   type CloudAPI,
 } from "../../shared/contracts/cloud-sync";
 
+const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+
 /** Native cloud actions have their own main-frame boundary; no tokens cross IPC. */
 export function registerCloudIPC(
   cloud: CloudAPI,
@@ -310,7 +312,7 @@ export function registerWorkspaceIPC(
         data: z
           .string()
           .max(22 * 1024 * 1024)
-          .regex(/^[A-Za-z0-9+/]*={0,2}$/),
+          .regex(base64Pattern),
       })
       .strict()
       .parse(raw);

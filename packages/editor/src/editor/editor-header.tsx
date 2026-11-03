@@ -4,6 +4,8 @@ import { useEditorErrorNotice } from "./use-error-notice";
 import Image from "../host-image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+const wordSeparatorPattern = /\s+/;
+
 export type EditorUser = { name: string; image?: string | null };
 
 export function EditorHeader({
@@ -73,7 +75,7 @@ export function EditorHeader({
             />
           ) : (
             user.name
-              .split(/\s+/)
+              .split(wordSeparatorPattern)
               .filter(Boolean)
               .slice(0, 2)
               .map((part) => part[0])

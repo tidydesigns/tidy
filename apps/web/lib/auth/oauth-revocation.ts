@@ -7,6 +7,8 @@ import { db } from "@/lib/db";
 import { authorizationVersion, invalidateMcpGrant } from "@/lib/mcp/authorizations";
 import { oauthAccountGate, oauthFailure, oauthTransaction } from "./oauth-transaction";
 
+const bearerAuthorizationPattern = /^Bearer\s+/i;
+
 type Provider = ReturnType<typeof mcp>;
 type StoredToken = {
   id: string;
@@ -24,7 +26,7 @@ export function oauthRevocationEndpoint(
 ) {
   return createAuthEndpoint(endpoint.path, endpoint.options, async (ctx) => {
     try {
-      const raw = ctx.body.token.replace(/^Bearer\s+/i, "");
+      const raw = ctx.body.token.replace(bearerAuthorizationPattern, "");
       if (!raw || raw.length > 4096)
         throw new APIError("BAD_REQUEST", {
           error: "invalid_request",

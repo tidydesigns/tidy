@@ -10,6 +10,8 @@ import { InspectorDisclosure } from "../inspector-presentation";
 import { FillInspector } from "../fill-inspector";
 import { EffectsInspector } from "../effects-inspector";
 
+const closedPathPattern = /[zZ]\s*$/;
+
 type Props = Pick<
   SelectionInspectorProps,
   | "selected"
@@ -295,7 +297,7 @@ export function AppearanceSection({
                     }
                   />
                   {selected.every(
-                    (item) => item.vectorPath && !/[zZ]\s*$/.test(item.vectorPath.d),
+                    (item) => item.vectorPath && !closedPathPattern.test(item.vectorPath.d),
                   ) &&
                     (["strokeStart", "strokeEnd"] as const).map((key) => (
                       <Choice

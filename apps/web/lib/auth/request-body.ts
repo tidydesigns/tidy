@@ -1,5 +1,7 @@
 import { withRequestBodyLimit } from "@/lib/http/request-body";
 
+const trailingSlashesPattern = /\/+$/;
+
 const registrationLimits = { elements: 2048, depth: 16 };
 // Match Better Call's JSON classification so alternate media types cannot
 // reach its JSON parser without the same metadata admission checks.
@@ -24,7 +26,7 @@ export function withAuthRequestBodyLimit(handler: (request: Request) => Promise<
   return withRequestBodyLimit(async (request) => {
     let path: string;
     try {
-      path = decodeURIComponent(new URL(request.url).pathname).replace(/\/+$/, "");
+      path = decodeURIComponent(new URL(request.url).pathname).replace(trailingSlashesPattern, "");
     } catch {
       return new Response(null, { status: 400, headers: { "Cache-Control": "no-store" } });
     }

@@ -1,6 +1,9 @@
 import { mapConcurrent } from "../lib/map-concurrent";
 import { isManagedImage } from "@tidy/design-renderer/image-display";
 import { fetchImage } from "@tidy/design-renderer/image-loading";
+
+const imageUrlPattern = /url\("([^"]+)"\)/;
+
 function asDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
@@ -144,7 +147,7 @@ async function embedImages(
   );
   const masks = [...clone.querySelectorAll<HTMLElement>("[style]")].flatMap((element) => {
     const css = element.style.maskImage || element.style.webkitMaskImage;
-    const match = css?.match(/url\("([^"]+)"\)/);
+    const match = css?.match(imageUrlPattern);
     if (!match || match[1].startsWith("data:")) return [];
     return [{ element, css, url: match[1] }];
   });

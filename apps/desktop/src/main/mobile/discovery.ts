@@ -5,6 +5,15 @@ import type { MobileDevice, MobileState, MobileTarget } from "../../shared/contr
 import { mobileExec } from "./process";
 import { readLocalFile } from "../platform/local-files";
 
+const simulatorIdPattern = /^[A-F0-9-]{36}$/i;
+const iosRuntimePattern = /\.iOS-/;
+const iosRuntimePrefixPattern = /^.*\.iOS-/;
+const newlinePattern = /\r?\n/;
+const emulatorStatusPattern = /^(emulator-\d+)\s+(device|offline)$/;
+const androidPackagePattern = /^[a-zA-Z0-9_.-]{1,150}$/;
+const flutterSdkPattern = /sdk:\s*flutter/;
+const xcodeProjectPattern = /\.(?:xcworkspace|xcodeproj)$/;
+
 export async function executable(name: string, extra: string[] = []) {
   const suffix = process.platform === "win32" ? ".exe" : "";
   for (const candidate of [
@@ -66,18 +75,18 @@ export function iosDevices(value: unknown): MobileDevice[] {
               !entry ||
               !entry.isAvailable ||
               typeof entry.udid !== "string" ||
-              !/^[A-F0-9-]{36}$/i.test(entry.udid) ||
+              !simulatorIdPattern.test(entry.udid) ||
               typeof entry.name !== "string"
             )
               return [];
             // Apple TV, Watch and visionOS use different input models.
-            if (!/\.iOS-/.test(runtime)) return [];
+            if (!iosRuntimePattern.test(runtime)) return [];
             return [
               {
                 id: entry.udid,
                 platform: "ios" as const,
                 name: entry.name,
-                runtime: runtime.replace(/^.*\.iOS-/, "iOS ").replaceAll("-", "."),
+                runtime: runtime.replace(iosRuntimePrefixPattern, "iOS ").replaceAll("-", "."),
                 state:
                   entry.state === "Booted"
                     ? ("running" as const)
@@ -155,8 +164,8 @@ export async function discoverDevices(): Promise<Pick<MobileState, "devices" | "
         ]);
         const active = new Map<string, { serial: string; state: "running" | "offline" }>();
         await Promise.all(
-          running.split(/\r?\n/).flatMap((line) => {
-            const match = /^(emulator-\d+)\s+(device|offline)$/.exec(line.trim());
+          running.split(newlinePattern).flatMap((line) => {
+            const match = emulatorStatusPattern.exec(line.trim());
             if (!match) return [];
             return [
               (async () => {
@@ -166,7 +175,7 @@ export async function discoverDevices(): Promise<Pick<MobileState, "devices" | "
                     () => "",
                   )
                 )
-                  .split(/\r?\n/)[0]
+                  .split(newlinePattern)[0]
                   .trim();
                 if (name) active.set(name, { serial: match[1], state: "running" });
               })(),
@@ -174,9 +183,9 @@ export async function discoverDevices(): Promise<Pick<MobileState, "devices" | "
           }),
         );
         for (const name of avds
-          .split(/\r?\n/)
+          .split(newlinePattern)
           .map((line) => line.trim())
-          .filter((line) => /^[a-zA-Z0-9_.-]{1,150}$/.test(line))) {
+          .filter((line) => androidPackagePattern.test(line))) {
           devices.push({
             id: `avd:${name}`,
             platform: "android",
@@ -247,7 +256,7 @@ export async function discoverTargets(root: string): Promise<MobileTarget[]> {
     };
     if (
       names.has("pubspec.yaml") &&
-      /sdk:\s*flutter/.test(
+      flutterSdkPattern.test(
         await readLocalFile(join(directory, "pubspec.yaml"), 1_000_000)
           .then((value) => value.toString("utf8"))
           .catch(() => ""),
@@ -291,7 +300,7 @@ export async function discoverTargets(root: string): Promise<MobileTarget[]> {
       } else
         add(
           "xcode",
-          entry.name.replace(/\.(?:xcworkspace|xcodeproj)$/, ""),
+          entry.name.replace(xcodeProjectPattern, ""),
           ["ios"],
           undefined,
           `xcode:${path}/${entry.name}`,
@@ -313,7 +322,7 @@ export async function discoverTargets(root: string): Promise<MobileTarget[]> {
         !entry.isDirectory() ||
         excluded.has(entry.name) ||
         entry.name.startsWith(".") ||
-        /\.(?:xcworkspace|xcodeproj)$/.test(entry.name)
+        xcodeProjectPattern.test(entry.name)
       )
         continue;
       await visit(join(directory, entry.name), depth + 1);

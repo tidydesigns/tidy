@@ -9,6 +9,8 @@ import { Icon } from "@/components/ui/icon";
 import { responseError } from "@/lib/http/json-response";
 import { useErrorNotice } from "@/lib/use-error-notice";
 
+const figmaExtensionPattern = /\.fig$/i;
+
 export function FigmaFileImport({
   onImported,
   folderId = null,
@@ -53,7 +55,7 @@ export function FigmaFileImport({
       const result = await readFigma(
         {
           bytes: new Uint8Array(await file.arrayBuffer()),
-          name: file.name.replace(/\.fig$/i, ""),
+          name: file.name.replace(figmaExtensionPattern, ""),
           pages,
         },
         signal,

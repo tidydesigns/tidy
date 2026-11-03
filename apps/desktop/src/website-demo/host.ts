@@ -11,6 +11,9 @@ import type {
 import { summarizeThread } from "../shared/models/thread-updates";
 import { demoId, project, sampleDesign, sampleThreads } from "./fixture";
 
+const dataUrlPattern = /^data:([^;,]+)/;
+const imageDataUrlPattern = /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/;
+
 /** Browser-only, in-memory host. No Electron IPC, model calls or filesystem gateway. */
 export function createDemoAPI(): DesktopAPI {
   const designs = new Map([[demoId(2), sampleDesign()]]);
@@ -197,7 +200,7 @@ export function createDemoAPI(): DesktopAPI {
       const file = {
         id: crypto.randomUUID(),
         name,
-        mimeType: dataUrl.match(/^data:([^;,]+)/)?.[1] ?? "application/octet-stream",
+        mimeType: dataUrl.match(dataUrlPattern)?.[1] ?? "application/octet-stream",
         size: Math.floor(dataUrl.length * 0.75),
         previewUrl: dataUrl,
       };
@@ -306,10 +309,7 @@ export function createDemoAPI(): DesktopAPI {
       designEvent();
     },
     uploadDesignAsset: async (_, dataUrl) => {
-      if (
-        !/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/.test(dataUrl) ||
-        dataUrl.length > 7_000_000
-      )
+      if (!imageDataUrlPattern.test(dataUrl) || dataUrl.length > 7_000_000)
         throw Error("Choose an image smaller than 5 MB.");
       const assetId = crypto.randomUUID();
       for (const design of designs.values()) design.assets[assetId] = dataUrl;

@@ -43,6 +43,12 @@ import {
   type RectangleInput,
 } from "@/lib/design/service";
 
+const documentUuidPattern =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+const assetHashPattern = /^[a-f0-9]{64}$/;
+const chunkIdentifierPattern = /^[a-zA-Z0-9_-]{1,40}$/;
+const base64ContentPattern = /^[A-Za-z0-9+/]*={0,2}$/;
+
 type ImportRow = {
   id: string;
   organizationId: string;
@@ -421,10 +427,8 @@ export async function createImport(
 }> {
   if (
     request &&
-    (!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
-      request.id,
-    ) ||
-      !/^[a-f0-9]{64}$/.test(request.hash) ||
+    (!documentUuidPattern.test(request.id) ||
+      !assetHashPattern.test(request.hash) ||
       !Number.isSafeInteger(request.createdAt) ||
       Date.now() - request.createdAt >= 24 * 60 * 60_000 ||
       request.createdAt - Date.now() > 5 * 60_000)
@@ -578,7 +582,7 @@ export async function putImportChunk(
 ) {
   await requireDocumentSchema();
   if (
-    !/^[a-zA-Z0-9_-]{1,40}$/.test(chunkId) ||
+    !chunkIdentifierPattern.test(chunkId) ||
     nodes.length > 250 ||
     Buffer.byteLength(
       JSON.stringify({ nodes, source, warnings, tokens, designTokens, pages }),
@@ -683,9 +687,9 @@ function assemble(chunks: ImportRow["chunks"]): DesignDocument {
   });
 }
 
-async function loadImport(userId: string, importId: string): Promise<ImportRow> {
-  const result = await db.query<ImportRow>(
-    `select "id", "organizationId", "fileId", "name", "expectedRevision", "chunks", "status", "committedRevision"
+async function loadImport(userId: string, importId: string) {
+  const result = await db.query<Pick<ImportRow, "organizationId" | "fileId" | "chunks" | "status">>(
+    `select "organizationId", "fileId", "chunks", "status"
     from "designImport" where "id" = $1 and "userId" = $2 and "expiresAt" > now()
       and exists (select 1 from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
         where m."organizationId" = "designImport"."organizationId" and m."userId" = $2 and m."role" in ${EDIT_ROLES_SQL} for share of m,u)
@@ -900,11 +904,7 @@ export async function putAsset(
 ) {
   await reserveOperation("asset-upload", userId);
   await requireDocumentSchema();
-  if (
-    !allowedMime.has(mimeType) ||
-    base64.length > 2_800_000 ||
-    !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)
-  )
+  if (!allowedMime.has(mimeType) || base64.length > 2_800_000 || !base64ContentPattern.test(base64))
     throw new PublicActionError("Unsupported or oversized asset.");
   let body = Buffer.from(base64, "base64");
   if (body.length < 1 || body.length > 2_000_000)

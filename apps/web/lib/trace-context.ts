@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Span } from "posthog-node";
 
+const traceSuffixPattern = /^[0-9A-Z]{5}$/;
+
 export type TraceOperation =
   | "mcp.request"
   | "mcp.request_body"
@@ -95,7 +97,7 @@ export function safeErrorCode(error: unknown): string | undefined {
     return;
   // SQLSTATE or known transport codes. Never send messages, query text or causes.
   if (
-    /^[0-9A-Z]{5}$/.test(error.code) ||
+    traceSuffixPattern.test(error.code) ||
     [
       "ECONNRESET",
       "ECONNREFUSED",

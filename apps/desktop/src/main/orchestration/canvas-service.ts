@@ -35,6 +35,8 @@ import {
 import type { ProjectStore } from "../workspace/project-store";
 import { AgentOperationError, type AgentScope } from "./contracts";
 
+const rasterAssetDataPattern = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+
 const entityId = z.string().min(1).max(120);
 const nodeIds = z.array(entityId).min(1).max(100);
 const version = z.string().min(1).max(256);
@@ -886,7 +888,7 @@ export class CanvasService {
     for (const id of documentAssetIds({ ...document, nodes: renderedNodes })) {
       await this.access(scope, request.design_id);
       const data = await this.options.store.readSyncAsset(scope.projectId, id);
-      if (!data || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) {
+      if (!data || !rasterAssetDataPattern.test(data)) {
         warnings.push(`Asset ${id} is unavailable or is not a supported raster image.`);
         continue;
       }

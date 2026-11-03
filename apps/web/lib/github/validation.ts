@@ -3,6 +3,9 @@ import * as z from "zod";
 import { removeComponentReferences } from "@/lib/design/component-variants";
 import type { DesignDocument } from "@/lib/design/document";
 
+const pullRequestPathPattern = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)\/?$/;
+const base64ContentPattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
 /** Metadata occupies a fixed 8 KiB reservation per retained review. Bound all
  * provider fields before link, reconciliation or webhook publication. */
 const providerString = (limit: number) =>
@@ -77,9 +80,7 @@ export const responseSchema = z
   .strict();
 export function parsePullUrl(value: string) {
   const url = new URL(value);
-  const match = url.pathname.match(
-    /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)\/?$/,
-  );
+  const match = url.pathname.match(pullRequestPathPattern);
   if (
     url.origin !== "https://github.com" ||
     url.username ||
@@ -125,7 +126,7 @@ export function snapshotFrames(content: DesignDocument, frameIds: string[]) {
   };
 }
 export function captureBytes(base64: string, mimeType: string) {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))
+  if (!base64ContentPattern.test(base64))
     throw new GitHubRequestError("Provide valid base64 image bytes.");
   const bytes = Buffer.from(base64, "base64");
   if (!bytes.length || bytes.length > 2 * 1024 * 1024)

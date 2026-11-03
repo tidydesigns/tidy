@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ProjectStore } from "./project-store";
 
+const assetPathPattern = /^\/__tidy\/assets\/([^/]+)\/([^/]+)$/;
+const assetRetryPattern = /^\?retry=\d{1,9}$/;
+const assetDataPattern = /^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/;
+
 /** Project images are requested separately from the design IPC payload. Never
  * interpret URL text as a filesystem path or serve uploaded content as HTML. */
 export async function projectAssetResponse(
@@ -12,10 +16,10 @@ export async function projectAssetResponse(
   load?: (projectId: string, assetId: string) => Promise<string | undefined>,
 ) {
   const url = new URL(request.url);
-  const match = /^\/__tidy\/assets\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  const match = assetPathPattern.exec(url.pathname);
   if (
     !match ||
-    (url.search && !/^\?retry=\d{1,9}$/.test(url.search)) ||
+    (url.search && !assetRetryPattern.test(url.search)) ||
     !["GET", "HEAD"].includes(request.method)
   )
     return new Response(null, { status: 404 });
@@ -32,9 +36,7 @@ export async function projectAssetResponse(
     if (!dataUrl && load) dataUrl = await load(projectId, assetId);
     await check();
     if (dataUrl && dataUrl.length > 3_000_000) return new Response(null, { status: 404 });
-    const image = /^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/.exec(
-      dataUrl ?? "",
-    );
+    const image = assetDataPattern.exec(dataUrl ?? "");
     if (!image) return new Response(null, { status: 404 });
     const bytes = Buffer.from(image[2], "base64");
     const etag = `"${createHash("sha256").update(bytes).digest("hex")}"`;

@@ -9,6 +9,8 @@ import {
   type Directory,
 } from "../../../shared/contracts/browser-directory";
 
+const trailingSlashPattern = /\/$/;
+
 function folderError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
   if (message.startsWith("ENOENT:") || message.startsWith("ENOTDIR:"))
@@ -97,7 +99,7 @@ function ProjectPicker({
     : undefined;
 
   function browse(path: string) {
-    setQuery(path === home ? "~/" : `${path.replace(/\/$/, "")}/`);
+    setQuery(path === home ? "~/" : `${path.replace(trailingSlashPattern, "")}/`);
     setActive(0);
     input.current?.focus();
   }

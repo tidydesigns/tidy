@@ -6,9 +6,11 @@ import {
   type VaultCredentials,
 } from "./crypto";
 
+const encryptionKeyPattern = /^[A-Za-z0-9+/]{43}=$/;
+
 function vaultKey() {
   const encoded = process.env.VAULT_ENCRYPTION_KEY;
-  if (!encoded || !/^[A-Za-z0-9+/]{43}=$/.test(encoded)) {
+  if (!encoded || !encryptionKeyPattern.test(encoded)) {
     throw new Error("VAULT_ENCRYPTION_KEY must be a base64-encoded 32-byte key");
   }
   return Buffer.from(encoded, "base64");

@@ -1,12 +1,16 @@
+const attachmentPathPattern = /^\/api\/feedback\/attachments\/[0-9a-f-]{36}\/[0-2]$/;
+const invitationPathPattern = /^\/accept-invitation\/[a-zA-Z0-9_-]+$/;
+const consentPathPattern = /^\/mcp\/consent\?[^\r\n#]*$/;
+
 export function authReturnPath(value: string | string[] | undefined, fallback: string) {
   return typeof value === "string" &&
     (value === "/" ||
       value === "/onboarding/organization" ||
       value === "/account/privacy" ||
       value === "/settings#account-data" ||
-      /^\/api\/feedback\/attachments\/[0-9a-f-]{36}\/[0-2]$/.test(value) ||
-      /^\/accept-invitation\/[a-zA-Z0-9_-]+$/.test(value) ||
-      /^\/mcp\/consent\?[^\r\n#]*$/.test(value))
+      attachmentPathPattern.test(value) ||
+      invitationPathPattern.test(value) ||
+      consentPathPattern.test(value))
     ? value
     : fallback;
 }

@@ -1,6 +1,10 @@
 import type { DesignDocument, DesignNode } from "./document";
 import { equalJsonValues } from "./json-value";
 import type { RoomSnapshot } from "./room-edit-queue";
+
+const filenameCharactersPattern = /[^a-z0-9_-]+/gi;
+const slugEdgesPattern = /^-+|-+$/g;
+
 /** Deliberate export restrictions that may safely cross the editor/MCP boundary. */
 export class ExportRejected extends Error {}
 /** A saved revision cannot identify artwork that still contains a local preview. */
@@ -74,8 +78,8 @@ export function exportFilename(
   const base =
     name
       .normalize("NFKC")
-      .replace(/[^a-z0-9_-]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
+      .replace(filenameCharactersPattern, "-")
+      .replace(slugEdgesPattern, "")
       .slice(0, 100) || "layer";
   return `${base}${duplicate > 1 ? `-${duplicate}` : ""}${scale === 1 ? "" : `@${scale}x`}.${format}`;
 }

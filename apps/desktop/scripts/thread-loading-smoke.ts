@@ -7,13 +7,15 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
+const stylesheetBundlePattern = /^index-.*\.css$/;
+
 const electron: unknown = createRequire(import.meta.url)("electron");
 if (typeof electron !== "string") throw new Error("Could not locate the Electron executable.");
 const desktop = fileURLToPath(new URL("..", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "tidy-thread-tests-"));
 try {
   const assets = join(desktop, "out/renderer/assets");
-  const css = (await readdir(assets)).find((name) => /^index-.*\.css$/.test(name));
+  const css = (await readdir(assets)).find((name) => stylesheetBundlePattern.test(name));
   if (!css) throw new Error("Build the desktop app before running its renderer tests.");
   const [, runner] = await Promise.all([
     build({

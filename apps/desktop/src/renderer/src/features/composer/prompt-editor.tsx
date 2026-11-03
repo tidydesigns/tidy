@@ -22,6 +22,8 @@ import {
 } from "../../../../shared/models/attachment-references";
 import { attachmentReferenceClassName, attachmentSize } from "./message-attachments";
 
+const carriageReturnPattern = /\r\n?/g;
+
 export type PromptEditorHandle = {
   focus(): void;
   cursor(): number;
@@ -234,7 +236,7 @@ export function PromptEditor({
     onCursorChange?.(offset(root));
   }
   function insert(text: string, attached = files) {
-    text = text.replace(/\r\n?/g, "\n");
+    text = text.replace(carriageReturnPattern, "\n");
     const root = input.current;
     if (!root) return;
     const selection = window.getSelection();

@@ -11,6 +11,9 @@ import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form-message";
 import { Icon } from "@/components/ui/icon";
 
+const inviteSeparatorsPattern = /[\s,;]+/;
+const emailAddressPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export type Invite = { id: string; email: string; role: string | null };
 import {
   canAssignRole,
@@ -70,12 +73,12 @@ export function TeamInvites({
     const emails = [
       ...new Set(
         addresses
-          .split(/[\s,;]+/)
+          .split(inviteSeparatorsPattern)
           .map((item) => item.trim().toLowerCase())
           .filter(Boolean),
       ),
     ];
-    const invalid = emails.filter((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    const invalid = emails.filter((email) => !emailAddressPattern.test(email));
     if (invalid.length) {
       notifyError(`Check ${invalid.join(", ")} and try again.`);
       return;

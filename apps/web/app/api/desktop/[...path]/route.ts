@@ -35,6 +35,8 @@ import { operationBudgetResponse, operationFailure } from "@/lib/security/operat
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { runWithRequestSignal } from "@/lib/request-lifecycle";
 
+const controlCharactersPattern = /[\u0000-\u001f\u007f]/;
+
 export const runtime = "nodejs";
 const resource = desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000");
 const scope = [DESKTOP_SYNC_SCOPE];
@@ -128,7 +130,7 @@ const handle = requireMcpAuth(
               .trim()
               .min(1)
               .max(120)
-              .refine((value) => !/[\u0000-\u001f\u007f]/.test(value)),
+              .refine((value) => !controlCharactersPattern.test(value)),
           })
           .strict()
           .parse(await (await boundedRequest(request, 4096)).json());
@@ -170,7 +172,7 @@ const handle = requireMcpAuth(
               .trim()
               .min(1)
               .max(120)
-              .refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
+              .refine((value) => !controlCharactersPattern.test(value));
             const body = z.object({ before: name, name }).strict().parse(input);
             return json(await renameDesktopFile(userId, fileId, body.before, body.name));
           }

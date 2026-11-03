@@ -1,4 +1,9 @@
 import { z } from "zod";
+
+const explicitSchemePattern = /^[a-z][a-z\d+.-]*:\/\//i;
+const loopbackAddressPattern = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])(:|\/|$)/i;
+const loopbackIpv4Pattern = /^127(?:\.\d{1,3}){3}$/;
+
 export const BROWSER_CLIPBOARD_LIMIT = 512000;
 
 export const browserScopeSchema = z.object({ projectId: z.uuid(), threadId: z.uuid() }).strict();
@@ -262,9 +267,9 @@ export function browserURL(raw: string) {
   if (!value) throw new Error("Enter a page address.");
   if (value === "about:blank") return value;
   const url = new URL(
-    /^[a-z][a-z\d+.-]*:\/\//i.test(value)
+    explicitSchemePattern.test(value)
       ? value
-      : `${/^(localhost|127(?:\.\d{1,3}){3}|\[::1\])(:|\/|$)/i.test(value) ? "http" : "https"}://${value}`,
+      : `${loopbackAddressPattern.test(value) ? "http" : "https"}://${value}`,
   );
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
     throw new Error("Enter an HTTP or HTTPS address without credentials.");
@@ -290,7 +295,7 @@ export function isDevelopmentURL(value: string) {
       ["http:", "https:"].includes(url.protocol) &&
       (url.hostname === "localhost" ||
         url.hostname.endsWith(".localhost") ||
-        /^127(?:\.\d{1,3}){3}$/.test(url.hostname) ||
+        loopbackIpv4Pattern.test(url.hostname) ||
         url.hostname === "[::1]")
     );
   } catch {

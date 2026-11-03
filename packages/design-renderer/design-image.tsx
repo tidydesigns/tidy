@@ -8,6 +8,9 @@ import { displayImageUrl, imageDisplayPixels, isManagedImage } from "./image-dis
 import { useImageMimeType } from "./image-context";
 import { useImageViewport } from "./image-viewport";
 import { useLoadedImage } from "./use-loaded-image";
+
+const safeIdPattern = /[^a-zA-Z0-9_-]/g;
+
 const emptyImage = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E";
 const fallback =
   "data:image/svg+xml," +
@@ -70,7 +73,7 @@ export function DesignImage({
         style={vectorImageStyle(node)}
       />
     );
-  const filterId = `image-${id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const filterId = `image-${id.replace(safeIdPattern, "")}`;
   const filter = hasImageAdjustments(node.style.imageAdjustments) ? `url(#${filterId})` : undefined;
   const definitions = (
     <svg

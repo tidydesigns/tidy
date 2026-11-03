@@ -48,6 +48,15 @@ import {
   type DesignFileSummary,
 } from "./design-file";
 
+const projectNameControlsPattern = /[\x00-\x1f\x7f/\\]/g;
+
+const newlinePattern = /\r?\n/;
+const attachmentDataPattern = /^data:([^;,]*);base64,([A-Za-z0-9+/]*={0,2})$/;
+const attachmentExtensionPattern = /^[a-z0-9]{1,12}$/i;
+const storedAttachmentExtensionPattern = /^[a-z0-9]{1,12}$/;
+const designAssetDataPattern = /^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+const jsonSuffixPattern = /\.json$/;
+
 const projectCompute = new CloudCompute();
 
 import { storedThreadSchema as threadSchema } from "../../shared/contracts/desktop";
@@ -345,7 +354,9 @@ export class ProjectStore {
       if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)
         throw new Error("Project ignore rules must be a regular file.");
       const required = ["/threads/", "/attachments/", "/project.json"];
-      const rules = (await readLocalFile(ignorePath, 64 * 1024)).toString("utf8").split(/\r?\n/);
+      const rules = (await readLocalFile(ignorePath, 64 * 1024))
+        .toString("utf8")
+        .split(newlinePattern);
       // Append protections last so earlier negation rules cannot override them.
       if (rules.slice(-4).join("\n") !== [...required, ""].join("\n"))
         await appendFile(ignorePath, `\n${required.join("\n")}\n`);
@@ -392,8 +403,8 @@ export class ProjectStore {
       .min(1)
       .max(200)
       .parse(name)
-      .replace(/[\x00-\x1f\x7f/\\]/g, "_");
-    const match = /^data:([^;,]*);base64,([A-Za-z0-9+/]*={0,2})$/.exec(dataUrl);
+      .replace(projectNameControlsPattern, "_");
+    const match = attachmentDataPattern.exec(dataUrl);
     if (!match || dataUrl.length > Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 200)
       throw new Error("Choose a file under 20 MB.");
     const bytes = Buffer.from(match[2], "base64");
@@ -420,7 +431,7 @@ export class ProjectStore {
           "image/gif": "gif",
         } as Record<string, string>
       )[mimeType] ??
-      (/^[a-z0-9]{1,12}$/i.test(extname(safeName).slice(1))
+      (attachmentExtensionPattern.test(extname(safeName).slice(1))
         ? extname(safeName).slice(1).toLowerCase()
         : "bin");
     const attachment = {
@@ -449,7 +460,7 @@ export class ProjectStore {
   async resolveAttachment(projectId: string, attachmentId: string) {
     const metadataPath = await this.storagePath(projectId, "attachments", attachmentId);
     const data = attachmentSchema
-      .extend({ suffix: z.string().regex(/^[a-z0-9]{1,12}$/) })
+      .extend({ suffix: z.string().regex(storedAttachmentExtensionPattern) })
       .parse(await this.read(metadataPath));
     if (data.id !== attachmentId) throw new Error("Attachment ID does not match its filename.");
     const directory = await this.storagePath(projectId, "attachments");
@@ -909,10 +920,7 @@ export class ProjectStore {
   }
 
   async uploadDesignAsset(projectId: string, dataUrl: string) {
-    if (
-      !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
-      dataUrl.length > 3_000_000
-    )
+    if (!designAssetDataPattern.test(dataUrl) || dataUrl.length > 3_000_000)
       throw new Error("Choose a PNG, JPEG, WebP or SVG image under 2 MB.");
     const assetId = randomUUID();
     await this.atomicWrite(() => this.storagePath(projectId, "assets", assetId), { dataUrl });
@@ -931,10 +939,7 @@ export class ProjectStore {
   }
 
   async cacheSyncAsset(projectId: string, assetId: string, dataUrl: string) {
-    if (
-      !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
-      dataUrl.length > 3_000_000
-    )
+    if (!designAssetDataPattern.test(dataUrl) || dataUrl.length > 3_000_000)
       throw new Error("Unsupported cloud image.");
     const previous = await this.readSyncAsset(projectId, assetId);
     if (previous !== undefined) {
@@ -948,7 +953,7 @@ export class ProjectStore {
   async designs(projectId: string) {
     const directory = await this.storagePath(projectId, "designs");
     const files = (await readdir(directory)).filter(
-      (name) => id.safeParse(name.replace(/\.json$/, "")).success && name.endsWith(".json"),
+      (name) => id.safeParse(name.replace(jsonSuffixPattern, "")).success && name.endsWith(".json"),
     );
     const designs = await readMetadata(files, async (file) => {
       try {

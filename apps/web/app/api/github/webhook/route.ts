@@ -2,6 +2,8 @@ import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/r
 import { validWebhook } from "@/lib/github/crypto";
 import { processWebhook } from "@/lib/github/webhooks";
 
+const webhookIdentifierPattern = /^[A-Za-z0-9-]{1,100}$/;
+
 export const runtime = "nodejs";
 export async function POST(request: Request) {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
@@ -18,7 +20,7 @@ export async function POST(request: Request) {
     return new Response(null, { status: 401 });
   const deliveryId = request.headers.get("x-github-delivery");
   const event = request.headers.get("x-github-event");
-  if (!deliveryId || !/^[A-Za-z0-9-]{1,100}$/.test(deliveryId) || !event)
+  if (!deliveryId || !webhookIdentifierPattern.test(deliveryId) || !event)
     return new Response(null, { status: 400 });
   try {
     await processWebhook(deliveryId, event, JSON.parse(body));

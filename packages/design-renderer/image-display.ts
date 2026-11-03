@@ -1,9 +1,10 @@
 import type { DesignNode } from "@tidy/design/document";
+
+const managedImagePattern =
+  /^\/api\/(assets\/[^/?]+|github\/reviews\/[^/?]+\/(assets|captures)\/[^/?]+)(\?|$)/;
 const widths = [128, 256, 512, 1024, 2048];
 export function isManagedImage(source: string) {
-  return /^\/api\/(assets\/[^/?]+|github\/reviews\/[^/?]+\/(assets|captures)\/[^/?]+)(\?|$)/.test(
-    source,
-  );
+  return managedImagePattern.test(source);
 }
 /** Unknown formats use the original until authoritative MIME metadata is available. */
 export function displayImageUrl(source: string, pixels: number, mimeType?: string) {

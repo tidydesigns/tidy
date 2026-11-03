@@ -16,6 +16,16 @@ import { PrivacyControls } from "../account/privacy/privacy-controls";
 import { AvatarControl } from "./avatar-control";
 import { revokeAccountSession } from "./actions";
 
+const edgeBrowserPattern = /Edg\//;
+const firefoxBrowserPattern = /Firefox\//;
+const chromeBrowserPattern = /Chrome\//;
+const safariBrowserPattern = /Safari\//;
+const iosPlatformPattern = /iPhone|iPad/;
+const androidPlatformPattern = /Android/;
+const macPlatformPattern = /Mac/;
+const windowsPlatformPattern = /Windows/;
+const linuxPlatformPattern = /Linux/;
+
 export type AccountSession = {
   id: string;
   createdAt: string;
@@ -327,24 +337,24 @@ function SessionControls({
 
 function sessionBrowser(userAgent: string | null) {
   if (!userAgent) return "Other session";
-  const browser = /Edg\//.test(userAgent)
+  const browser = edgeBrowserPattern.test(userAgent)
     ? "Edge"
-    : /Firefox\//.test(userAgent)
+    : firefoxBrowserPattern.test(userAgent)
       ? "Firefox"
-      : /Chrome\//.test(userAgent)
+      : chromeBrowserPattern.test(userAgent)
         ? "Chrome"
-        : /Safari\//.test(userAgent)
+        : safariBrowserPattern.test(userAgent)
           ? "Safari"
           : "Browser";
-  const device = /iPhone|iPad/.test(userAgent)
+  const device = iosPlatformPattern.test(userAgent)
     ? "iOS"
-    : /Android/.test(userAgent)
+    : androidPlatformPattern.test(userAgent)
       ? "Android"
-      : /Mac/.test(userAgent)
+      : macPlatformPattern.test(userAgent)
         ? "Mac"
-        : /Windows/.test(userAgent)
+        : windowsPlatformPattern.test(userAgent)
           ? "Windows"
-          : /Linux/.test(userAgent)
+          : linuxPlatformPattern.test(userAgent)
             ? "Linux"
             : "another device";
   return `${browser} on ${device}`;

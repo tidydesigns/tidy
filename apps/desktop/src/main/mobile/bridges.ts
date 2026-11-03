@@ -9,6 +9,13 @@ import { IOSRuntime } from "./runtime";
 import { mobileExec, mobileProcess, type MobileProcess } from "./process";
 import { MobileRPC, type RPCMessage } from "./rpc";
 
+const letterKeyPattern = /^Key[A-Z]$/;
+const digitKeyPattern = /^Digit[1-9]$/;
+const newlinePattern = /\r?\n/;
+const emulatorConfigPattern = /^pid_\d+\.ini$/;
+const emulatorDevicePattern = /^(emulator-\d+)\s+device$/;
+const physicalSizePattern = /Physical size:\s*(\d+)x(\d+)/;
+
 export type DeviceFrame = {
   data: Buffer;
   mime: "image/jpeg" | "image/png";
@@ -76,8 +83,8 @@ const keys: Record<string, number> = {
   ArrowUp: 82,
 };
 export function usbKey(code: string) {
-  if (/^Key[A-Z]$/.test(code)) return code.charCodeAt(3) - 65 + 4;
-  if (/^Digit[1-9]$/.test(code)) return Number(code.at(-1)) + 29;
+  if (letterKeyPattern.test(code)) return code.charCodeAt(3) - 65 + 4;
+  if (digitKeyPattern.test(code)) return Number(code.at(-1)) + 29;
   if (code === "Digit0") return 39;
   return keys[code];
 }
@@ -346,7 +353,7 @@ export async function unusedPort() {
 
 export function emulatorProperties(text: string) {
   return Object.fromEntries(
-    text.split(/\r?\n/).flatMap((line) => {
+    text.split(newlinePattern).flatMap((line) => {
       const index = line.indexOf("=");
       return index > 0 ? [[line.slice(0, index).trim(), line.slice(index + 1).trim()]] : [];
     }),
@@ -363,7 +370,7 @@ async function emulatorEndpoint(serial: string) {
   for (const root of roots) {
     for (const directory of [join(root, "avd/running"), join(root, "running")]) {
       for (const file of (await readdir(directory).catch(() => []))
-        .filter((file) => /^pid_\d+\.ini$/.test(file))
+        .filter((file) => emulatorConfigPattern.test(file))
         .slice(0, 64)) {
         const path = join(directory, file);
         const info = await stat(path).catch(() => null);
@@ -401,12 +408,12 @@ export async function connectAndroid({
   const avd = device.id.slice(4);
   const devices = await mobileExec(adb, ["devices"], { signal });
   let serial = "";
-  for (const line of devices.split(/\r?\n/)) {
-    const match = /^(emulator-\d+)\s+device$/.exec(line.trim());
+  for (const line of devices.split(newlinePattern)) {
+    const match = emulatorDevicePattern.exec(line.trim());
     if (
       match &&
       (await mobileExec(adb, ["-s", match[1], "emu", "avd", "name"], { signal }))
-        .split(/\r?\n/)[0]
+        .split(newlinePattern)[0]
         .trim() === avd
     ) {
       serial = match[1];
@@ -431,8 +438,8 @@ export async function connectAndroid({
         throw new Error("The Android emulator stopped while starting.");
       }
       const list = await mobileExec(adb, ["devices"], { signal });
-      for (const line of list.split(/\r?\n/)) {
-        const match = /^(emulator-\d+)\s+device$/.exec(line.trim());
+      for (const line of list.split(newlinePattern)) {
+        const match = emulatorDevicePattern.exec(line.trim());
         if (
           match &&
           (
@@ -440,7 +447,7 @@ export async function connectAndroid({
               () => "",
             )
           )
-            .split(/\r?\n/)[0]
+            .split(newlinePattern)[0]
             .trim() === avd
         ) {
           serial = match[1];
@@ -487,7 +494,7 @@ export async function connectAndroid({
   let width = 1080,
     height = 1920;
   let rotated = false;
-  const resolution = /Physical size:\s*(\d+)x(\d+)/.exec(
+  const resolution = physicalSizePattern.exec(
     await mobileExec(adb, ["-s", serial, "shell", "wm", "size"], { signal }),
   );
   if (resolution) {

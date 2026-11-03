@@ -1,5 +1,7 @@
 import { buildPlugin } from "./build";
 
+const hostFileUrl = new URL("../dev/host.html", import.meta.url);
+
 await buildPlugin();
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -9,7 +11,7 @@ const server = Bun.serve({
     if (path === "/widget")
       return new Response(await buildPlugin(), { headers: { "Content-Type": "text/html" } });
     if (path === "/")
-      return new Response(await Bun.file(new URL("../dev/host.html", import.meta.url)).text(), {
+      return new Response(await Bun.file(hostFileUrl).text(), {
         headers: { "Content-Type": "text/html" },
       });
     if (path === "/fixture") return Response.json((await import("../dev/fixture")).fixture);

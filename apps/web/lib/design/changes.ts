@@ -20,7 +20,7 @@ export async function readFileChanges(userId: string, fileId: string, revision: 
     `
     with authorized as (
       select m."role", f."name", d."revision", d."content", coalesce(s."sequence",0) as "sequence",
-        coalesce(d."content"->>'legacyConverted' = 'true', false) as initialized
+        d."initialized"
       from "designFile" f join "designDocument" d on d."fileId" = f."id"
       join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2 and m."role" in ${VIEW_ROLES_SQL}
       join "user" u on u."id" = m."userId" and u."emailVerified" = true

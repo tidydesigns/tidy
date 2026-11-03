@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const invalidBranchCharacterPattern = /[\x00-\x20\x7f]/;
+
 const machineSchema = z.string().min(1).max(255);
 
 const gitRepositoryContextSchema = z.object({
@@ -26,7 +28,7 @@ export const branchNameSchema = z
   .min(1)
   .max(1024)
   .refine(
-    (value) => !value.startsWith("-") && !/[\x00-\x20\x7f]/.test(value),
+    (value) => !value.startsWith("-") && !invalidBranchCharacterPattern.test(value),
     "Choose an existing local branch.",
   );
 

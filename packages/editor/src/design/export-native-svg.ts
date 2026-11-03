@@ -7,6 +7,12 @@ import { xml } from "./export-dom";
 import type { ExportBounds } from "./export-plan";
 import { vectorSvg } from "@tidy/design-renderer/vector-path";
 
+const svgFragmentPattern = /url\(["']?#([^"')]+)["']?\)/g;
+
+const fragmentReferencePattern = /^#(.+)$/;
+const whitespacePattern = /^\s$/;
+const backgroundUrlPattern = /^url\(["']?(.*?)["']?\)$/;
+
 function roundedPath(node: DesignNode, width: number, height: number) {
   const radius = node.style.radius ?? 0;
   return cornerPath(
@@ -33,12 +39,9 @@ function namespace(svg: Element, prefix: string) {
     for (const attribute of [...element.attributes]) {
       if (attribute.name === "id") element.setAttribute("id", prefix + attribute.value);
       else {
-        let value = attribute.value.replace(
-          /url\(["']?#([^"')]+)["']?\)/g,
-          (_m, id) => `url(#${prefix}${id})`,
-        );
+        let value = attribute.value.replace(svgFragmentPattern, (_m, id) => `url(#${prefix}${id})`);
         if (attribute.localName === "href")
-          value = value.replace(/^#(.+)$/, (_m, id) => `#${prefix}${id}`);
+          value = value.replace(fragmentReferencePattern, (_m, id) => `#${prefix}${id}`);
         element.setAttribute(attribute.name, value);
       }
     }
@@ -160,7 +163,7 @@ function textSvg(clone: HTMLElement) {
         offset += character.length;
         range.setEnd(text, offset);
         const rect = range.getBoundingClientRect();
-        if (!rect.height || (rect.width === 0 && /^\s$/.test(character))) continue;
+        if (!rect.height || (rect.width === 0 && whitespacePattern.test(character))) continue;
         const value =
           style.textTransform === "uppercase"
             ? character.toUpperCase()
@@ -329,7 +332,7 @@ export function nativeSvg(
         : children;
     const maskImage = clone.style.maskImage || clone.style.webkitMaskImage;
     if (maskImage && maskImage !== "none") {
-      const source = /^url\(["']?(.*?)["']?\)$/.exec(maskImage)?.[1];
+      const source = backgroundUrlPattern.exec(maskImage)?.[1];
       if (source?.startsWith("data:image/svg+xml")) {
         const size = (clone.style.maskSize || `${w}px ${h}px`).split(" ").map(parseFloat),
           position = (clone.style.maskPosition || "0px 0px").split(" ").map(parseFloat);

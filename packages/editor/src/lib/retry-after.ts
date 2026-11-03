@@ -1,8 +1,9 @@
+const integerPattern = /^\d+$/;
 /** Browser-safe retry handling. Keep the caller's operation ID and payload stable. */
 export function retryAfterMilliseconds(value: string | null, now = Date.now()): number {
   if (!value?.trim()) return 1000;
   const input = value.trim();
-  const numeric = /^\d+$/.test(input);
+  const numeric = integerPattern.test(input);
   const delay = numeric ? Number(input) * 1000 : Date.parse(input) - now;
   if (!numeric && delay > 86_400_000) return 1000;
   return Number.isFinite(delay) && delay >= 0 ? Math.max(250, Math.min(delay, 86_400_000)) : 1000;

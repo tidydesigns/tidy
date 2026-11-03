@@ -17,6 +17,8 @@ import { BrowserScreencast, type BrowserViewer } from "./screencast";
 import { BrowserRuntime } from "./runtime";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
+const filenameControlsPattern = /[\x00-\x1f]/g;
+
 type Tab = {
   page: Page;
   cdp: CDPSession;
@@ -273,9 +275,8 @@ export class BrowserService {
         tab.state.loading = false;
         tab.downloads.set(event.guid, {
           name:
-            basename(event.suggestedFilename)
-              .replace(/[\x00-\x1f]/g, "")
-              .slice(0, 200) || "download",
+            basename(event.suggestedFilename).replace(filenameControlsPattern, "").slice(0, 200) ||
+            "download",
           size: 0,
           status: "pending",
           path: join(workspace.downloadsDirectory, event.guid),
@@ -644,7 +645,10 @@ export class BrowserService {
                 const folder = join(directory, String(index));
                 await mkdir(folder, { mode: 0o700 });
                 assertControl();
-                const name = basename(file.name.replaceAll("\\", "/")).replace(/[\x00-\x1f]/g, "");
+                const name = basename(file.name.replaceAll("\\", "/")).replace(
+                  filenameControlsPattern,
+                  "",
+                );
                 if (!name || name === "." || name === "..") throw new Error("Invalid file name.");
                 const path = join(folder, name);
                 await writeFile(path, Buffer.from(file.data, "base64"), { mode: 0o600 });

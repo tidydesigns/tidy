@@ -44,7 +44,8 @@ for migration in \
   20261021-combined-privacy-consent.sql \
   20261024-desktop-analytics.sql \
   20261026-desktop-service-metrics.sql \
-  20261029-extension-import-receipts.sql
+  20261029-extension-import-receipts.sql \
+  20261103-document-initialization.sql
 do
   set -- "$@" -f "$migrations_dir/$migration"
 done

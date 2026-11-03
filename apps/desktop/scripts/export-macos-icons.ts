@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { parseDesignDocument, type DesignNode } from "@tidy/design/document";
 
+const imageDataUrlPattern = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+
 // This deliberately exports only the approved, simple icon subtrees. Unsupported
 // effects fail instead of silently changing a future design during export.
 const selections = [
@@ -48,7 +50,7 @@ for (const selection of selections) {
       const asset = JSON.parse(
         await readFile(join(dirname(designPath), "../assets", `${node.assetId}.json`), "utf8"),
       );
-      if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(asset.dataUrl))
+      if (!imageDataUrlPattern.test(asset.dataUrl))
         throw new Error("Expected a local raster icon asset.");
       const bytes = Buffer.from(asset.dataUrl.split(",")[1], "base64");
       assetHashes[node.assetId] = createHash("sha256").update(bytes).digest("hex");

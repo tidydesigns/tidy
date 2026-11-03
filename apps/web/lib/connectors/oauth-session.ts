@@ -2,6 +2,8 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { PublicActionError } from "@/lib/security/public-error";
 
+const oauthStatePattern = /^[A-Za-z0-9_-]{43}$/;
+
 export class OAuthSessionError extends PublicActionError {
   readonly status = 403;
   constructor() {
@@ -39,7 +41,7 @@ export function readOAuthVerifier(value: string, sessionId: string): string {
       typeof data.sessionId === "string" &&
       data.sessionId === sessionId &&
       typeof data.verifier === "string" &&
-      /^[A-Za-z0-9_-]{43}$/.test(data.verifier)
+      oauthStatePattern.test(data.verifier)
     )
       return data.verifier;
   } catch {

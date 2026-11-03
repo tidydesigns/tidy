@@ -8,6 +8,9 @@ import { z } from "zod";
 import { writePrivateJSON } from "./session-store";
 import { persistHostEnvironment } from "./host-environment";
 
+const lineControlPattern = /[\r\n\0]/;
+const commandControlPattern = /[\0-\x08\x0b\x0c\x0e-\x1f]/;
+
 const execute = promisify(execFile);
 const marker = "Managed by Tidy remote backend";
 type ServiceOptions = {
@@ -19,12 +22,12 @@ type ServiceOptions = {
 };
 
 function unitValue(value: string, expandArguments = false) {
-  if (/[\r\n\0]/.test(value)) throw new Error("Invalid backend service path.");
+  if (lineControlPattern.test(value)) throw new Error("Invalid backend service path.");
   if (expandArguments) value = value.replaceAll("$", "$$");
   return '"' + value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
 }
 function xml(value: string) {
-  if (/[\0-\x08\x0b\x0c\x0e-\x1f]/.test(value)) throw new Error("Invalid backend service path.");
+  if (commandControlPattern.test(value)) throw new Error("Invalid backend service path.");
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -35,7 +38,7 @@ function xml(value: string) {
 
 export function systemdHostUnit(options: ServiceOptions) {
   const logPath = join(options.directory, "server.log");
-  if (/[\r\n\0]/.test(logPath)) throw new Error("Invalid backend service path.");
+  if (lineControlPattern.test(logPath)) throw new Error("Invalid backend service path.");
   return `# ${marker}
 [Unit]
 Description=Tidy remote workspace backend

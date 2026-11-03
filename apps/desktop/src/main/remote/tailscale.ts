@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { z } from "zod";
 import { remoteTargetSchema, type TailnetDiscovery } from "../../shared/remote";
 
+const trailingDotPattern = /\.$/;
+
 const statusSchema = z.object({
   BackendState: z.string(),
   Peer: z
@@ -26,7 +28,9 @@ export function parseTailnetStatus(input: unknown): TailnetDiscovery {
   const machines = Object.values(status.Peer ?? {})
     .filter((peer) => ["linux", "macos", "darwin"].includes(peer.OS.toLowerCase()))
     .flatMap((peer) => {
-      const host = remoteTargetSchema.safeParse(peer.DNSName.replace(/\.$/, "") || peer.HostName);
+      const host = remoteTargetSchema.safeParse(
+        peer.DNSName.replace(trailingDotPattern, "") || peer.HostName,
+      );
       return host.success ? [{ host: host.data, name: peer.HostName, online: peer.Online }] : [];
     })
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))

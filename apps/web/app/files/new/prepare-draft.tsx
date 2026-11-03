@@ -16,14 +16,15 @@ import {
 } from "@/lib/editor-preferences";
 import { FileEditor } from "../[uid]/file-editor";
 
+const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // This read-only branch is safe to prefetch. The same editor component and route
 // remain mounted after creation, including subsequent action revalidations.
 export async function prepareDraft(
   uid: string,
   query: Awaited<PageProps<"/files/[uid]">["searchParams"]>,
 ) {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid))
-    notFound();
+  if (!uuidV4Pattern.test(uid)) notFound();
   const { session, organization, role } = await getWorkspace(
     typeof query.organization === "string" ? query.organization : undefined,
   );

@@ -1,15 +1,27 @@
 import type { FigNode } from "openfig-core";
 import { normalizeRichText, type RichText, type TextRun } from "./rich-text-runtime";
 
+const blackWeightPattern = /black|heavy/i;
+const extraBoldWeightPattern = /extra.?bold|ultra.?bold/i;
+const semiBoldWeightPattern = /semi.?bold|demi.?bold/i;
+const boldWeightPattern = /bold/i;
+const mediumWeightPattern = /medium/i;
+const extraLightWeightPattern = /extra.?light|ultra.?light/i;
+const lightWeightPattern = /light/i;
+const thinWeightPattern = /thin|hairline/i;
+const highSurrogatePattern = /[\uD800-\uDBFF]/;
+const lowSurrogatePattern = /[\uDC00-\uDFFF]/;
+const italicPattern = /italic|oblique/i;
+
 export function figmaFontWeight(face = "Regular") {
-  if (/black|heavy/i.test(face)) return 900;
-  if (/extra.?bold|ultra.?bold/i.test(face)) return 800;
-  if (/semi.?bold|demi.?bold/i.test(face)) return 600;
-  if (/bold/i.test(face)) return 700;
-  if (/medium/i.test(face)) return 500;
-  if (/extra.?light|ultra.?light/i.test(face)) return 200;
-  if (/light/i.test(face)) return 300;
-  if (/thin|hairline/i.test(face)) return 100;
+  if (blackWeightPattern.test(face)) return 900;
+  if (extraBoldWeightPattern.test(face)) return 800;
+  if (semiBoldWeightPattern.test(face)) return 600;
+  if (boldWeightPattern.test(face)) return 700;
+  if (mediumWeightPattern.test(face)) return 500;
+  if (extraLightWeightPattern.test(face)) return 200;
+  if (lightWeightPattern.test(face)) return 300;
+  if (thinWeightPattern.test(face)) return 100;
   return 400;
 }
 
@@ -37,8 +49,8 @@ export function figmaRichText(node: FigNode) {
     // Never introduce a run boundary inside a surrogate pair.
     if (
       end < data.characters.length &&
-      /[\uD800-\uDBFF]/.test(data.characters[end - 1]) &&
-      /[\uDC00-\uDFFF]/.test(data.characters[end])
+      highSurrogatePattern.test(data.characters[end - 1]) &&
+      lowSurrogatePattern.test(data.characters[end])
     )
       end++;
     const override = styles.get(id);
@@ -49,7 +61,7 @@ export function figmaRichText(node: FigNode) {
         const face = override.fontName.style ?? node.fontName?.style ?? "Regular";
         const weight = figmaFontWeight(face);
         if (face !== node.fontName?.style) {
-          marks.italic = /italic|oblique/i.test(face);
+          marks.italic = italicPattern.test(face);
           if (weight === 400 || weight === 700) marks.bold = weight === 700;
           else if (weight !== figmaFontWeight(node.fontName?.style)) unsupported = true;
         }

@@ -3,6 +3,10 @@ import { flushSync } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import instrumentSans from "../public/fonts/InstrumentSans-Latin.woff2?inline";
 
+const whitespacePattern = /\s+/g;
+
+const nonSelectableElementPattern = /^(script|style|noscript|template|meta|link|title)$/i;
+
 export const MAX_SELECTED_ELEMENTS = 20;
 
 function contains(ancestor: Element, element: Element) {
@@ -104,7 +108,7 @@ export function startElementPicker({
     if (
       element === host ||
       element === document.documentElement ||
-      /^(script|style|noscript|template|meta|link|title)$/i.test(element.localName)
+      nonSelectableElementPattern.test(element.localName)
     )
       return false;
     const box = element.getBoundingClientRect();
@@ -143,7 +147,7 @@ export function startElementPicker({
       if (node.nodeType === Node.TEXT_NODE)
         snippet += (node.textContent ?? "").slice(0, 80 - snippet.length);
     }
-    const text = snippet.replace(/\s+/g, " ").trim().slice(0, 80);
+    const text = snippet.replace(whitespacePattern, " ").trim().slice(0, 80);
     return `${element.localName}${text ? `: ${text}` : ""}`;
   }
   target =

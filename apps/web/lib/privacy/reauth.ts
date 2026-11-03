@@ -9,6 +9,9 @@ import { db } from "@/lib/db";
 import { enabledSocialProviders, socialProviderConfiguration } from "@/lib/auth-social";
 import { lockPrivacyAccount, PrivacyError } from "./access";
 
+const githubStatePattern = /^privacy-github:[A-Za-z0-9_-]{43}$/;
+const oauthStatePattern = /^[A-Za-z0-9_-]{43}$/;
+
 export async function checkPrivacyAuthentication(userId: string, sessionId: string) {
   const client = await db.connect();
   try {
@@ -177,8 +180,7 @@ export async function finishSocialReauth(
   code: string,
 ) {
   const label = providerLabels[name];
-  const statePattern =
-    name === "github" ? /^privacy-github:[A-Za-z0-9_-]{43}$/ : /^[A-Za-z0-9_-]{43}$/;
+  const statePattern = name === "github" ? githubStatePattern : oauthStatePattern;
   if (!statePattern.test(state) || !code || code.length > 4096)
     throw new PrivacyError(`${label} verification expired. Try again.`);
   // Atomically consume the challenge; another session cannot consume or use it.

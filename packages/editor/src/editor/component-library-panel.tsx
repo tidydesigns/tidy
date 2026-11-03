@@ -14,14 +14,16 @@ import {
 import { clipboardAssetIds, remapClipboardAssets, type DesignClipboard } from "../design/clipboard";
 import { SelectMenu } from "../components/ui/select-menu";
 import { PropertyField } from "./property-field";
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const button =
   "shrink-0 rounded border border-primary-grey/70 px-2 py-1 text-xs hover:bg-primary-grey/15 disabled:opacity-40";
 type Source = { fileUid: string; name: string; revision: number; content: DesignDocument };
 async function loadSource(fileUid: string): Promise<Source> {
   const url = new URL(fileUid, window.location.href);
   const candidate = url.pathname.split("/").filter(Boolean).at(-1) ?? fileUid;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate))
-    throw new UserFacingError("Enter a file URL or file ID.");
+  if (!uuidPattern.test(candidate)) throw new UserFacingError("Enter a file URL or file ID.");
   const response = await fetch(`/api/files/${encodeURIComponent(candidate)}/snapshot`, {
     cache: "no-store",
   });

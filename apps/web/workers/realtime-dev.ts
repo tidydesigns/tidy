@@ -3,6 +3,9 @@ import { upgradeFileRoom } from "../lib/realtime/upgrade";
 import { verifyTicket } from "../lib/realtime/ticket";
 import { editorExportRequestSchema } from "../lib/realtime/protocol";
 import { agentActivitySchema } from "../lib/realtime/agent-activity";
+
+const bearerPrefixPattern = /^Bearer /;
+
 export { AuthGuard } from "../lib/auth/guard";
 export { FileRoom } from "../lib/realtime/file-room";
 export default {
@@ -10,7 +13,7 @@ export default {
     const path = new URL(request.url).pathname;
     if (path === "/__editor" && request.method === "POST") {
       const ticket = await verifyTicket(
-        request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "",
+        request.headers.get("authorization")?.replace(bearerPrefixPattern, "") ?? "",
         env.BETTER_AUTH_SECRET,
       );
       if (
@@ -46,7 +49,7 @@ export default {
     }
     if (["/__relay", "/__activity"].includes(path) && request.method === "POST") {
       const ticket = await verifyTicket(
-        request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "",
+        request.headers.get("authorization")?.replace(bearerPrefixPattern, "") ?? "",
         env.BETTER_AUTH_SECRET,
       );
       if (!ticket || ticket.organizationId !== "internal" || ticket.userId !== "internal")

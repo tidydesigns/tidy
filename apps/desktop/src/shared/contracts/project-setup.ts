@@ -1,14 +1,19 @@
 import { z } from "zod";
 
+const invalidRemotePattern = /[\s\x00-\x1f\x7f]/;
+const remoteScpPattern = /^(?:[\w.-]+@)?([\w.-]+):([\w./-]+)$/;
+const boundarySlashPattern = /^\/+|\/+$/g;
+const gitSuffixPattern = /\.git$/;
+
 export function repositoryKey(value: string): string | null {
-  if (/[\s\x00-\x1f\x7f]/.test(value)) return null;
-  const scp = value.includes("://") ? null : /^(?:[\w.-]+@)?([\w.-]+):([\w./-]+)$/.exec(value);
+  if (invalidRemotePattern.test(value)) return null;
+  const scp = value.includes("://") ? null : remoteScpPattern.exec(value);
   try {
     const url = new URL(scp ? `ssh://${scp[1]}/${scp[2]}` : value);
     if (!["https:", "ssh:"].includes(url.protocol) || url.password || url.search || url.hash)
       return null;
     if (url.protocol === "https:" && url.username) return null;
-    const path = url.pathname.replace(/^\/+|\/+$/g, "").replace(/\.git$/, "");
+    const path = url.pathname.replace(boundarySlashPattern, "").replace(gitSuffixPattern, "");
     if (!url.hostname || !path || path.split("/").some((part) => part === ".." || part === "."))
       return null;
     const host = url.hostname.toLowerCase();

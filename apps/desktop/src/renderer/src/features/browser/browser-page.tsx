@@ -16,6 +16,9 @@ import {
   type BrowserInput,
   type BrowserInputEnvelope,
 } from "../../../../shared/contracts/browser";
+
+const inputPlaceholderPattern = /^\u200b/;
+
 const inputSentinel = "\u200b";
 const modifierBits = (event: {
   altKey: boolean;
@@ -403,7 +406,8 @@ export function BrowserPage({
           composing.current = false;
           const target = compositionView.current;
           compositionView.current = null;
-          if (target) insertText(event.currentTarget.value.replace(/^\u200b/, ""), target);
+          if (target)
+            insertText(event.currentTarget.value.replace(inputPlaceholderPattern, ""), target);
           resetInput(event.currentTarget);
         }}
         onInput={(event) => {
@@ -434,7 +438,7 @@ export function BrowserPage({
               };
               sendPage({ kind: "key", action: "down", ...key });
               sendPage({ kind: "key", action: "up", ...key });
-            } else insertText(event.currentTarget.value.replace(/^\u200b/, ""));
+            } else insertText(event.currentTarget.value.replace(inputPlaceholderPattern, ""));
           }
           resetInput(event.currentTarget);
         }}

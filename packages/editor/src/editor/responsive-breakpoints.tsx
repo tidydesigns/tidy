@@ -5,6 +5,9 @@ import { containingFrameWidth, responsiveNode } from "../design/responsive-layou
 import { Choice, type Patch } from "./inspector-controls";
 import { PropertyField } from "./property-field";
 
+const breakpointPrefixPattern = /^Breakpoint /;
+const camelCaseBoundaryPattern = /([A-Z])/g;
+
 type Breakpoint = NonNullable<DesignNode["responsiveBreakpoints"]>[number];
 type GridTrack = NonNullable<DesignNode["gridColumnTracks"]>[number];
 const buttonClass =
@@ -80,7 +83,7 @@ export function ResponsiveBreakpoints({
     <PropertyField
       replayLabel
       label={label}
-      displayLabel={label.replace(/^Breakpoint /, "")}
+      displayLabel={label.replace(breakpointPrefixPattern, "")}
       value={breakpoint[key] ?? ""}
       numeric
       min={min}
@@ -241,7 +244,7 @@ export function ResponsiveBreakpoints({
                         <div key={key}>
                           {numeric(
                             breakpoint,
-                            `Breakpoint ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`,
+                            `Breakpoint ${key.replace(camelCaseBoundaryPattern, " $1").toLowerCase()}`,
                             key,
                             0,
                             1000,
@@ -517,8 +520,8 @@ export function ResponsiveBreakpoints({
                     <PropertyField
                       replayLabel
                       key={key}
-                      label={`Breakpoint ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`}
-                      displayLabel={key.replace(/([A-Z])/g, " $1").toLowerCase()}
+                      label={`Breakpoint ${key.replace(camelCaseBoundaryPattern, " $1").toLowerCase()}`}
+                      displayLabel={key.replace(camelCaseBoundaryPattern, " $1").toLowerCase()}
                       value={breakpoint[key] ?? ""}
                       numeric
                       min={key.startsWith("min") ? 0 : 1}

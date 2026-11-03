@@ -1,6 +1,10 @@
 import * as z from "zod";
 import { serializeContours } from "./vector-geometry";
 
+const pathNumberPattern = /[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?/g;
+
+const moveCommandPattern = /^[Mm]/;
+
 const coordinate = z.number().finite().min(-100000).max(100000);
 const point = z.object({ x: coordinate, y: coordinate }).strict();
 const anchor = point.extend({
@@ -18,8 +22,8 @@ export const vectorPathSchema = z
       .regex(/^[MmLlHhVvCcSsQqTtAaZzEe0-9+.,\s-]+$/)
       .refine(
         (d) =>
-          /^[Mm]/.test(d.trim()) &&
-          [...d.matchAll(/[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?/g)].every(
+          moveCommandPattern.test(d.trim()) &&
+          [...d.matchAll(pathNumberPattern)].every(
             ([n]) => Number.isFinite(Number(n)) && Math.abs(Number(n)) <= 100000,
           ),
         "Path coordinates must be finite and bounded.",

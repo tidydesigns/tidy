@@ -52,8 +52,8 @@ export function reviewRowOffsets(
       if (height !== undefined) return height;
       if (!width || row.kind !== "lines") return 24;
       const length = Math.max(
-        row.before?.text.replace(/\t/g, "    ").length ?? 0,
-        row.after?.text.replace(/\t/g, "    ").length ?? 0,
+        row.before?.text.replaceAll("\t", "    ").length ?? 0,
+        row.after?.text.replaceAll("\t", "    ").length ?? 0,
       );
       return 24 * Math.max(1, Math.ceil(length / characters));
     }),

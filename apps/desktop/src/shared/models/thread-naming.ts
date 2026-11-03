@@ -1,9 +1,8 @@
+const attachmentReferencePattern = /\[\[attachment:[0-9a-f-]{36}\]\]/gi;
+const whitespacePattern = /\s+/g;
 /** Attachment tokens describe placement, not the intent of the request. */
 export function threadPromptText(prompt: string) {
-  return prompt
-    .replace(/\[\[attachment:[0-9a-f-]{36}\]\]/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return prompt.replace(attachmentReferencePattern, " ").replace(whitespacePattern, " ").trim();
 }
 
 const titleSegments = new Intl.Segmenter(undefined, { granularity: "grapheme" });

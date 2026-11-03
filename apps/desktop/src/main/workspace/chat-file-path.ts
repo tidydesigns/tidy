@@ -2,8 +2,10 @@ import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
+const driveRootPattern = /^[a-z]:\//i;
+
 export async function resolveChatFilePath({ root, path }: { root: string; path: string }) {
-  if (/^[a-z]:\//i.test(path) && process.platform !== "win32")
+  if (driveRootPattern.test(path) && process.platform !== "win32")
     throw new Error("This file belongs to a different operating system.");
   const expanded = path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path;
   return realpath(resolve(root, expanded)).catch(rethrowChatFileError);

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const terminalControlsPattern = /[\u0000-\u001f\u007f]/g;
+
 export type TerminalTab = {
   id: string;
   projectId: string;
@@ -116,10 +118,7 @@ export function terminalState(state: TerminalState, action: TerminalAction): Ter
       break;
     }
     case "title": {
-      const title = action.title
-        .replace(/[\u0000-\u001f\u007f]/g, "")
-        .trim()
-        .slice(0, 100);
+      const title = action.title.replace(terminalControlsPattern, "").trim().slice(0, 100);
       if (!title || !previous.tabs.some((tab) => tab.id === action.id && tab.title !== title))
         return state;
       next = {

@@ -34,9 +34,9 @@ export async function GET(request: Request) {
 
 export const POST = withRequestBodyLimit(async (request: Request) => {
   try {
+    const appUrl = new URL(process.env.BETTER_AUTH_URL || request.url);
     if (
-      request.headers.get("origin") !==
-        new URL(process.env.BETTER_AUTH_URL || request.url).origin ||
+      request.headers.get("origin") !== appUrl.origin ||
       request.headers.get("x-tidy-privacy") !== "1"
     )
       throw new PrivacyError("Reload Tidy at its configured app address and try again.", 403);
@@ -88,7 +88,7 @@ export const POST = withRequestBodyLimit(async (request: Request) => {
       return Response.json(choice, { headers: privateHeaders });
     }
     const intent = await recordMcpConsentIntent(enabled, token);
-    const secure = new URL(process.env.BETTER_AUTH_URL || request.url).protocol === "https:";
+    const secure = appUrl.protocol === "https:";
     const headers = new Headers(privateHeaders);
     headers.append(
       "Set-Cookie",

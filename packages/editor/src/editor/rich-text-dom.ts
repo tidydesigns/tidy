@@ -6,6 +6,8 @@ import {
 } from "@tidy/design/rich-text-runtime";
 import { textLinkSchema } from "@tidy/design/rich-text";
 
+const carriageReturnPattern = /\r\n?/g;
+
 const ignored = new Set([
   "SCRIPT",
   "STYLE",
@@ -151,7 +153,7 @@ export function sanitizeRichPaste(html: string, plain: string): string {
   const value = html
     ? readEditableRichText(template.content).richText
     : plain
-        .replace(/\r\n?/g, "\n")
+        .replace(carriageReturnPattern, "\n")
         .split("\n")
         .map((text) => ({ runs: [{ text }] }));
   const holder = document.createElement("div");

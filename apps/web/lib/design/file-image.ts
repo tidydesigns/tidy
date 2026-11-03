@@ -11,8 +11,10 @@ export async function getFileImage(userId: string, fileId: string, assetId: stri
   const client = await db.connect();
   try {
     await client.query("begin");
-    const result = await client.query<StoredImage & { revision: number; content: DesignDocument }>(
-      `select d."revision", d."content", a."mimeType", a."objectKey", a."sha256", a."byteSize"
+    const result = await client.query<
+      StoredImage & { revision: number; content: Pick<DesignDocument, "nodes"> }
+    >(
+      `select d."revision", jsonb_build_object('nodes', d."content"->'nodes') as content, a."mimeType", a."objectKey", a."sha256", a."byteSize"
      from "designFile" f
      join "member" m on m."organizationId" = f."organizationId" and m."userId" = $3 and m."role" in ${VIEW_ROLES_SQL}
      join "user" u on u."id"=m."userId" and u."emailVerified"=true

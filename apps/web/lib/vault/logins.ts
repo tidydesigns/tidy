@@ -8,6 +8,8 @@ import { reservePersonalAttempts } from "@/lib/security/personal-budget";
 import { decryptVaultLogin, encryptVaultLogin } from "./server";
 import type { EncryptedVaultCredentials } from "./crypto";
 
+const controlCharactersPattern = /[\u0000-\u001f\u007f]/;
+
 export const VAULT_LOGIN_LIMIT = 1000;
 type LoginPatch = { name?: string; username?: string; password?: string };
 type StoredLogin = EncryptedVaultCredentials & { keyVersion: number; name: string };
@@ -26,7 +28,7 @@ function validate(patch: LoginPatch) {
     (typeof patch.name !== "string" ||
       !patch.name.trim() ||
       patch.name.trim().length > 100 ||
-      /[\u0000-\u001f\u007f]/.test(patch.name))
+      controlCharactersPattern.test(patch.name))
   )
     throw new PublicActionError("Enter a name of 100 characters or fewer.");
   if (

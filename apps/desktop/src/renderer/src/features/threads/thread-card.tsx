@@ -12,6 +12,8 @@ import type { RepositoryContext } from "../../../../shared/contracts/repository-
 import { ThreadReadMarker } from "./thread-reading";
 import { ThreadPreview } from "./thread-preview";
 
+const isoDatePattern = /^\d{4}-/;
+
 export function ThreadCard({
   thread,
   api,
@@ -57,7 +59,7 @@ export function ThreadCard({
   const [seenCompletion, setSeenCompletion] = useState<string | null>(() => {
     try {
       const saved = localStorage.getItem(visitKey);
-      if (saved && /^\d{4}-/.test(saved) && thread.messageCount !== undefined)
+      if (saved && isoDatePattern.test(saved) && thread.messageCount !== undefined)
         return `messages:${saved.slice(saved.lastIndexOf(":") + 1)}`;
       return saved;
     } catch {

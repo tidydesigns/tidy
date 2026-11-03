@@ -15,6 +15,10 @@ import { createRemoteHost } from "../src/main/remote/host";
 import { RequestReceipts } from "../src/main/remote/receipts";
 import { SessionStore } from "../src/main/remote/session-store";
 
+const untrustedRequestPattern = /Untrusted desktop request/;
+const inactiveApprovalPattern = /no longer active/;
+const completedStepsPattern = /steps completed/;
+
 protocol.registerSchemesAsPrivileged([
   { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
@@ -270,7 +274,7 @@ async function run() {
       ])
         await assert.rejects(
           foreign.webContents.executeJavaScript(expression),
-          /Untrusted desktop request/,
+          untrustedRequestPattern,
         );
     } finally {
       foreign.destroy();
@@ -375,7 +379,7 @@ async function run() {
           `remoteApi.respondToApproval('${project.id}', '${threadId}', '${randomUUID()}', 'allow').then(() => '', error => error.message)`,
         ),
       ),
-      /no longer active/,
+      inactiveApprovalPattern,
     );
     await evaluate(
       `remoteApi.addAttachment('${project.id}', 'fixture.txt', 'data:text/plain;base64,aGVsbG8=').then(value => { globalThis.attachment = value; return true; })`,
@@ -432,7 +436,7 @@ async function run() {
     assert.equal(service.activeRunCount, 1);
     await new Promise((resolve) => setTimeout(resolve, 2100));
     const latestText = (await service.readThread(project.id, threadId)).messages.at(-1)?.text ?? "";
-    assert.match(latestText, /steps completed/);
+    assert.match(latestText, completedStepsPattern);
     online = true;
     authenticationRequired = false;
     await evaluate(
@@ -445,7 +449,7 @@ async function run() {
     const recovered = await evaluate(
       `remoteApi.readThread('${project.id}', '${threadId}').then(thread => thread.messages.at(-1).text)`,
     );
-    assert.match(String(recovered), /steps completed/);
+    assert.match(String(recovered), completedStepsPattern);
     assert.equal(runs, 1);
     authenticationRequired = true;
     drop();

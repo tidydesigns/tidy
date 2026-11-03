@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { bundleLicenseBanner } from "../../../scripts/bundle-licenses";
 
+const closingScriptPattern = /<\/script/gi;
+
 export async function buildPlugin() {
   const root = resolve(import.meta.dir, "..");
   const build = await Bun.build({
@@ -14,7 +16,7 @@ export async function buildPlugin() {
   });
   if (!build.success) throw new Error(build.logs.join("\n"));
   const script = ((await bundleLicenseBanner(build)) + (await build.outputs[0].text())).replace(
-    /<\/script/gi,
+    closingScriptPattern,
     "<\\/script",
   );
   const css = await Bun.file(resolve(root, "src/style.css")).text();

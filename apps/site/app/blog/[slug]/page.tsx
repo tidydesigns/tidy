@@ -13,6 +13,8 @@ import { siteUrl } from "../../../lib/site-url";
 import { appUrl, repositoryUrl } from "../../../lib/site-links";
 import styles from "../../../components/editorial/editorial.module.css";
 
+const authorUrl = new URL("/about", siteUrl).href;
+
 type Props = { params: Promise<{ slug: string }> };
 export const dynamicParams = false;
 
@@ -37,14 +39,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     ...metadata,
     twitter: { ...metadata.twitter, ...(image ? { images: [image] } : {}) },
-    authors: [{ name: "Tidy", url: new URL("/about", siteUrl).href }],
+    authors: [{ name: "Tidy", url: authorUrl }],
     openGraph: {
       ...metadata.openGraph,
       ...(image ? { images: [image] } : {}),
       type: "article",
       publishedTime: post.date,
       modifiedTime: post.updated ?? post.date,
-      authors: [new URL("/about", siteUrl).href],
+      authors: [authorUrl],
       section: post.category,
     },
   };
@@ -73,7 +75,7 @@ export default async function BlogPostPage({ params }: Props) {
               author: {
                 "@type": "Organization",
                 name: "Tidy",
-                url: new URL("/about", siteUrl).href,
+                url: authorUrl,
               },
               publisher: { "@type": "Organization", name: "Tidy", url: siteUrl.href },
             },

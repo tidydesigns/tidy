@@ -1,5 +1,7 @@
 import type { AttachedFile, Attachment } from "../contracts/attachments";
 
+const attachmentReferencePattern = /\[\[attachment:([0-9a-f-]{36})\]\]/g;
+
 export const attachmentReference = (file: Pick<AttachedFile, "id" | "referenceId">) =>
   `[[attachment:${file.referenceId ?? file.id}]]`;
 
@@ -15,7 +17,7 @@ export function attachmentParts(text: string, files: AttachedFile[]) {
     | { kind: "attachment"; file: AttachedFile; referenceId: string }
   )[] = [];
   let start = 0;
-  for (const match of text.matchAll(/\[\[attachment:([0-9a-f-]{36})\]\]/g)) {
+  for (const match of text.matchAll(attachmentReferencePattern)) {
     const file = byId.get(match[1]);
     if (!file) continue;
     if (match.index > start) parts.push({ kind: "text", text: text.slice(start, match.index) });

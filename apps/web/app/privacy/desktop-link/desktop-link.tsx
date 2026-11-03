@@ -3,6 +3,9 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { NavigationLink } from "@/components/ui/navigation-link";
+
+const linkTokenPattern = /^[a-f0-9]{64}$/;
+
 export function DesktopLink({ account }: { account: string | null }) {
   const challenge = useSearchParams().get("challenge");
   const [done, setDone] = useState(false);
@@ -53,7 +56,7 @@ export function DesktopLink({ account }: { account: string | null }) {
               Link to <span className="ph-no-capture">{account}</span>.
             </p>
           )}
-          {account && challenge && /^[a-f0-9]{64}$/.test(challenge) ? (
+          {account && challenge && linkTokenPattern.test(challenge) ? (
             <Button disabled={busy} onClick={() => void confirm()}>
               {busy ? "Linking…" : "Allow account linking"}
             </Button>

@@ -22,6 +22,15 @@ import {
   type CaptureViewport,
 } from "./capture-effects";
 
+const sharedWhitespacePattern = /\s+/g;
+
+const hexColorPattern = /^#[\da-f]{6}([\da-f]{2})?$/i;
+const rgbColorPattern =
+  /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/;
+const imageSourcePattern = /^(https?:|data:image\/|blob:)/i;
+const backgroundUrlPattern = /^url\(["']?(.*?)["']?\)$/;
+const whitespacePattern = /\s/;
+
 const MAX_ASSET_BASE64_BYTES = 13_000_000; // Leave 3 MB for nodes and capture metadata.
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -30,10 +39,8 @@ const resolvedColors = new Map<string, string>();
 
 export function cssColor(value: string, preserveTransparent = false): string | undefined {
   if (value === "transparent") return preserveTransparent ? "#00000000" : undefined;
-  if (value.startsWith("#")) return /^#[\da-f]{6}([\da-f]{2})?$/i.test(value) ? value : undefined;
-  const match = value.match(
-    /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/,
-  );
+  if (value.startsWith("#")) return hexColorPattern.test(value) ? value : undefined;
+  const match = value.match(rgbColorPattern);
   if (!match) {
     // Let the source browser convert CSS Color 4 (including wide-gamut colors)
     // to the sRGB pixels used by the design renderer. Never restyle the page.
@@ -667,8 +674,7 @@ export async function captureElement(
           const url =
             backgroundUrl ??
             (element instanceof HTMLImageElement ? element.currentSrc || element.src : undefined);
-          if (!url || !/^(https?:|data:image\/|blob:)/i.test(url))
-            throw new Error("Unrenderable image");
+          if (!url || !imageSourcePattern.test(url)) throw new Error("Unrenderable image");
           let decoded = decodedImages.get(url);
           if (!decoded) {
             decoded = (async () => {
@@ -1046,7 +1052,7 @@ export async function captureElement(
       warn("Embedded frames were omitted. Open the embedded page in its own tab to import it.");
       return;
     }
-    const background = css.backgroundImage?.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
+    const background = css.backgroundImage?.match(backgroundUrlPattern)?.[1];
     if (background) queueAsset(element, bounds, css, background, contentParent);
     else if (!paints && css.backgroundImage && css.backgroundImage !== "none")
       warn("Unsupported CSS gradients or background positioning were approximated.");
@@ -1113,8 +1119,10 @@ export async function captureElement(
         let visibleStart = start,
           visibleEnd = end;
         if (!css.whiteSpace.startsWith("pre")) {
-          while (visibleStart < visibleEnd && /\s/.test(source[visibleStart]!)) visibleStart++;
-          while (visibleEnd > visibleStart && /\s/.test(source[visibleEnd - 1]!)) visibleEnd--;
+          while (visibleStart < visibleEnd && whitespacePattern.test(source[visibleStart]!))
+            visibleStart++;
+          while (visibleEnd > visibleStart && whitespacePattern.test(source[visibleEnd - 1]!))
+            visibleEnd--;
         }
         start = end;
         if (visibleStart === visibleEnd) continue;
@@ -1122,7 +1130,7 @@ export async function captureElement(
         range.setEnd(child, visibleEnd);
         const textBounds = range.getBoundingClientRect();
         let text = source.slice(visibleStart, visibleEnd);
-        if (!css.whiteSpace.startsWith("pre")) text = text.replace(/\s+/g, " ");
+        if (!css.whiteSpace.startsWith("pre")) text = text.replace(sharedWhitespacePattern, " ");
         if (css.textTransform === "uppercase") text = text.toUpperCase();
         else if (css.textTransform === "lowercase") text = text.toLowerCase();
         const textStyle = captureStyle(css, true);

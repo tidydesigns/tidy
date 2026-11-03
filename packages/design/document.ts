@@ -10,6 +10,8 @@ import { resolveNodeTokens, resolvedDesignTokens } from "./design-tokens";
 import { prototypeInteractionSchema, validatePrototype } from "./prototype";
 
 import { DESIGN_DOCUMENT_LIMITS } from "./document-limits";
+
+const captureUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export { DESIGN_DOCUMENT_LIMITS } from "./document-limits";
 
 const number = z.number().finite();
@@ -651,10 +653,7 @@ export function isWebCaptureImportKey(key: string): boolean {
   const marker = key.lastIndexOf(":web-capture/");
   if (marker <= 0) return false;
   const ids = key.slice(marker + ":web-capture/".length).split("#");
-  return (
-    ids.length <= 2 &&
-    ids.every((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
-  );
+  return ids.length <= 2 && ids.every((id) => captureUuidPattern.test(id));
 }
 const deletedSourceKeySchema = z
   .object({ importKey: z.string().max(700), sourceKey: z.string().max(240) })
