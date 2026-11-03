@@ -20,6 +20,7 @@ export function useThreadTasks({
   active,
   connected,
   supported = true,
+  waitForStart,
 }: {
   api: DesktopAPI;
   projectId?: string;
@@ -27,6 +28,7 @@ export function useThreadTasks({
   active: boolean;
   connected?: boolean;
   supported?: boolean;
+  waitForStart?(threadId: string): Promise<unknown> | undefined;
 }) {
   const [value, setValue] = useState<ThreadTasks>({ parent: null, tasks: [], nextCursor: null });
   const [error, setError] = useState("");
@@ -72,6 +74,17 @@ export function useThreadTasks({
       running = true;
       setLoading(true);
       try {
+        // Optimistic threads render before the host has created their backing file.
+        // Startup failures are reported by the composer, not by task-status recovery.
+        const starting = waitForStart?.(threadId);
+        if (starting) {
+          try {
+            await starting;
+          } catch {
+            return;
+          }
+          if (!mounted) return;
+        }
         do {
           dirty = false;
           const page = await read({ projectId, threadId, ...(before ? { before } : {}) });
@@ -146,7 +159,7 @@ export function useThreadTasks({
       window.removeEventListener("focus", update);
       window.removeEventListener("online", update);
     };
-  }, [api, projectId, threadId, active, connected, supported]);
+  }, [api, projectId, threadId, active, connected, supported, waitForStart]);
   return {
     ...(supported ? value : { parent: null, tasks: [], nextCursor: null }),
     error: supported ? error : "",

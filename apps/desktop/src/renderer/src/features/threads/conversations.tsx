@@ -26,6 +26,7 @@ export const Conversations = memo(function Conversations({
   onOpenThread,
   connected,
   orchestrationSupported,
+  waitForStart,
 }: {
   projectId: string;
   selected: string | null;
@@ -37,6 +38,7 @@ export const Conversations = memo(function Conversations({
   onOpenThread?(projectId: string, threadId: string): void;
   connected?: boolean;
   orchestrationSupported?: boolean;
+  waitForStart?(threadId: string): Promise<unknown> | undefined;
 }) {
   const [visited, setVisited] = useState(active);
   if (active && !visited) setVisited(true);
@@ -67,6 +69,7 @@ export const Conversations = memo(function Conversations({
         onOpenThread={onOpenThread}
         connected={connected}
         orchestrationSupported={orchestrationSupported}
+        waitForStart={waitForStart}
       />
     </Activity>
   ));

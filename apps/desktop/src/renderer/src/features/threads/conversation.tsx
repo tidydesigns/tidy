@@ -380,6 +380,7 @@ export const Conversation = memo(function Conversation({
   onOpenThread,
   connected,
   orchestrationSupported,
+  waitForStart,
 }: {
   thread?: Thread;
   identity: string;
@@ -390,6 +391,7 @@ export const Conversation = memo(function Conversation({
   onOpenThread?: (projectId: string, threadId: string) => void;
   connected?: boolean;
   orchestrationSupported?: boolean;
+  waitForStart?(threadId: string): Promise<unknown> | undefined;
 }) {
   const assignments = useThreadTasks({
     api,
@@ -398,6 +400,7 @@ export const Conversation = memo(function Conversation({
     active,
     connected,
     supported: orchestrationSupported,
+    waitForStart,
   });
   const childSummaries = useMemo(
     () => new Map(summaries?.map((summary) => [summary.id, summary])),
