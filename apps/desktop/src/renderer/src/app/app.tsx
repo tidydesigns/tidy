@@ -88,7 +88,8 @@ import { Icon } from "@tidy/editor/components/ui/icon";
 import { preloadCanvasEditor } from "../features/designs/load-canvas-editor";
 import { LocalCanvas } from "../features/designs/local-canvas";
 import { DesktopShell, SidebarToggle, SidebarNavigation } from "./desktop-shell";
-import { Settings } from "../features/settings/settings";
+import { Settings, type SettingsPage } from "../features/settings/settings";
+import { CommandPalette } from "../features/command-palette/command-palette";
 import { Conversations, prepareConversation } from "../features/threads/conversations";
 import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadWorkPermission } from "../features/threads/thread-work-permission";
@@ -131,6 +132,7 @@ import type {
   LocalDesign,
   Thread,
   ThreadSummary,
+  ProjectSnapshot,
   DesktopAPI,
 } from "../../../shared/contracts/desktop";
 
@@ -189,7 +191,7 @@ export function App({
     () => ({ state: cloud.state, account: cloud.account }),
     [cloud.state, cloud.account],
   );
-  const [settingsPage, setSettingsPage] = useState<"account" | "remote">("account");
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>("account");
   const [settingsOpen, setSettingsOpen] = useSessionState("settings", z.boolean(), false);
   const [settingsVisited, setSettingsVisited] = useState(settingsOpen);
   if (settingsOpen && !settingsVisited) setSettingsVisited(true);
@@ -1191,15 +1193,16 @@ export function App({
     };
   }, [api, project, selectedDesignId, designs, snapshot?.designs, location, mode, settingsOpen]);
 
-  async function chooseProject(projectId?: string) {
+  async function chooseProject(projectId?: string, prefetched?: ProjectSnapshot) {
     if (!api) return;
     projectFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const generation = ++navigation.current;
-    const cached = projectId ? snapshots[projectId] : undefined;
+    const cached = projectId ? (snapshots[projectId] ?? prefetched) : undefined;
     setOpening(!cached);
     setError(null);
     if (cached) {
+      if (!snapshots[cached.project.id]) applySnapshot(cached, false);
       setActiveProjectId(cached.project.id);
       selectLocalWorkspace();
     }
@@ -2122,6 +2125,36 @@ export function App({
       settingsOpen={settingsOpen}
     >
       <HarnessFailureNotices key={failureNoticeAccessKey} api={api} />
+      <CommandPalette
+        api={api}
+        projects={projects}
+        project={project}
+        snapshots={snapshots}
+        onSettings={(page) => {
+          setSettingsPage(page);
+          setSettingsOpen(true);
+        }}
+        onAddProject={() => {
+          setSettingsOpen(false);
+          void chooseProject();
+        }}
+        onProject={(projectId, snapshot) => {
+          setSettingsOpen(false);
+          if (projectId !== project?.id || location !== "cloud")
+            void chooseProject(projectId, snapshot);
+        }}
+        onThread={(projectId, threadId, snapshot) => {
+          navigation.current++;
+          machine?.cancelProjectNavigation();
+          setOpening(false);
+          setSettingsOpen(false);
+          setMode("code");
+          setThreadQueries((current) => ({ ...current, [projectId]: "" }));
+          selectThread(projectId, threadId);
+          focusComposerAfterSelection.current = !threadId;
+          if (projectId !== project?.id) void chooseProject(projectId, snapshot);
+        }}
+      />
       <SidebarNavigation
         id="desktop-navigation"
         className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${desktopNavigationClassName}`}

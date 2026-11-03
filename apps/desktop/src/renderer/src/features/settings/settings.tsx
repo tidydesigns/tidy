@@ -10,7 +10,7 @@ import { PrivacySettings } from "./privacy-settings";
 import { AppearanceSettings } from "./appearance-settings";
 import { TerminalSettings } from "./terminal-settings";
 
-const sectionLabels = {
+export const settingsSections = {
   account: "Account",
   appearance: "Appearance",
   threads: "Threads",
@@ -18,6 +18,7 @@ const sectionLabels = {
   privacy: "Privacy",
   remote: "Remote machines",
 };
+export type SettingsPage = keyof typeof settingsSections;
 
 export function Settings({
   cloud,
@@ -28,9 +29,9 @@ export function Settings({
   cloud: CloudConnection;
   active?: boolean;
   onBack(): void;
-  initialPage?: "account" | "remote";
+  initialPage?: SettingsPage;
 }) {
-  const [page, setPage] = useState<keyof typeof sectionLabels>(initialPage);
+  const [page, setPage] = useState<SettingsPage>(initialPage);
   const machines = window.tidyMachines;
   const remote = window.tidyRemote;
   const back = useRef<HTMLButtonElement>(null);
@@ -71,7 +72,7 @@ export function Settings({
               aria-controls={`settings-${item}-panel`}
               onClick={() => setPage(item)}
             >
-              {sectionLabels[item]}
+              {settingsSections[item]}
             </Button>
           ))}
           {machines && remote && (
@@ -81,7 +82,7 @@ export function Settings({
               aria-controls="settings-remote-panel"
               onClick={() => setPage("remote")}
             >
-              {sectionLabels.remote}
+              {settingsSections.remote}
             </Button>
           )}
         </nav>
@@ -92,7 +93,7 @@ export function Settings({
         aria-labelledby="settings-title"
       >
         <div className="settings-content">
-          <h1 id="settings-title">{sectionLabels[page]}</h1>
+          <h1 id="settings-title">{settingsSections[page]}</h1>
           <section
             id="settings-account-panel"
             hidden={page !== "account"}
