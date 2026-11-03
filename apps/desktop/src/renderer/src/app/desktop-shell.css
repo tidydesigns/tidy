@@ -23,7 +23,7 @@
 :root[data-titlebar="hidden"] .desktop-navigation:not(:modal)::before {
   width: var(--project-sidebar-width);
   border-right: 1px solid var(--color-border);
-  background: var(--desktop-navigation-surface);
+  background: inherit;
 }
 :root[data-titlebar="hidden"] dialog.desktop-navigation:not(:modal)::before {
   /* The positioned sidebar starts below the native title bar. */
