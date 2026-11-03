@@ -535,9 +535,6 @@ export class RemoteClient {
       ) {
         if (input.threadMode !== undefined && input.threadMode !== "local")
           return Promise.reject(new Error("Thread workspaces need a backend update."));
-        const legacyInput: Record<string, unknown> = { ...input };
-        delete legacyInput.threadMode;
-        input = legacyInput;
       }
     }
     if (
@@ -554,7 +551,7 @@ export class RemoteClient {
     const frame = JSON.stringify({ id, name, input, ...context });
     if (Buffer.byteLength(frame) > MAX_REMOTE_BYTES || socket.bufferedAmount > MAX_REMOTE_BYTES)
       return Promise.reject(new Error("The remote request is too large."));
-    return new Promise((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () => {
           this.pending.delete(id);
@@ -577,6 +574,25 @@ export class RemoteClient {
       socket.send(frame, (error) => {
         if (error) socket.terminate();
       });
+    }).then((response) => {
+      if (
+        this.socket === socket &&
+        !this.capabilities.includes("thread-worktrees") &&
+        (name === "start-thread" || name === "warm-thread") &&
+        typeof input === "object" &&
+        input !== null &&
+        "threadMode" in input &&
+        input.threadMode === "local" &&
+        z
+          .object({ ok: z.literal(false), error: z.literal("Invalid desktop request.") })
+          .safeParse(response).success
+      ) {
+        // This schema rejection occurs before dispatch, so retrying cannot start a second run.
+        const legacyInput: Record<string, unknown> = { ...input };
+        delete legacyInput.threadMode;
+        return this.request(name, legacyInput, context);
+      }
+      return response;
     });
   }
   private async prepare(signal: AbortSignal, update = false): Promise<RemoteConnection> {

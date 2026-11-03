@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { WebSocket } from "ws";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { createRemoteHost } from "./host";
@@ -209,11 +209,27 @@ test("remote file management persists archive, restore, folder deletion and perm
   expect(snapshot.designs).toEqual([]);
 });
 
-for (const support of ["legacy", "naming", "worktrees"] as const) {
+for (const support of ["legacy", "naming", "unadvertised-worktrees", "worktrees"] as const) {
   test(`thread starts remain compatible with ${support} remote hosts`, async () => {
     const namingSupported = support !== "legacy";
     const worktreesSupported = support === "worktrees";
+    const preWorktrees = support === "legacy" || support === "naming";
     const f = await fixture();
+    if (support === "unadvertised-worktrees") {
+      execFileSync("git", ["init", "-q", f.projectPath]);
+      execFileSync("git", [
+        "-C",
+        f.projectPath,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "Initial fixture",
+      ]);
+    }
     const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
     const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
       const frame = parse(...args);
@@ -221,8 +237,16 @@ for (const support of ["legacy", "naming", "worktrees"] as const) {
         ? { ...frame, capabilities: namingSupported ? ["thread-naming"] : undefined }
         : frame;
     });
-    const start = spyOn(f.service, "startThread");
-    const warm = spyOn(f.service, "warmThread").mockResolvedValue(undefined);
+    const startThread = f.service.startThread.bind(f.service);
+    const start = spyOn(f.service, "startThread").mockImplementation(async (input) => {
+      if (preWorktrees && input.threadMode !== undefined)
+        throw new Error("Invalid desktop request.");
+      return startThread(input);
+    });
+    const warm = spyOn(f.service, "warmThread").mockImplementation(async (input) => {
+      if (preWorktrees && input.threadMode !== undefined)
+        throw new Error("Invalid desktop request.");
+    });
     try {
       const { client } = f.client();
       await until(() => client.status.kind === "connected");
@@ -241,19 +265,31 @@ for (const support of ["legacy", "naming", "worktrees"] as const) {
       const thread = await client.operation("start-thread", input);
       expect(thread.status).toBe("running");
       expect(start.mock.calls[0][0].naming).toEqual(namingSupported ? input.naming : undefined);
-      expect(start.mock.calls[0][0].threadMode).toBe(worktreesSupported ? "local" : undefined);
+      expect(thread.worktree).toBeUndefined();
+      expect(start.mock.calls.map(([input]) => input.threadMode)).toEqual(
+        preWorktrees ? ["local", undefined] : ["local"],
+      );
       await client.operation("warm-thread", {
         projectId: input.projectId,
         harness: input.harness,
         threadMode: input.threadMode,
       });
-      expect(warm.mock.calls[0][0].threadMode).toBe(worktreesSupported ? "local" : undefined);
+      expect(warm.mock.calls.map(([input]) => input.threadMode)).toEqual(
+        preWorktrees ? ["local", undefined] : ["local"],
+      );
       expect(input.threadMode).toBe("local");
       if (!worktreesSupported) {
         await expect(
           client.operation("start-thread", { ...input, threadMode: "worktree" }),
         ).rejects.toThrow("backend update");
-        expect(start).toHaveBeenCalledTimes(1);
+        expect(start).toHaveBeenCalledTimes(preWorktrees ? 2 : 1);
+      }
+      if (support === "unadvertised-worktrees") {
+        start.mockRejectedValueOnce(new Error("Agent failed to start."));
+        await expect(client.operation("start-thread", input)).rejects.toThrow(
+          "Agent failed to start.",
+        );
+        expect(start).toHaveBeenCalledTimes(2);
       }
       expect(input.naming.instructions).toBe("Keep it brief");
       if (namingSupported) {
