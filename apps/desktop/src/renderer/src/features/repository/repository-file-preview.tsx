@@ -1,5 +1,7 @@
+import type { FileLineTarget } from "./file-navigation";
+import { fileLineTarget } from "./file-line-target";
 import { Button } from "@tidy/ui/button";
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RepositoryFile } from "../../../../shared/contracts/repository-files";
 import type { FileRows } from "./file-rows";
 import { useVirtualWindow } from "./virtual-window";
@@ -27,7 +29,9 @@ export const FileContent = memo(function FileContent({
   active,
   visible,
   positions,
+  target,
 }: {
+  target?: FileLineTarget;
   visible: boolean;
   positions: Map<string, number>;
   file: RepositoryFile;
@@ -134,6 +138,46 @@ export const FileContent = memo(function FileContent({
       }
     }
   }, [file, available, path, positions, active, visible, wrap]);
+  const targetRow = useMemo(
+    () =>
+      target?.path === path && available?.file === file
+        ? fileLineTarget(available.result.rows, target.line)
+        : null,
+    [target?.path, target?.line, path, available, file],
+  );
+  const revealed = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = wrap ? measured.ref.current : virtual.ref.current;
+    if (
+      !active ||
+      !visible ||
+      !target ||
+      !targetRow ||
+      !node ||
+      node.clientHeight === 0 ||
+      (wrap && measured.width === 0)
+    )
+      return;
+    if (revealed.current === target.id) return;
+    const top = wrap ? measured.offsets[targetRow.index] : targetRow.index * 24;
+    node.scrollTop = Math.max(0, top - node.clientHeight / 3);
+    node.focus({ preventScroll: true });
+    rememberScroll(positions, `file-wrap-row:${path}`, targetRow.index);
+    rememberScroll(positions, `file:${path}`, node.scrollTop);
+    revealed.current = target.id;
+  }, [
+    target,
+    targetRow?.index,
+    file,
+    active,
+    visible,
+    available,
+    wrap,
+    measured.offsets,
+    measured.width,
+    positions,
+    path,
+  ]);
   if (file.kind === "unavailable")
     return (
       <p className="repository-empty" role="status">
@@ -166,6 +210,15 @@ export const FileContent = memo(function FileContent({
                     ? "File contents · first 1 MiB shown"
                     : "File contents")}
         </span>
+        {target && target.path === path && available?.file === file && (
+          <span className="shrink-0 text-xs text-muted-ink">
+            {targetRow
+              ? targetRow.exact
+                ? `Line ${targetRow.line}${target.column ? ` · Column ${target.column}` : ""}`
+                : `Line ${target.line} unavailable · showing ${targetRow.line}`
+              : "No lines to reveal"}
+          </span>
+        )}
         {error && (
           <Button
             type="button"
@@ -263,11 +316,16 @@ export const FileContent = memo(function FileContent({
                   >
                     {panes.map((side) => (
                       <div
-                        className="repository-code-row"
+                        className={`repository-code-row ${targetRow?.index === index ? "bg-(--color-hover-surface) ring-1 ring-inset ring-(--color-control-border)" : ""}`}
+                        data-highlighted={targetRow?.index === index || undefined}
                         data-kind={codeRowKind(row, side)}
                         key={side}
                       >
-                        <CodeCell row={row} side={side} />
+                        <CodeCell
+                          row={row}
+                          side={side}
+                          column={targetRow?.index === index ? target?.column : undefined}
+                        />
                       </div>
                     ))}
                   </div>
@@ -322,14 +380,20 @@ export const FileContent = memo(function FileContent({
                 }}
               >
                 {result?.rows.slice(virtual.start, virtual.end).map((row, offset) => {
+                  const index = virtual.start + offset;
                   return (
                     <div
-                      key={virtual.start + offset}
-                      className="repository-code-row"
+                      key={index}
+                      className={`repository-code-row ${targetRow?.index === index ? "bg-(--color-hover-surface) ring-1 ring-inset ring-(--color-control-border)" : ""}`}
+                      data-highlighted={targetRow?.index === index || undefined}
                       data-kind={codeRowKind(row, side)}
                       style={{ top: (virtual.start + offset) * 24 }}
                     >
-                      <CodeCell row={row} side={side} />
+                      <CodeCell
+                        row={row}
+                        side={side}
+                        column={targetRow?.index === index ? target?.column : undefined}
+                      />
                     </div>
                   );
                 })}

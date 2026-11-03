@@ -48,6 +48,7 @@ export class RemoteClient {
   private socket?: WebSocket;
   private supportsThreadNaming = false;
   private supportsRepositoryFiles = false;
+  private supportsRepositoryLinks = false;
   private supportsRepositorySearch = false;
   private capabilities: string[] = [];
   private supportsMobilePreview = false;
@@ -493,6 +494,7 @@ export class RemoteClient {
       );
     if (
       (name === "repository-search" && !this.supportsRepositorySearch) ||
+      (name === "repository-link" && !this.supportsRepositoryLinks) ||
       (!this.supportsRepositoryFiles &&
         ["repository-directory", "repository-changes", "repository-file"].includes(name))
     )
@@ -755,6 +757,7 @@ export class RemoteClient {
             throw new Error("Unexpected remote identity.");
           this.supportsThreadNaming = frame.capabilities?.includes("thread-naming") ?? false;
           this.supportsMobilePreview = frame.capabilities?.includes("mobile-preview-v1") ?? false;
+          this.supportsRepositoryLinks = frame.capabilities?.includes("repository-links") ?? false;
           this.supportsRepositoryFiles = frame.capabilities?.includes("repository-files") ?? false;
           this.supportsRepositorySearch =
             frame.capabilities?.includes("repository-search") ?? false;
@@ -831,6 +834,7 @@ export class RemoteClient {
     if (this.controller !== controller) return;
     this.controller = undefined;
     this.supportsThreadNaming = false;
+    this.supportsRepositoryLinks = false;
     this.supportsRepositoryFiles = false;
     this.supportsRepositorySearch = false;
     this.capabilities = [];

@@ -1,12 +1,15 @@
 import type { CodeLine, CodeRow } from "./file-rows";
 
-function LineText({ line }: { line: CodeLine }) {
+function LineText({ line, column }: { line: CodeLine; column?: number }) {
+  const emphasis = column
+    ? [Math.min(column - 1, Math.max(0, line.text.length - 1)), Math.min(column, line.text.length)]
+    : line.emphasis;
   let offset = 0;
   return (line.tokens ?? [{ text: line.text || " ", classes: "" }]).map((token, index) => {
     const start = offset;
     offset += token.text.length;
-    const from = line.emphasis ? Math.max(start, line.emphasis[0]) - start : 0;
-    const to = line.emphasis ? Math.min(offset, line.emphasis[1]) - start : 0;
+    const from = emphasis ? Math.max(start, emphasis[0]) - start : 0;
+    const to = emphasis ? Math.min(offset, emphasis[1]) - start : 0;
     return (
       <span className={token.classes || undefined} key={index}>
         {to > from ? (
@@ -33,7 +36,15 @@ export function codeRowKind(row: CodeRow, side: "before" | "after") {
           : "added"
         : "context";
 }
-export function CodeCell({ row, side }: { row: CodeRow; side: "before" | "after" }) {
+export function CodeCell({
+  row,
+  side,
+  column,
+}: {
+  row: CodeRow;
+  side: "before" | "after";
+  column?: number;
+}) {
   if (row.kind === "hunk")
     return (
       <>
@@ -66,7 +77,7 @@ export function CodeCell({ row, side }: { row: CodeRow; side: "before" | "after"
       <span className="repository-line-sign" aria-hidden="true">
         {line && row.changed ? (side === "before" ? "−" : "+") : ""}
       </span>
-      <code>{line ? <LineText line={line} /> : " "}</code>
+      <code>{line ? <LineText line={line} column={column} /> : " "}</code>
     </>
   );
 }

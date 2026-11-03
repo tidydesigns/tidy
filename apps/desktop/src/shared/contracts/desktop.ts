@@ -236,6 +236,7 @@ export type DesktopAPI = {
     projectId: string,
     threadId?: string,
   ): Promise<import("./repository-files").RepositoryChanges>;
+  resolveRepositoryLink?(projectId: string, href: string, threadId?: string): Promise<string>;
   repositoryFile?(
     projectId: string,
     path: string,

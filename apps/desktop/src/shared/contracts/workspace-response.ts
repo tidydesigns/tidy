@@ -9,6 +9,7 @@ import { browserStateSchema, browserResultSchema } from "./browser";
 import { threadPortsSchema } from "./thread-ports";
 import {
   repositoryDirectorySchema,
+  repositoryPathSchema,
   repositoryChangesSchema,
   repositoryFileSchema,
 } from "./repository-files";
@@ -79,6 +80,7 @@ export const workspaceResponseSchemas = {
   "repository-search": repositorySearchSchema,
   "repository-changes": repositoryChangesSchema,
   "repository-file": repositoryFileSchema,
+  "repository-link": repositoryPathSchema.min(1),
   "switch-branch": branchSwitchResultSchema,
   "harness-details": harnessDetailsSchema,
   "harness-usage": harnessUsageSchema,

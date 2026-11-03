@@ -65,6 +65,7 @@ void app.whenReady().then(async () => {
       for (const filter of [
         "workspace sidebar adapts",
         "workspace panel preserves",
+        "chat file references",
         "composer controls retain",
       ]) {
         const responsive: unknown = await window.webContents.executeJavaScript(`(async () => {

@@ -1033,6 +1033,7 @@ for (const capabilities of [undefined, ["thread-naming"]]) {
       for (const operation of [
         () => client.operation("repository-directory", { projectId, path: "" }),
         () => client.operation("repository-search", { projectId, query: "sample" }),
+        () => client.operation("repository-link", { projectId, href: "sample.txt:2" }),
         () => client.operation("repository-changes", { projectId }),
         () => client.operation("repository-file", { projectId, path: "sample.txt" }),
       ])
@@ -1066,6 +1067,9 @@ test("file-capable older hosts reject search locally while retaining file browsi
     await expect(
       client.operation("repository-search", { projectId: f.project.id, query: "sample" }),
     ).rejects.toThrow("backend update");
+    await expect(
+      client.operation("repository-link", { projectId: f.project.id, href: "sample.txt:2" }),
+    ).rejects.toThrow("backend update");
     expect(requests).not.toHaveBeenCalled();
     expect(
       await client.operation("repository-directory", { projectId: f.project.id, path: "" }),
@@ -1093,6 +1097,13 @@ test("workspace reads bypass durable mutation receipts", async () => {
     await client.operation("thread-ports", { projectId: f.project.id, threadId: randomUUID() }),
   ).toEqual([]);
   await writeFile(join(f.project.path, "sample.txt"), "local fixture\n");
+  for (const href of ["sample.txt:2", `${f.project.path}/sample.txt#L2`])
+    expect(await client.operation("repository-link", { projectId: f.project.id, href })).toBe(
+      "sample.txt",
+    );
+  await expect(
+    client.operation("repository-link", { projectId: f.project.id, href: "../outside.txt" }),
+  ).rejects.toThrow("outside");
   const directory = await client.operation("repository-directory", {
     projectId: f.project.id,
     path: "",
@@ -1758,4 +1769,46 @@ test("terminal snapshots preserve a full history of JSON-escaped control charact
   const snapshot = events.find((event) => event.kind === "snapshot");
   expect(snapshot?.data).toBe(data);
   expect(events.some((event) => event.kind === "disconnected")).toBe(false);
+});
+
+test("file reference reads use the thread worktree on its host", async () => {
+  const f = await fixture();
+  execFileSync("git", ["init", "-q", f.projectPath]);
+  await writeFile(join(f.projectPath, "sample.ts"), "export const checkout = 'original';\n");
+  execFileSync("git", ["-C", f.projectPath, "add", "sample.ts"]);
+  execFileSync("git", [
+    "-C",
+    f.projectPath,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "-qm",
+    "Initial source",
+  ]);
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Inspect source",
+    designIds: [],
+    threadMode: "worktree",
+  });
+  expect(thread.worktree).toBeDefined();
+  if (!thread.worktree) throw new Error("Missing thread worktree");
+  await writeFile(join(thread.worktree.path, "sample.ts"), "export const checkout = 'thread';\n");
+  const scope = { projectId: f.project.id, threadId: thread.id };
+  const path = await client.operation("repository-link", {
+    ...scope,
+    href: `${thread.worktree.path}/sample.ts#L1`,
+  });
+  expect(path).toBe("sample.ts");
+  expect(await client.operation("repository-file", { ...scope, path, view: "file" })).toMatchObject(
+    { kind: "text", text: "export const checkout = 'thread';\n" },
+  );
+  await expect(
+    client.operation("repository-link", { ...scope, href: `${f.projectPath}/sample.ts:1` }),
+  ).rejects.toThrow("outside");
 });

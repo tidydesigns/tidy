@@ -1,3 +1,4 @@
+import { FileNavigationContext } from "../features/repository/file-navigation";
 import { ReferenceIcon } from "./reference-icon";
 import { PullRequestIcon } from "./pull-request-icon";
 import { pullRequestURL } from "../../../shared/contracts/pull-request";
@@ -21,6 +22,7 @@ export function ChatLink({
   projectId: string;
   className?: string;
 }) {
+  const openFile = useContext(FileNavigationContext);
   const openBrowser = useContext(BrowserNavigationContext);
   const link = parseChatLink(href);
   if (!link || !href) return <span>{children}</span>;
@@ -38,6 +40,11 @@ export function ChatLink({
     );
   const prURL = file ? null : pullRequestURL(href);
   const open = () => {
+    if (link.kind === "file") {
+      if (openFile) openFile(href);
+      else showToast("Open this thread to preview its files.");
+      return;
+    }
     if (link.kind === "external" && api.browser && openBrowser && isDevelopmentURL(link.url)) {
       openBrowser(link.url);
       return;
@@ -50,7 +57,7 @@ export function ChatLink({
     <a
       className={`${file ? "chat-file-link" : "chat-web-link"} ${className}`.trim()}
       href={href}
-      title={file ? `Show in folder: ${link.path}${position}` : link.url}
+      title={file ? `Open file: ${link.path}${position}` : link.url}
       onClick={(event) => {
         event.preventDefault();
         open();

@@ -23,6 +23,7 @@ async function request<Name extends WorkspaceOperation>(
     "repository-search",
     "repository-changes",
     "repository-file",
+    "repository-link",
   ].includes(name);
   const controller = repositoryRead ? new AbortController() : undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -44,6 +45,7 @@ async function request<Name extends WorkspaceOperation>(
           "repository-search",
           "repository-changes",
           "repository-file",
+          "repository-link",
         ].includes(name) &&
         error instanceof Error &&
         error.message === "Unknown desktop request."
@@ -188,6 +190,8 @@ const api: DesktopAPI = {
     request("repository-search", { projectId, query, threadId }),
   repositoryChanges: (projectId, threadId) =>
     request("repository-changes", { projectId, threadId }),
+  resolveRepositoryLink: (projectId, href, threadId) =>
+    request("repository-link", { projectId, href, threadId }),
   repositoryFile: (projectId, path, previousPath, view, threadId) =>
     request("repository-file", { projectId, path, previousPath, view, threadId }),
   setProjectThreadMode: (projectId, mode) => request("project-thread-mode", { projectId, mode }),

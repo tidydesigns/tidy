@@ -140,5 +140,14 @@ export function useMeasuredWindow(rows: readonly CodeRow[], split = false) {
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
   }, [element, rows, viewport.width, split, heights, estimates, start, end]);
-  return { ref, attach, start, end, offsets, first, total: offsets[rows.length] };
+  return {
+    ref,
+    attach,
+    start,
+    end,
+    offsets,
+    first,
+    width: viewport.width,
+    total: offsets[rows.length],
+  };
 }

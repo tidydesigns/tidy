@@ -1,3 +1,4 @@
+import { FileNavigationContext } from "../features/repository/file-navigation";
 import { useThreadCompletion } from "../features/threads/use-thread-completion";
 import {
   currentDefaultAccess,
@@ -481,6 +482,9 @@ export function App({
     const ownerId = repositoryOwnerId;
     const threadId = repositoryThreadId;
     return {
+      resolveRepositoryLink: api.resolveRepositoryLink
+        ? (id: string, href: string) => api.resolveRepositoryLink!(ownerId ?? id, href, threadId)
+        : undefined,
       repositoryDirectory: (id: string, path: string) =>
         api.repositoryDirectory!(ownerId ?? id, path, threadId),
       repositorySearch: api.repositorySearch
@@ -528,6 +532,24 @@ export function App({
         : request,
     );
   }, [browserScope?.projectId, browserScope?.threadId]);
+  const openFileLink = useCallback(
+    (href: string) => {
+      if (!browserScope || !repositoryAPI) {
+        showToast("Choose a code project to preview this file.");
+        return;
+      }
+      const id = crypto.randomUUID();
+      setRepositoryMounted(true);
+      setRepositoryOpen(true);
+      setSurfaceRequest({
+        id,
+        surface: "files",
+        file: { id, href },
+        scope: `${browserScope.projectId}:${browserScope.threadId}`,
+      });
+    },
+    [browserScope, repositoryAPI],
+  );
   const openBrowserLink = useCallback(
     (url: string) => {
       if (!browserScope) return;
@@ -2566,21 +2588,23 @@ export function App({
                         </Button>
                       )}
                   </div>
-                  <BrowserNavigationContext value={openBrowserLink}>
-                    <Conversations
-                      key={failureNoticeAccessKey}
-                      projectId={project.id}
-                      selected={selectedThreadId ?? null}
-                      threads={threads}
-                      machineId={machine?.current.id ?? "local"}
-                      active={!settingsOpen && mode === "code"}
-                      api={api!}
-                      summaries={snapshot?.threads}
-                      onOpenThread={selectThread}
-                      connected={machine ? machine.connected : true}
-                      orchestrationSupported={orchestrationSupported}
-                    />
-                  </BrowserNavigationContext>
+                  <FileNavigationContext value={openFileLink}>
+                    <BrowserNavigationContext value={openBrowserLink}>
+                      <Conversations
+                        key={failureNoticeAccessKey}
+                        projectId={project.id}
+                        selected={selectedThreadId ?? null}
+                        threads={threads}
+                        machineId={machine?.current.id ?? "local"}
+                        active={!settingsOpen && mode === "code"}
+                        api={api!}
+                        summaries={snapshot?.threads}
+                        onOpenThread={selectThread}
+                        connected={machine ? machine.connected : true}
+                        orchestrationSupported={orchestrationSupported}
+                      />
+                    </BrowserNavigationContext>
+                  </FileNavigationContext>
                   {thread?.pendingApprovals?.length && api ? (
                     <ApprovalRequests
                       key={thread.id}

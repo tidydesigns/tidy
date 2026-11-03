@@ -26,6 +26,7 @@ const hostCapabilities = [
   "thread-naming",
   "thread-worktrees",
   "repository-files",
+  "repository-links",
   "terminal-v1",
   "terminal-tabs-v1",
   "repository-search",

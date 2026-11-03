@@ -1,3 +1,4 @@
+import type { FileNavigationRequest } from "../repository/file-navigation";
 import {
   useCallback,
   useEffect,
@@ -50,7 +51,7 @@ const panelSchema = z
       (value.active === null || value.tabs.includes(value.active)),
   );
 type Surface = z.infer<typeof surfaceSchema>;
-export type SurfaceRequest = { id: string; surface: Surface };
+export type SurfaceRequest = { id: string; surface: Surface; file?: FileNavigationRequest };
 export type BrowserSurface = Omit<
   ComponentProps<typeof BrowserComponent>,
   "open" | "active" | "onClose" | "embedded"
@@ -435,6 +436,7 @@ export function WorkspaceSurfaces({
             projectId={projectId}
             active={active && (selected === "files" || selected === "diff")}
             surface={selected === "diff" ? "diff" : "files"}
+            fileRequest={request?.surface === "files" ? request.file : undefined}
           />
         </div>
       )}

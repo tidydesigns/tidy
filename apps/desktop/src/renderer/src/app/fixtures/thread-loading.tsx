@@ -1,3 +1,5 @@
+import { FileNavigationContext } from "../../features/repository/file-navigation";
+import { runFileNavigationTests } from "./file-navigation";
 import { runBrowserInputTests } from "./browser-input";
 import type { Draft } from "../../features/composer/machine-context";
 import { runHarnessUsageTests } from "./harness-usage";
@@ -409,6 +411,11 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run(
+    "chat file references reveal sidebar lines and ignore stale host responses",
+    runFileNavigationTests,
+  );
 
   await run(
     "workspace sidebar adapts to narrow screens and preserves explicit toggles",
@@ -949,7 +956,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           flushSync(() =>
             root.render(
               <StrictMode>
-                <Conversation thread={thread} identity={thread.id} api={api} active={active} />
+                <FileNavigationContext value={(href) => opened.push([thread.projectId, href])}>
+                  <Conversation thread={thread} identity={thread.id} api={api} active={active} />
+                </FileNavigationContext>
               </StrictMode>,
             ),
           );

@@ -370,6 +370,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
       scopedRequest("repository-search", { projectId, query, threadId }),
     repositoryChanges: (projectId, threadId) =>
       scopedRequest("repository-changes", { projectId, threadId }),
+    resolveRepositoryLink: (projectId, href, threadId) =>
+      scopedRequest("repository-link", { projectId, href, threadId }),
     repositoryFile: (projectId, path, previousPath, view, threadId) =>
       scopedRequest("repository-file", { projectId, path, previousPath, view, threadId }),
     setProjectThreadMode: (projectId, mode) =>

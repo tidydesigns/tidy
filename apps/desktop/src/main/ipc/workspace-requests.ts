@@ -1,3 +1,4 @@
+import { resolveRepositoryLink } from "../repository/repository-link";
 import { threadModeSchema } from "../../shared/contracts/thread-workspace";
 import { searchRepositoryFiles } from "../repository/repository-search";
 import {
@@ -335,6 +336,15 @@ export function createWorkspaceRequests<Context>(
   );
   handle("repository-changes", z.object(repositoryScope).strict(), async (value) =>
     readRepositoryChanges(await service.repositoryPath(value.projectId, value.threadId)),
+  );
+  handle(
+    "repository-link",
+    z.object({ ...repositoryScope, href: z.string().min(1).max(4096) }).strict(),
+    async (value) =>
+      resolveRepositoryLink(
+        await service.repositoryPath(value.projectId, value.threadId),
+        value.href,
+      ),
   );
   handle(
     "repository-file",
