@@ -373,7 +373,7 @@ test("plain folders show file contents without claiming a Git addition", async (
   });
 });
 
-test("directory observers coalesce writes and stop delivering events after disposal", async () => {
+test("directory observers coalesce file creation and stop delivering events after disposal", async () => {
   const { root } = await fixture();
   const events: string[] = [];
   const observers = new RepositoryObservers((projectId, path) =>
@@ -382,18 +382,18 @@ test("directory observers coalesce writes and stop delivering events after dispo
   try {
     await observers.observe("fixture", root, "");
     await observers.observe("fixture", root, "");
-    await writeFile(join(root, "file.txt"), "one\n");
-    await writeFile(join(root, "file.txt"), "two\n");
+    await writeFile(join(root, "first.txt"), "one\n");
+    await writeFile(join(root, "second.txt"), "two\n");
     const deadline = Date.now() + 2000;
     while (!events.length && Date.now() < deadline) await Bun.sleep(20);
     expect(events).toEqual(["fixture:"]);
     observers.forget("fixture");
-    await writeFile(join(root, "file.txt"), "three\n");
+    await writeFile(join(root, "after-forget.txt"), "three\n");
     await Bun.sleep(150);
     expect(events).toHaveLength(1);
     observers.close();
     await observers.observe("fixture", root, "");
-    await writeFile(join(root, "file.txt"), "four\n");
+    await writeFile(join(root, "after-close.txt"), "four\n");
     await Bun.sleep(150);
     expect(events).toHaveLength(1);
   } finally {
