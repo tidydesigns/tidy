@@ -62,7 +62,7 @@ for await (const line of createInterface({ input: process.stdin })) {
                 path: join(cwd, "SKILL.md"),
               },
               context: "Project context",
-              prompt: "/review new direction",
+              prompt: "Use $review for the new direction",
             }
           : undefined,
         images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "" }],
@@ -77,7 +77,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         {
           type: "text",
           text: withSkill
-            ? "Project context\n\nUser request:\n\n$review new direction"
+            ? "Project context\n\nUser request:\n\n$review Use for the new direction"
             : "Use the new direction",
           text_elements: [],
         },

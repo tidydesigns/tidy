@@ -11,10 +11,8 @@
 }
 .skill-picker {
   position: absolute;
-  bottom: calc(100% - 1px);
   inset-inline: 12px;
   z-index: 3;
-  max-height: min(284px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block: 5px;
@@ -42,12 +40,15 @@
   gap: 16px;
   min-width: 0;
 }
-.skill-option-name {
-  flex: 0 1 40%;
+.skill-option-name,
+.skill-option-description {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.skill-option-name {
+  flex: 0 1 40%;
   font-size: 13px;
   font-weight: 500;
   line-height: 18px;
@@ -60,10 +61,6 @@
 }
 .skill-option-description {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--color-muted-ink);
   font-size: 12px;
   line-height: 16px;

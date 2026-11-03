@@ -90,11 +90,6 @@ export function SkillPrompt({
   useEffect(() => {
     setActive(0);
   }, [query, skills]);
-  useLayoutEffect(() => {
-    if (visible && virtualized) virtual.reveal(selectedIndex);
-    if (visible)
-      menu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
-  }, [visible, selectedIndex, virtualized]);
 
   useLayoutEffect(() => {
     const current = browsing.current;
@@ -136,6 +131,12 @@ export function SkillPrompt({
     };
   }, [visible, anchor]);
 
+  useLayoutEffect(() => {
+    if (visible && virtualized) virtual.reveal(selectedIndex);
+    if (visible)
+      menu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [visible, anchor, selectedIndex, virtualized]);
+
   function choose(skill: Skill) {
     if (query === null) return;
     const start = cursor - query.length - 1;
@@ -163,6 +164,7 @@ export function SkillPrompt({
       }}
     >
       {visible &&
+        anchor &&
         createPortal(
           <div
             className={`skill-picker ${codeScrollbarClassName}`}
@@ -245,7 +247,7 @@ export function SkillPrompt({
               </div>
             )}
           </div>,
-          anchor ?? container.current ?? document.body,
+          anchor,
         )}
       <PromptEditor
         {...props}

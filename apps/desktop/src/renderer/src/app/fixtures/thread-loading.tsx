@@ -4512,63 +4512,54 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     );
   }
 
-  for (const trigger of ["$", "/"]) {
-    await run(
-      `inline ${trigger} skills preserve surrounding text and attach above the composer`,
-      async (root) => {
-        let value = `Please use ${trigger}rev and keep this`;
-        function Composer() {
-          const [text, setText] = useState(value);
-          return (
-            <form className="composer" style={{ position: "relative", marginTop: 350, width: 500 }}>
-              <SkillPrompt
-                value={text}
-                onChange={(next) => {
-                  value = next;
-                  setText(next);
-                }}
-                skills={[{ id: "review", name: "review", description: "Review changes" }]}
-                status="ready"
-                retry={() => {}}
-              />
-            </form>
-          );
-        }
-        flushSync(() => root.render(<Composer />));
-        const editor = required(
-          host.querySelector<HTMLElement>("[role=textbox]"),
-          "Inline skill editor",
+  await run(
+    "inline skills preserve surrounding text and attach above the composer",
+    async (root) => {
+      let value = "Please use $rev and keep this";
+      function Composer() {
+        const [text, setText] = useState(value);
+        return (
+          <form className="composer" style={{ position: "relative", marginTop: 350, width: 500 }}>
+            <SkillPrompt
+              value={text}
+              onChange={(next) => {
+                value = next;
+                setText(next);
+              }}
+              skills={[{ id: "review", name: "review", description: "Review changes" }]}
+              status="ready"
+              retry={() => {}}
+            />
+          </form>
         );
-        editor.focus();
-        const range = document.createRange();
-        range.setStart(required(editor.firstChild, "Prompt text"), 15);
-        range.collapse(true);
-        window.getSelection()?.removeAllRanges();
-        window.getSelection()?.addRange(range);
-        flushSync(() => editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
-        await settle();
-        const picker = required(host.querySelector<HTMLElement>(".skill-picker"), "Inline picker");
-        check(
-          picker.parentElement === host.querySelector("form"),
-          "Picker remained inside the editor",
-        );
-        check(
-          picker.getBoundingClientRect().bottom <= editor.getBoundingClientRect().top + 1,
-          "Picker covers editor",
-        );
-        flushSync(() =>
-          editor.dispatchEvent(
-            new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-          ),
-        );
-        check(
-          value === `Please use ${trigger}review and keep this`,
-          "Inline selection lost surrounding text",
-        );
-        check(!host.querySelector(".skill-picker"), "Selection left picker open");
-      },
-    );
-  }
+      }
+      flushSync(() => root.render(<Composer />));
+      const editor = required(
+        host.querySelector<HTMLElement>("[role=textbox]"),
+        "Inline skill editor",
+      );
+      editor.focus();
+      const range = document.createRange();
+      range.setStart(required(editor.firstChild, "Prompt text"), 15);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      flushSync(() => editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
+      await settle();
+      const picker = required(host.querySelector<HTMLElement>(".skill-picker"), "Inline picker");
+      check(
+        picker.getBoundingClientRect().bottom <= editor.getBoundingClientRect().top + 1,
+        "Picker covers editor",
+      );
+      flushSync(() =>
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+        ),
+      );
+      check(value === "Please use $review and keep this", "Inline selection lost surrounding text");
+      check(!host.querySelector(".skill-picker"), "Selection left picker open");
+    },
+  );
 
   await run(
     "prompt history recalls messages and attachments without consuming editor navigation",

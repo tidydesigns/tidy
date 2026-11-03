@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HarnessSkills, type SkillAdapter } from "./harness-skills";
-import {
-  matchingSkills,
-  skillCommand,
-  skillQuery,
-  skillInvocationPrompt,
-} from "../../shared/contracts/skills";
+import { matchingSkills, skillCommand, skillQuery } from "../../shared/contracts/skills";
 
 const provider: SkillAdapter = {
   async discover() {
@@ -188,8 +183,6 @@ describe("skill composer", () => {
       start: 4,
       end: 11,
     });
-    expect(skillInvocationPrompt(`run ${prefix}review changes`, "/")).toBe("/review run changes");
-    expect(skillInvocationPrompt(`${prefix}review changes`, "$")).toBe("$review changes");
     expect(skillCommand(`${prefix}plugin:review\nchanges`)?.name).toBe("plugin:review");
     for (const text of [
       `${prefix}review/file`,

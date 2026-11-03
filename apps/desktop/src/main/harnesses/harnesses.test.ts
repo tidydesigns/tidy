@@ -444,7 +444,7 @@ test("images reach both native harness protocols on new and resumed turns", asyn
 
 for (const harness of ["codex", "claude"] as const) {
   test.each(["/", "$"])(
-    `${harness} sends %s skill invocation separately from context and preserves images on resume`,
+    `${harness} sends inline %s skills with context and images on resume`,
     async (prefix) => {
       const { directory, executable } = await fixture();
       const image = { path: join(directory, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" };
@@ -466,7 +466,7 @@ for (const harness of ["codex", "claude"] as const) {
         skill: {
           invocation,
           context: "Project context",
-          prompt: `${prefix}review arguments\nsecond line`,
+          prompt: `Please ${prefix}review arguments\nsecond line`,
         },
         images: [image],
         onUpdate() {},
@@ -484,7 +484,7 @@ for (const harness of ["codex", "claude"] as const) {
             path: invocation.kind === "file" ? invocation.path : "",
           });
           expect(turn.input[0]).toMatchObject({
-            text: "Project context\n\nUser request:\n\n$review arguments\nsecond line",
+            text: "Project context\n\nUser request:\n\n$review Please arguments\nsecond line",
           });
           expect(turn.input).toContainEqual({ type: "localImage", path: image.path });
         } else {
@@ -497,7 +497,7 @@ for (const harness of ["codex", "claude"] as const) {
           const texts = message.message.content.slice(0, 2);
           expect(texts).toEqual([
             { type: "text", text: "Project context" },
-            { type: "text", text: "/review arguments\nsecond line" },
+            { type: "text", text: "/review Please arguments\nsecond line" },
           ]);
           expect(message.message.content).toContainEqual({
             type: "image",

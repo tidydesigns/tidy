@@ -875,7 +875,7 @@ test("interrupt waits for the native turn to start after its early acceptance ac
 });
 
 test.each(["/", "$"])(
-  "OpenCode preserves selected model, %s command and image inputs and reports turn usage",
+  "OpenCode preserves the selected model, inline %s command, images and turn usage",
   async (prefix) => {
     const cwd = await mkdtemp(join(directory, "inputs-"));
     const session = new HarnessSession({
@@ -890,7 +890,7 @@ test.each(["/", "$"])(
         prompt: "Project context priced /review file",
         skill: {
           invocation: { kind: "command", name: "review", description: "Review" },
-          prompt: `${prefix}review file`,
+          prompt: `Please ${prefix}review file`,
           context: "Project context priced",
         },
         images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
@@ -904,7 +904,7 @@ test.each(["/", "$"])(
         recorded.find((event) => event.method === "session/prompt")?.value.params,
       ).toMatchObject({
         prompt: [
-          { type: "text", text: "/review file\n\nProject context priced" },
+          { type: "text", text: "/review Please file\n\nProject context priced" },
           { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
         ],
       });
