@@ -2127,6 +2127,7 @@ export function App({
       <HarnessFailureNotices key={failureNoticeAccessKey} api={api} />
       <CommandPalette
         api={api}
+        machineLabel={machine?.current.label}
         projects={projects}
         project={project}
         snapshots={snapshots}

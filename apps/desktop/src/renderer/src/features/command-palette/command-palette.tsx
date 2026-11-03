@@ -11,8 +11,9 @@ import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI, Project, ProjectSnapshot } from "../../../../shared/contracts/desktop";
-import { settingsSections, type SettingsPage } from "../settings/settings";
+import { settingsPages, settingsSections, type SettingsPage } from "../settings/settings";
 import { searchScore } from "./search";
+import { ThreadResult } from "./thread-result";
 
 type Catalog = Map<string, { snapshot: ProjectSnapshot; loadedAt: number }>;
 
@@ -23,14 +24,17 @@ type Item = {
   keywords?: string;
   group: string;
   icon: ComponentProps<typeof Icon>["name"];
-  submenu?: boolean;
   run(): void;
-};
+} & (
+  | { kind: "action" | "submenu" }
+  | { kind: "thread"; thread: Pick<ComponentProps<typeof ThreadResult>, "thread" | "project"> }
+);
 
 export function CommandPalette(props: {
   api?: Pick<DesktopAPI, "projectSnapshot">;
   projects: Project[];
   project?: Project;
+  machineLabel?: string;
   snapshots: Record<string, ProjectSnapshot>;
   onProject(projectId: string, snapshot?: ProjectSnapshot): void;
   onThread(projectId: string, threadId: string | null, snapshot?: ProjectSnapshot): void;
@@ -45,10 +49,7 @@ export function CommandPalette(props: {
         : props.projects,
     [props.project, props.projects],
   );
-  const cache = useRef<Catalog>(new Map());
-  useEffect(() => {
-    cache.current.clear();
-  }, [props.api]);
+  const cache = useMemo<Catalog>(() => new Map(), [props.api]);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (
@@ -68,7 +69,7 @@ export function CommandPalette(props: {
     return () => window.removeEventListener("keydown", shortcut, true);
   }, []);
   return open ? (
-    <Palette {...props} projects={projects} cache={cache.current} onClose={() => setOpen(false)} />
+    <Palette {...props} projects={projects} cache={cache} onClose={() => setOpen(false)} />
   ) : null;
 }
 
@@ -76,6 +77,7 @@ function Palette({
   api,
   projects,
   project,
+  machineLabel = "This machine",
   snapshots,
   onProject,
   onThread,
@@ -164,6 +166,7 @@ function Palette({
           return [...threads.values()]
             .filter((thread) => !thread.parentThreadId)
             .map((thread) => ({
+              kind: "thread" as const,
               updatedAt: thread.updatedAt,
               id: `thread:${thread.id}`,
               title: thread.title.trim() || "New thread",
@@ -173,6 +176,7 @@ function Palette({
               icon: "comment" as const,
               projectId: entry.id,
               threadId: thread.id,
+              thread: { thread, project: entry },
             }));
         })
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -181,6 +185,7 @@ function Palette({
   const items: Item[] =
     parentQuery !== null
       ? projects.map((entry) => ({
+          kind: "action",
           id: `new:${entry.id}`,
           title: entry.name,
           description: entry.path,
@@ -192,6 +197,7 @@ function Palette({
           ...(project
             ? [
                 {
+                  kind: "action" as const,
                   id: "new",
                   title: `New thread in ${project.name}`,
                   group: "Actions",
@@ -201,11 +207,11 @@ function Palette({
               ]
             : []),
           {
+            kind: "submenu",
             id: "new-in",
             title: "New thread in…",
             group: "Actions",
             icon: "comment",
-            submenu: true,
             run: () => {
               setParentQuery(query);
               setQuery("");
@@ -213,6 +219,7 @@ function Palette({
             },
           },
           {
+            kind: "action",
             id: "add",
             title: "Add project",
             keywords: "open folder new project",
@@ -221,6 +228,7 @@ function Palette({
             run: () => run(onAddProject),
           },
           {
+            kind: "action",
             id: "settings",
             title: "Settings",
             keywords: "preferences",
@@ -228,21 +236,18 @@ function Palette({
             icon: "settings",
             run: () => run(() => onSettings("account")),
           },
-          ...Object.entries(settingsSections)
-            .filter(([key]) => key !== "remote" || (window.tidyMachines && window.tidyRemote))
-            .map(([page, title]) => ({
+          ...settingsPages
+            .filter((page) => page !== "remote" || (window.tidyMachines && window.tidyRemote))
+            .map((page) => ({
+              kind: "action" as const,
               id: `settings:${page}`,
-              title: `${title} settings`,
+              title: `${settingsSections[page]} settings`,
               group: "Settings",
               icon: "settings" as const,
-              run: () => {
-                const entry = Object.keys(settingsSections).find(
-                  (key): key is SettingsPage => key === page,
-                );
-                if (entry) run(() => onSettings(entry));
-              },
+              run: () => run(() => onSettings(page)),
             })),
           ...projects.map((entry) => ({
+            kind: "action" as const,
             id: `project:${entry.id}`,
             title: entry.name,
             description: entry.path,
@@ -290,8 +295,10 @@ function Palette({
         if (parentQuery !== null) back();
         else onClose();
       }}
-      className="[&]:top-[min(14vh,120px)] [&]:bottom-auto [&]:max-w-[620px] [&]:overflow-hidden [&]:rounded-xl"
+      className="[&]:top-[min(14vh,120px)] [&]:bottom-auto [&]:max-w-[580px] [&]:h-[min(420px,76dvh)] [&[open]]:flex [&]:flex-col [&]:overflow-hidden [&]:rounded-lg [&&::backdrop]:bg-overlay/65 [&&::backdrop]:backdrop-blur-[4px]"
+      onKeyUp={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
+        event.stopPropagation();
         if (event.nativeEvent.isComposing) return;
         if (event.key === "Tab") {
           const targets = [
@@ -320,7 +327,7 @@ function Palette({
         }
       }}
     >
-      <div className="flex items-center gap-3 border-b border-border px-4 py-4">
+      <div className="flex items-center shrink-0 gap-2.5 border-b border-border px-3 py-3">
         {parentQuery !== null ? (
           <Button
             aria-label="Back"
@@ -333,8 +340,8 @@ function Palette({
           <svg
             aria-hidden="true"
             className="shrink-0 text-muted-ink"
-            width="20"
-            height="20"
+            width="18"
+            height="18"
             viewBox="0 0 20 20"
             fill="none"
             stroke="currentColor"
@@ -367,11 +374,11 @@ function Palette({
         id={`${id}-list`}
         role="listbox"
         aria-label="Results"
-        className="max-h-[min(420px,55dvh)] overflow-y-auto overscroll-contain p-2"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5"
       >
         {groups.map((group) => (
           <div key={group.label} role="group" aria-label={group.label}>
-            <div className="px-2 pt-3 pb-1.5 text-xs font-medium text-muted-ink">
+            <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-ink">
               {!query.trim() && group.label === "Threads" ? "Recent threads" : group.label}
             </div>
             {group.items.map((item) => (
@@ -385,22 +392,30 @@ function Palette({
                 }}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={item.run}
-                className={`flex cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-sm ${active === item ? "bg-hover-surface text-ink" : "text-secondary-ink"}`}
+                className={`flex cursor-pointer items-center gap-2.5 rounded px-2 py-1.5 text-[13px] leading-5 ${active === item ? "bg-hover-surface text-ink" : "text-secondary-ink"}`}
               >
-                <Icon name={item.icon} size={18} className="text-muted-ink" />
-                <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                {item.description && (
-                  <span className="max-w-[38%] truncate text-xs text-muted-ink">
-                    {item.description}
-                  </span>
+                <Icon name={item.icon} size={16} className="text-muted-ink" />
+                {item.kind === "thread" ? (
+                  <ThreadResult {...item.thread} title={item.title} machineLabel={machineLabel} />
+                ) : (
+                  <>
+                    <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                    {item.description && (
+                      <span className="max-w-[38%] truncate text-xs text-muted-ink">
+                        {item.description}
+                      </span>
+                    )}
+                  </>
                 )}
-                {item.submenu && <Icon name="arrowRight" size={14} className="text-muted-ink" />}
+                {item.kind === "submenu" && (
+                  <Icon name="arrowRight" size={14} className="text-muted-ink" />
+                )}
               </div>
             ))}
           </div>
         ))}
         {!visible.length && (
-          <p className="px-2 py-8 text-center text-sm text-muted-ink">
+          <p className="px-2 py-6 text-center text-sm text-muted-ink">
             {loading ? "Searching threads…" : "No results found"}
           </p>
         )}
@@ -408,7 +423,7 @@ function Palette({
       {failed && (
         <div
           role="status"
-          className="flex items-center justify-between px-4 py-2 text-xs text-muted-ink"
+          className="flex shrink-0 items-center justify-between px-4 py-2 text-xs text-muted-ink"
         >
           Some projects could not be searched.
           <Button
@@ -419,16 +434,16 @@ function Palette({
           </Button>
         </div>
       )}
-      <footer className="flex items-center gap-4 border-t border-border px-4 py-3 text-xs text-muted-ink">
-        <span className="inline-flex items-center gap-1.5">
-          <kbd className="rounded bg-hover-surface px-1.5 py-1">↑</kbd>{" "}
-          <kbd className="rounded bg-hover-surface px-1.5 py-1">↓</kbd> Navigate
+      <footer className="flex items-center shrink-0 gap-3 border-t border-border px-3 py-2 text-[11px] text-muted-ink">
+        <span className="inline-flex items-center gap-1">
+          <kbd className="rounded bg-hover-surface px-1 py-0.5">↑</kbd>{" "}
+          <kbd className="rounded bg-hover-surface px-1 py-0.5">↓</kbd> Navigate
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <kbd className="rounded bg-hover-surface px-1.5 py-1">Enter</kbd> Select
+        <span className="inline-flex items-center gap-1">
+          <kbd className="rounded bg-hover-surface px-1 py-0.5">Enter</kbd> Select
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <kbd className="rounded bg-hover-surface px-1.5 py-1">Esc</kbd>{" "}
+        <span className="inline-flex items-center gap-1">
+          <kbd className="rounded bg-hover-surface px-1 py-0.5">Esc</kbd>{" "}
           {parentQuery !== null ? "Back" : "Close"}
         </span>
         {loading && visible.length > 0 && (

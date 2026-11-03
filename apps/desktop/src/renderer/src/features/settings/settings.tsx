@@ -10,6 +10,16 @@ import { PrivacySettings } from "./privacy-settings";
 import { AppearanceSettings } from "./appearance-settings";
 import { TerminalSettings } from "./terminal-settings";
 
+export const settingsPages = [
+  "account",
+  "appearance",
+  "threads",
+  "terminal",
+  "privacy",
+  "remote",
+] as const;
+export type SettingsPage = (typeof settingsPages)[number];
+
 export const settingsSections = {
   account: "Account",
   appearance: "Appearance",
@@ -17,8 +27,7 @@ export const settingsSections = {
   terminal: "Terminal",
   privacy: "Privacy",
   remote: "Remote machines",
-};
-export type SettingsPage = keyof typeof settingsSections;
+} satisfies Record<SettingsPage, string>;
 
 export function Settings({
   cloud,
@@ -64,17 +73,19 @@ export function Settings({
           aria-label="Settings sections"
         >
           <span className="settings-label [@media(max-width:600px)]:hidden">Settings</span>
-          {(["account", "appearance", "threads", "terminal", "privacy"] as const).map((item) => (
-            <Button
-              key={item}
-              className="settings-section shrink-0 [@media(max-width:600px)]:whitespace-nowrap"
-              aria-current={page === item ? "page" : undefined}
-              aria-controls={`settings-${item}-panel`}
-              onClick={() => setPage(item)}
-            >
-              {settingsSections[item]}
-            </Button>
-          ))}
+          {settingsPages
+            .filter((item) => item !== "remote")
+            .map((item) => (
+              <Button
+                key={item}
+                className="settings-section shrink-0 [@media(max-width:600px)]:whitespace-nowrap"
+                aria-current={page === item ? "page" : undefined}
+                aria-controls={`settings-${item}-panel`}
+                onClick={() => setPage(item)}
+              >
+                {settingsSections[item]}
+              </Button>
+            ))}
           {machines && remote && (
             <Button
               className="settings-section shrink-0 [@media(max-width:600px)]:whitespace-nowrap"

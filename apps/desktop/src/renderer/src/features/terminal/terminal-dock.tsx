@@ -318,6 +318,12 @@ export function TerminalDock({
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.isComposing) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("dialog:modal") &&
+        !dock.current?.contains(event.target)
+      )
+        return;
       const focused = Boolean(dock.current?.contains(event.target as Node));
       const action = terminalShortcut(
         {

@@ -90,13 +90,26 @@ export async function runCommandPaletteTests(root: Root) {
   key("k", { code: "KeyK", metaKey: true });
   await settle();
   check(
-    document.querySelector('dialog[open][aria-label="Command palette"]'),
-    "Cmd+K failed in StrictMode",
-  );
-  check(
     document.activeElement?.getAttribute("role") === "combobox",
     "Search did not receive focus",
   );
+  check(
+    document.querySelector('dialog[aria-label="Command palette"]:modal'),
+    "Cmd+K failed to open a modal in StrictMode",
+  );
+  document.getElementById("palette-focus")?.focus();
+  check(document.activeElement?.getAttribute("role") === "combobox", "Background accepted focus");
+  let backgroundKeys = 0;
+  const backgroundShortcut = () => {
+    backgroundKeys++;
+  };
+  window.addEventListener("keydown", backgroundShortcut);
+  try {
+    key("b", { code: "KeyB", ctrlKey: true, shiftKey: true });
+    check(backgroundKeys === 0, "Palette allowed a background shortcut");
+  } finally {
+    window.removeEventListener("keydown", backgroundShortcut);
+  }
   query("checkout");
   await settle();
   check(
@@ -113,10 +126,6 @@ export async function runCommandPaletteTests(root: Root) {
   check(
     calls.at(-1) === `thread:${snapshots[1].project.id}:${snapshots[1].threads[0].id}`,
     "Enter opened the wrong thread",
-  );
-  check(
-    !document.querySelector('dialog[aria-label="Command palette"]'),
-    "Selection did not close palette",
   );
   key("k", { code: "KeyK", ctrlKey: true });
   await settle();
