@@ -5,7 +5,7 @@ import { MachineProfiles } from "./remote/profiles";
 import { discoverSshHosts } from "./remote/ssh";
 import { version } from "../../package.json";
 import { desktopAppName, desktopMacIcon } from "../shared/app-name";
-import { DesktopAnalytics } from "./analytics";
+import { DesktopAnalytics, desktopAnalyticsAvailable } from "./analytics";
 import {
   app,
   autoUpdater,
@@ -364,7 +364,7 @@ app
       version,
       platform: process.platform,
       arch: process.arch,
-      available: app.isPackaged,
+      available: desktopAnalyticsAvailable(app.isPackaged),
       fetch: net.fetch.bind(net),
       open: (url) => shell.openExternal(url),
     });

@@ -23,12 +23,12 @@ test("native HTTP boundary rejects ambient authority, extra data and oversized b
     const token='a'.repeat(64);
     const request=(body,headers={})=>new Request('https://app.example.test/api/telemetry/desktop/events',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token,...headers},body:JSON.stringify(body)});
     const invoke=(r,action='events')=>POST(r,{params:Promise.resolve({action})});
-    const event={id:crypto.randomUUID(),at:new Date().toISOString(),release:'0.1.0-beta.1',platform:'darwin',arch:'arm64',event:{name:'product_active_day'}};
+    const event={id:crypto.randomUUID(),at:new Date().toISOString(),release:'0.1.0-beta.1',platform:'darwin',arch:'arm64',event:{name:'desktop_installation_observed'}};
     expect((await invoke(request({revision:1,events:[event]}))).status).toBe(204);
     expect(accepted).toBe(1);
     expect((await invoke(request({revision:1,events:[event]},{origin:'https://evil.example'}))).status).toBe(403);
     expect((await invoke(request({revision:1,events:[event]},{cookie:'session=anything'}))).status).toBe(403);
-    expect((await invoke(request({revision:1,events:[{...event,event:{name:'product_active_day',prompt:'SECRET-CANARY'}}]}))).status).toBe(400);
+    expect((await invoke(request({revision:1,events:[{...event,event:{name:'desktop_installation_observed',prompt:'SECRET-CANARY'}}]}))).status).toBe(400);
     expect((await invoke(request({revision:1,events:[event],accountId:'someone-else'}))).status).toBe(400);
     expect((await invoke(request({huge:'x'.repeat(40_000)}))).status).toBe(413);
     expect(accepted).toBe(1);

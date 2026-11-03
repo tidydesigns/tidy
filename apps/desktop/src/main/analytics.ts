@@ -17,6 +17,13 @@ import {
 } from "@tidy/design/analytics";
 import type { PrivateState } from "./platform/private-state";
 
+export function desktopAnalyticsAvailable(
+  isPackaged: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return isPackaged && !env.CI && env.TIDY_DESKTOP_ANALYTICS_DISABLED !== "1";
+}
+
 const savedSchema = z
   .object({
     notice: z.literal(ANALYTICS_NOTICE),
@@ -47,6 +54,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
   private closed = false;
   private ready = false;
   private initialized = false;
+  private installationObserved = true;
   private listeners = new Set<(state: AnalyticsState) => void>();
   private refreshing?: Promise<void>;
   private flushing = false;
@@ -99,6 +107,11 @@ export class DesktopAnalytics implements AnalyticsAPI {
     try {
       await this.options.state.initialize();
       this.initialized = true;
+      this.installationObserved =
+        z
+          .literal(true)
+          .optional()
+          .parse(await this.options.state.read("installation-observed")) === true;
       const raw = await this.options.state.read("choices");
       const parsed = savedSchema.safeParse(raw);
       if (parsed.success) this.saved = parsed.data;
@@ -319,6 +332,17 @@ export class DesktopAnalytics implements AnalyticsAPI {
     if (this.permitted("usage")) this.capture({ name: "desktop_first_seen" });
     return this.saved.receipt;
   }
+  private async observeInstallation() {
+    if (this.installationObserved || !this.permitted("usage")) return;
+    const generation = this.generation;
+    // Persist before delivery so a restart after an uncertain response cannot count again.
+    this.writes = this.writes
+      .catch(() => {})
+      .then(() => this.options.state.write("installation-observed", true));
+    await this.writes;
+    this.installationObserved = true;
+    if (generation === this.generation) this.capture({ name: "desktop_installation_observed" });
+  }
   private async flush() {
     if (this.closed || this.flushing) return;
     clearTimeout(this.timer);
@@ -339,6 +363,8 @@ export class DesktopAnalytics implements AnalyticsAPI {
       if (generation !== this.generation || this.closed) return;
       receipt = await this.ensureReceipt();
       if (!receipt || generation !== this.generation || receipt !== this.saved.receipt) return;
+      await this.observeInstallation();
+      if (generation !== this.generation || this.closed) return;
       batch = this.events
         .splice(0, 25)
         .filter(

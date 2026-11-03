@@ -18,6 +18,7 @@ const harness = z.enum(["codex", "claude", "opencode", "other", "unknown"]);
 const result = z.enum(["success", "failed", "cancelled"]);
 export const analyticsEventSchema = z.discriminatedUnion("name", [
   z.object({ name: z.literal("desktop_first_seen") }).strict(),
+  z.object({ name: z.literal("desktop_installation_observed") }).strict(),
   z.object({ name: z.literal("product_active_day") }).strict(),
   z.object({ name: z.literal("harness_turn_started"), harness }).strict(),
   z.object({ name: z.literal("harness_turn_finished"), harness, result }).strict(),

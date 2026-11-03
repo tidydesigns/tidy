@@ -95,10 +95,10 @@ analytics and MCP monitoring remain separate and retain their existing controls.
 `packages/design/analytics.ts` is the browser-safe, strict schema shared by native
 capture and ingestion. Unknown event names/properties are rejected again at storage.
 
-| Purpose     | Events                                                                                                                                       |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Usage       | `desktop_first_seen`, `product_active_day`, `harness_turn_started`, `harness_turn_finished`, `design_file_created`, `design_cloud_connected` |
-| Diagnostics | `desktop_update_result`, `desktop_harness_update_result`, `desktop_sync_result`, `desktop_error`, `desktop_performance`                      |
+| Purpose     | Events                                                                                                                                                                        |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Usage       | `desktop_first_seen`, `desktop_installation_observed`, `product_active_day`, `harness_turn_started`, `harness_turn_finished`, `design_file_created`, `design_cloud_connected` |
+| Diagnostics | `desktop_update_result`, `desktop_harness_update_result`, `desktop_sync_result`, `desktop_error`, `desktop_performance`                                                       |
 
 The envelope contains a random delivery ID, event timestamp, app release, platform
 and architecture. Event-specific fields are bounded enums. Prompts, responses,
@@ -203,6 +203,46 @@ Use a separate test project for synthetic provider verification. No production
 PostHog project, dashboard or setting is changed by this branch. Configure charts
 from these event families after rollout; native PostHog person-based retention is
 not the source for these first-party cohort calculations.
+
+## Observed installations
+
+`desktop_installation_observed` counts the first reporting observation of a desktop
+app-data directory after usage consent. It is separate from the legacy
+`desktop_first_seen` event, which counts receipt registrations. Do not combine them.
+An existing installation can first appear after this release or after opting in;
+this is not its original download date or a count of unique people.
+
+The native client writes `privacy/installation-observed.json` before queuing the
+event. The file contains only `true`, not an identifier. It survives app upgrades,
+relaunches, consent renewal, account unlinking and report erasure. Those actions
+cannot create another installation observation. Erasure can remove the original
+report without making that installation count again. Clearing app data, using a
+separate app-data directory or another computer can create another observation.
+Reinstalling while retaining app data does not.
+
+Delivery retries retain their event IDs and the server deduplicates them. A crash
+or failed delivery followed by restart can lose an observation, because the local
+flag remains set. Prefer this possible undercount to counting uncertain deliveries
+again. Reports retain observations for 90 days; this is not a lifetime total.
+No pre-consent installation marker or dedicated network request is introduced.
+
+Unpackaged development runs and processes with `CI` set do not report. Set
+`TIDY_DESKTOP_ANALYTICS_DISABLED=1` when launching a packaged QA or smoke-test app.
+The switch affects the running process, not the released build. Automated GitHub
+asset verification and updater ZIP downloads do not emit installation observations.
+
+The private `analytics-report.ts` output includes the exact retained count in the
+`activity` row where `surface=desktop`, `name=desktop_installation_observed` and
+`harness=null`. Read its `installations` field, not the number of events.
+
+For PostHog, use the existing optional `product_usage_aggregate` export with
+`surface=desktop`, `metric=desktop_installation_observed` and `harness=none`.
+A Trends value should use the maximum of `installations` for a single snapshot
+day, with the label "Observed installations (last 90 days)". Do not count PostHog
+users or sum successive snapshots. The export suppresses counts below ten
+installations; use the private report for those. Deploy the web schema support
+before the desktop release, then verify maintenance and the existing storage,
+collection and aggregate-export switches under the rollout procedure below.
 
 ## Download history
 

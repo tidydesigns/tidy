@@ -121,7 +121,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           random, resettable installation identifier. This is pseudonymous data, not anonymous data;
           an account is not required. First observed use is not proof of the original install date,
           and resetting choices or reinstalling can change the identifier. Downloads are measured
-          separately using GitHub file counters, which include automated verification.
+          separately using GitHub file counters, which include automated verification. A local
+          true/false flag prevents upgrades, restarts or changed privacy choices from counting the
+          same installation again. It is written only after usage consent, contains no identifier
+          and remains after report deletion. Clearing app data can make an installation count again.
         </p>
         <p>
           <strong>Technical diagnostics — separate optional consent.</strong> Also off by default,

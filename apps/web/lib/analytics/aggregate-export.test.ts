@@ -17,7 +17,7 @@ test("real PostHog transport receives aggregates only, with sparse returns suppr
     const cohort=new Date(Date.now()-40*86_400_000).toISOString().slice(0,10);
     mock.module('@/lib/db',()=>({db:{query:async sql=>{
       if(sql.includes('from "productAnalyticsExport"'))return {rows:[],rowCount:0};
-      if(sql.includes('as installations'))return {rows:[{surface:'desktop',name:'harness_turn_started',harness:'codex',events:20,installations:12,subject:'SECRET-INSTALLATION',email:'SECRET-EMAIL'},{surface:'desktop',name:'design_file_created',harness:null,events:1,installations:1}]};
+      if(sql.includes('as installations'))return {rows:[{surface:'desktop',name:'harness_turn_started',harness:'codex',events:20,installations:12,subject:'SECRET-INSTALLATION',email:'SECRET-EMAIL'},{surface:'desktop',name:'design_file_created',harness:null,events:1,installations:1},{surface:'desktop',name:'desktop_installation_observed',harness:null,events:15,installations:12}]};
       if(sql.includes('with active as'))return {rows:[{day:cohort,surface:sql.includes('linked_account')?'linked_account':'desktop',size:12,d1:2,d7:12,d30:0}]};
       return {rows:[],rowCount:1};
     }}}));
@@ -30,6 +30,11 @@ test("real PostHog transport receives aggregates only, with sparse returns suppr
     expect(text).not.toContain('design_file_created');
     const events=outgoing.flatMap(value=>value.batch??[value]);
     expect(events.some(value=>value.event==='product_usage_aggregate')).toBe(true);
+    const installations=events.find(value=>value.event==='product_usage_aggregate'&&value.properties.metric==='desktop_installation_observed');
+    expect(installations.properties.installations).toBe(12);
+    expect(installations.properties.window_days).toBe(90);
+    expect(installations.properties.harness).toBe('none');
+    expect(installations.properties.$process_person_profile).toBe(false);
     const retention=events.find(value=>value.event==='product_retention_aggregate');
     expect(retention.properties.d1).toBeNull();
     expect(retention.properties.d7).toBe(12);

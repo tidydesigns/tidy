@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DesktopAnalytics } from "./analytics";
+import { DesktopAnalytics, desktopAnalyticsAvailable } from "./analytics";
 import { PrivateState } from "./platform/private-state";
 import { ANALYTICS_NOTICE } from "@tidy/design/analytics";
 
@@ -20,6 +20,9 @@ async function until(check: () => boolean) {
 async function fixture(
   options: {
     initial?: unknown;
+    directory?: string;
+    version?: string;
+    available?: boolean;
     online?: boolean;
     fetch?: (
       action: string,
@@ -28,8 +31,8 @@ async function fixture(
     ) => Promise<Response | undefined>;
   } = {},
 ) {
-  const directory = await mkdtemp(join(tmpdir(), "tidy-analytics-"));
-  cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const directory = options.directory ?? (await mkdtemp(join(tmpdir(), "tidy-analytics-")));
+  if (!options.directory) cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const calls: { action: string; body: Record<string, unknown>; authorization: string | null }[] =
     [];
   let online = options.online ?? true;
@@ -43,10 +46,10 @@ async function fixture(
   const instance = new DesktopAnalytics({
     state: privateState,
     origin: "https://app.example.test",
-    version: "0.1.0-beta.1",
+    version: options.version ?? "0.1.0-beta.1",
     platform: "darwin",
     arch: "arm64",
-    available: true,
+    available: options.available ?? true,
     now: () => now,
     open: async () => {},
     fetch: async (url, init) => {
@@ -91,6 +94,7 @@ test("essential-only creates no analytics identity, queue or network requests", 
   expect((await instance.state()).usage).toBe(false);
   expect((await instance.state()).reference).toBeNull();
   expect(await Bun.file(join(directory, "choices.json")).exists()).toBe(false);
+  expect(await Bun.file(join(directory, "installation-observed.json")).exists()).toBe(false);
 });
 
 test("usage-only sends explicit content-free events and deduplicates active days", async () => {
@@ -109,6 +113,9 @@ test("usage-only sends explicit content-free events and deduplicates active days
   expect(events.filter((value) => value.event.name === "product_active_day")).toHaveLength(1);
   expect(events.some((value) => value.event.name === "harness_turn_started")).toBe(true);
   expect(events.some((value) => value.event.name === "desktop_error")).toBe(false);
+  expect(
+    events.filter((value) => value.event.name === "desktop_installation_observed"),
+  ).toHaveLength(1);
   expect(JSON.stringify(events)).not.toContain("Bearer");
   const reference = (await instance.state()).reference;
   expect(reference).toMatch(/^[a-f0-9]{64}$/);
@@ -399,4 +406,79 @@ test("a link revision drops the earlier batch and resumes future activity withou
   expect(JSON.stringify(batches[0].body)).toContain("harness_turn_started");
   expect(JSON.stringify(batches[1].body)).not.toContain("harness_turn_started");
   expect(await instance.state()).toMatchObject({ usage: true, linked: true });
+});
+
+test("development, CI and explicitly disabled packaged runs cannot report installations", async () => {
+  expect(desktopAnalyticsAvailable(false, {})).toBe(false);
+  expect(desktopAnalyticsAvailable(true, { CI: "true" })).toBe(false);
+  expect(desktopAnalyticsAvailable(true, { CI: "1" })).toBe(false);
+  expect(desktopAnalyticsAvailable(true, { CI: "yes" })).toBe(false);
+  expect(desktopAnalyticsAvailable(true, { TIDY_DESKTOP_ANALYTICS_DISABLED: "1" })).toBe(false);
+  expect(desktopAnalyticsAvailable(true, {})).toBe(true);
+  const { instance, calls, directory } = await fixture({ available: false });
+  await instance.choose({ usage: true, diagnostics: true });
+  instance.active();
+  await Bun.sleep(300);
+  expect(calls).toHaveLength(0);
+  expect(await Bun.file(join(directory, "installation-observed.json")).exists()).toBe(false);
+});
+
+test("installation observations survive upgrades and reporting identity changes", async () => {
+  const original = await fixture();
+  await original.instance.choose({ usage: true, diagnostics: false });
+  await until(() => original.calls.some((call) => call.action === "events"));
+  const observations = (calls: typeof original.calls) =>
+    calls
+      .filter((call) => call.action === "events")
+      .flatMap((call) => call.body.events as { event: { name: string } }[])
+      .filter((value) => value.event.name === "desktop_installation_observed");
+  expect(observations(original.calls)).toHaveLength(1);
+  expect(
+    JSON.parse(await readFile(join(original.directory, "installation-observed.json"), "utf8")),
+  ).toBe(true);
+  await original.instance.close();
+  const upgraded = await fixture({ directory: original.directory, version: "0.1.0-beta.2" });
+  upgraded.instance.active();
+  await until(() => upgraded.calls.some((call) => call.action === "events"));
+  await upgraded.instance.choose({ usage: true, diagnostics: true });
+  await until(() => upgraded.calls.filter((call) => call.action === "events").length === 2);
+  await upgraded.instance.erase();
+  await upgraded.instance.choose({ usage: true, diagnostics: false });
+  await until(() => upgraded.calls.filter((call) => call.action === "events").length === 3);
+  await upgraded.instance.close();
+  expect(observations(upgraded.calls)).toHaveLength(0);
+  const separate = await fixture();
+  await separate.instance.choose({ usage: true, diagnostics: false });
+  await until(() => separate.calls.some((call) => call.action === "events"));
+  expect(observations(separate.calls)).toHaveLength(1);
+});
+
+test("an uncertain delivery followed by restart never creates another installation observation", async () => {
+  const original = await fixture({
+    fetch: async (action) =>
+      action === "events" ? new Response(null, { status: 503 }) : undefined,
+  });
+  await original.instance.choose({ usage: true, diagnostics: false });
+  await until(() => original.calls.some((call) => call.action === "events"));
+  await original.instance.close();
+  const restarted = await fixture({ directory: original.directory, version: "0.1.0-beta.2" });
+  restarted.instance.capture({ name: "design_file_created", storage: "local", kind: "new" });
+  await until(() => restarted.calls.some((call) => call.action === "events"));
+  expect(JSON.stringify(restarted.calls)).not.toContain("desktop_installation_observed");
+});
+
+test("diagnostics-only never marks an installation and later usage consent observes it once", async () => {
+  const { instance, calls, directory } = await fixture();
+  await instance.choose({ usage: false, diagnostics: true });
+  instance.capture({ name: "desktop_error", operation: "startup", category: "unexpected" });
+  await until(() => calls.some((call) => call.action === "events"));
+  expect(await Bun.file(join(directory, "installation-observed.json")).exists()).toBe(false);
+  expect(JSON.stringify(calls)).not.toContain("desktop_installation_observed");
+  await instance.choose({ usage: true, diagnostics: true });
+  await until(() => calls.filter((call) => call.action === "events").length === 2);
+  const observations = calls
+    .filter((call) => call.action === "events")
+    .flatMap((call) => call.body.events as { event: { name: string } }[])
+    .filter((value) => value.event.name === "desktop_installation_observed");
+  expect(observations).toHaveLength(1);
 });
