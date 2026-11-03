@@ -68,6 +68,11 @@ async function record(request: Request) {
     return Response.json(
       {
         id: decision.id,
+        signupCompletionPending:
+          request.headers
+            .get("cookie")
+            ?.split(";")
+            .some((part) => part.trim().startsWith("tidy_signup_completion=")) ?? false,
         browserId: decision.browserId,
         user: session ? { id: session.user.id, email: session.user.email } : null,
         productAnalytics:

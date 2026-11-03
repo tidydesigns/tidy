@@ -5,6 +5,9 @@ import { browserExceptions } from "./browser-exceptions";
 import { appErrorOperation } from "./error-diagnostics";
 
 const customEvents = new Set([
+  "signup_started",
+  "signup_completed",
+  "auth_provider_clicked",
   "vault_login_created",
   "github_installation_linked",
   "github_account_disconnected",
@@ -129,6 +132,7 @@ export function redactTelemetry(
     return null;
   const source = event.properties;
   const properties: Record<string, unknown> = {
+    surface: "web",
     $current_url: safeTelemetryUrl(pageUrl),
     $pathname: normalizedRoute(safeTelemetryUrl(pageUrl)),
     $geoip_disable: true,
@@ -166,6 +170,23 @@ export function redactTelemetry(
       properties.variant = source.variant;
     if (source.platform === "macos") properties.platform = source.platform;
     if (source.channel === "beta") properties.channel = source.channel;
+  }
+  if (purpose === "analytics") {
+    if (
+      typeof source.website_visitor_id === "string" &&
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+        source.website_visitor_id,
+      )
+    )
+      properties.website_visitor_id = source.website_visitor_id;
+    if (["email", "google", "github"].includes(String(source.signup_method)))
+      properties.signup_method = source.signup_method;
+    if (
+      event.event === "signup_completed" &&
+      typeof source.$insert_id === "string" &&
+      /^[a-f0-9-]{36}$/.test(source.$insert_id)
+    )
+      properties.$insert_id = source.$insert_id;
   }
   if (identityEvent && account) {
     // Email comes from the authenticated account, not arbitrary event properties.

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { SocialProviderButton } from "./social-provider-button";
 import { FormMessage } from "@/components/ui/form-message";
+import posthog from "@/lib/posthog-client";
 
 export function SocialSignIn({
   providers,
@@ -27,6 +28,9 @@ export function SocialSignIn({
     setPending(provider);
 
     try {
+      posthog.capture(page === "/sign-up" ? "signup_started" : "auth_provider_clicked", {
+        signup_method: provider,
+      });
       const result = await authClient.signIn.social({
         provider,
         callbackURL: next,

@@ -4,6 +4,95 @@ The website is a Next.js static export served through Cloudflare Workers Static
 Assets. `/download/mac` is handled by the small Worker in `worker/index.ts`.
 All other existing assets stay on Cloudflare's direct static asset path.
 
+## Website analytics
+
+The website uses the same PostHog project as the hosted app: `tidy-prod` for
+production and `tidy-dev` for development. Every website event has
+`surface=website`; app browser events have `surface=web`. The standard PostHog
+Web Analytics view can be filtered to the website surface.
+
+Set the website's **build-time** `NEXT_PUBLIC_POSTHOG_ENABLED=1`,
+`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST` to the app's matching
+public project configuration. Set `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_SITE_URL`
+to their intended public origins. Never use a personal/admin API key in the site.
+Set the site's **runtime Worker variable** `ANALYTICS_APP_ORIGIN` to the explicit
+hosted app origin. It provides `/api/privacy/consent` and the consent-gated
+`/api/t/*` transport; both applications must be deployed with compatible code and
+the app's browser collection switch enabled. If receipt confirmation is
+unavailable, the website remains usable and optional collection stays off.
+
+The compact banner has Accept all, Reject all and Customise. Individual choices
+apply immediately, with no save step. The footer opens those choices again.
+There is no SDK import, optional identifier, config request or event buffering
+before a grant. Each SDK startup waits for the server receipt. Website choices
+are host-only and independent from app/MCP choices. Consent version 8 renews
+earlier browser choices for the expanded notice. Browser storage and receipts
+expire independently; receipts use the existing app maintenance/deletion path.
+
+Usage analytics cover pageviews/navigation, structural click/rage-click data,
+reviewed campaign labels and referring domains, selected section exposures and
+explicit `website_cta_clicked` events (`action`, `placement`). Names, field
+values, copied text, arbitrary element attributes and raw query/fragment values
+are excluded. Campaign labels should use letters, numbers, underscores and
+hyphens, at most 80 characters; never put personal information in UTMs. Optional
+acquisition state is retained in session storage for 30 minutes of inactivity.
+
+Replay is independently consented and sampled at 20% of eligible sessions, with
+the project's existing 30-day retention. Public marketing text remains visible;
+inputs, editable content, media, canvases and the embedded desktop demo are
+blocked. Console logs and network bodies/headers are disabled. Diagnostics have
+their own consent choice; only reviewed Web Vitals and redacted shipped-code
+error locations are collected. No website person profiles are created.
+
+Consenting links to the app carry a random `tidy_website` fragment, which is
+removed before recording. The app uses it only after its own analytics grant
+and for at most 30 minutes, and clears it on withdrawal, expiry and account
+changes. `website_visitor_id` joins observations across the two surfaces without
+aliasing or merging person profiles. It is an analytics reference, never an
+authentication credential or trusted account identity.
+
+In the app, `signup_started` is a valid registration attempt; provider buttons
+on login emit `auth_provider_clicked`. `signup_completed` means actual **new
+account creation**, including email accounts awaiting verification. The server
+creation hook signs a bounded HttpOnly completion marker; the client claims it
+only under the exact occurrence consent and a current receipt. Repeated claims
+use the same event UUID/time for ingestion deduplication. The marker is retained
+for at most 24 hours so a delayed response cannot erase a newer signup. Existing
+logins and provider-account linking issue no marker. Delivery is best effort.
+
+Download CTA clicks measure intent, not completed transfers or installations.
+The existing app-side `snapshotDownloads`/`desktop_download_aggregate` pipeline
+provides aggregate GitHub installer counters when its separately configured
+analytics storage/export is enabled. Those counters include repeat requests and
+automation and are not a visitor-conversion denominator. No additional
+consent-free browser tracking or cookieless fallback is introduced here.
+
+Preview the eight-tile dashboard definition without any network or credentials:
+
+```sh
+bun apps/web/scripts/setup-website-dashboard.ts
+```
+
+After reviewing the definition and configuring ingestion, provision it using an
+operator-only `POSTHOG_API_KEY` with project/dashboard/insight access:
+
+```sh
+bun apps/web/scripts/setup-website-dashboard.ts --apply --project=<explicit-id> --host=https://eu.posthog.com
+```
+
+The script requires an explicit project, reuses the matching named dashboard,
+adds only missing named tiles and resumes partial setup. It never deploys code,
+changes recording settings or replaces existing tiles. Charts cover consenting
+visitors/pageviews, pages, sources/campaigns, CTA placements, a website-to-download
+funnel and attributed new accounts. Refusal, blockers, device changes and
+sampling limit coverage; never present those numbers as a census of all people.
+
+For local review, use a separate `PORT`/`NEXT_PUBLIC_SITE_URL` and point
+`ANALYTICS_APP_ORIGIN` at an explicitly configured local app or test fixture.
+Local development permits automated-browser traffic; production retains the
+SDK's bot filtering. The app and site tests cover consent/purpose boundaries,
+withdrawal/identity races, new-account proof, redaction and proxy safety.
+
 ## Pinned desktop demo
 
 Website development and builds use the exact compiled renderer stored in

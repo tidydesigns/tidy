@@ -12,6 +12,7 @@ import { verificationCallbackPath } from "@/lib/auth-return-path";
 import { SocialSignIn } from "@/components/auth/social-sign-in";
 import { VerificationForm } from "@/components/auth/verification-form";
 import { AuthShell } from "@/components/auth/auth-shell";
+import posthog, { captureSignupCompletion } from "@/lib/posthog-client";
 
 export function SignUpForm({
   next = "/onboarding/organization",
@@ -42,6 +43,7 @@ export function SignUpForm({
         return;
       }
 
+      posthog.capture("signup_started", { signup_method: "email" });
       const result = await authClient.signUp.email({
         name: String(form.get("name")),
         email: String(form.get("email")),
@@ -55,6 +57,7 @@ export function SignUpForm({
       }
 
       setVerificationEmail(String(form.get("email")));
+      void captureSignupCompletion();
     } catch (cause) {
       notifyError(cause, "Unable to create your account. Please try again.");
     } finally {

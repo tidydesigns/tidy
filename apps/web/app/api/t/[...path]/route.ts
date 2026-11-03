@@ -75,7 +75,12 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
     await reserveTelemetryBytes(receipt, body?.byteLength ?? 0);
     const response = await fetch(upstream, {
       method: request.method,
-      headers: { "Content-Type": request.headers.get("content-type") || "application/json" },
+      headers: {
+        "Content-Type": request.headers.get("content-type") || "application/json",
+        ...(request.headers.get("content-encoding") === "gzip"
+          ? { "Content-Encoding": "gzip" }
+          : {}),
+      },
       body,
       redirect: "manual",
       cache: "no-store",

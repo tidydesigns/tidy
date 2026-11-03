@@ -13,6 +13,14 @@ const nextConfig: NextConfig = {
               source: "/download/mac",
               destination: `${process.env.TIDY_SITE_DOWNLOAD_ORIGIN}/download/mac`,
             },
+            {
+              source: "/api/privacy/consent",
+              destination: `${process.env.TIDY_SITE_DOWNLOAD_ORIGIN}/api/privacy/consent`,
+            },
+            {
+              source: "/api/t/:path*",
+              destination: `${process.env.TIDY_SITE_DOWNLOAD_ORIGIN}/api/t/:path*`,
+            },
           ];
         },
       }

@@ -1,6 +1,7 @@
 import { diagnosticError } from "@tidy/ui/errors";
 import { captureWebProduct } from "@/lib/analytics/web-client";
 import type { PostHog, PostHogConfig } from "posthog-js";
+import { clearWebsiteAttribution, websiteAttribution } from "@tidy/ui/website-attribution";
 import {
   browserConsent,
   consentRevision,
@@ -31,6 +32,73 @@ let retry: ReturnType<typeof setTimeout> | undefined;
 let initialization = Promise.resolve();
 let pendingCaptures = 0;
 const AUTH_EVENT = "tidy-telemetry-auth-change";
+let signupClaim: Promise<void> | undefined;
+let analyticsWasAllowed = false;
+
+/** The server issues completion proof only for actual new-account creation.
+ * Capture uses a stable UUID/timestamp so concurrent claims deduplicate. */
+export function captureSignupCompletion(): Promise<void> {
+  if (!current("analytics")) return Promise.resolve();
+  if (!client) {
+    const expectedGeneration = revision;
+    return initialization.then(() => {
+      if (expectedGeneration === revision && client && current("analytics"))
+        return captureSignupCompletion();
+    });
+  }
+  if (signupClaim) {
+    const expectedGeneration = revision;
+    const expectedAccount = account?.id;
+    return signupClaim.then(() => {
+      if (expectedGeneration === revision && expectedAccount === account?.id)
+        return captureSignupCompletion();
+    });
+  }
+  const activeGeneration = revision;
+  const activeAccount = account?.id;
+  const sdk = client;
+  const task = (async () => {
+    try {
+      const receipt = await recordBrowserConsent();
+      if (activeGeneration !== revision || activeAccount !== account?.id || !current("analytics"))
+        return;
+      const response = await fetch("/api/privacy/signup-completion", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "x-tidy-privacy": "1", "x-tidy-receipt": receipt.id },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (
+        response.status !== 200 ||
+        activeGeneration !== revision ||
+        activeAccount !== account?.id ||
+        !current("analytics")
+      )
+        return;
+      const result = (await response.json()) as { eventId?: string; at?: number; method?: string };
+      if (
+        !result.eventId ||
+        !/^[a-f0-9-]{36}$/.test(result.eventId) ||
+        !Number.isSafeInteger(result.at) ||
+        !["email", "google", "github"].includes(result.method ?? "")
+      )
+        return;
+      sdk.capture(
+        "signup_completed",
+        { signup_method: result.method, $insert_id: result.eventId },
+        { uuid: result.eventId, timestamp: new Date(result.at!) },
+      );
+    } catch {
+      /* Analytics cannot interrupt authentication. */
+    }
+  })();
+  signupClaim = task;
+  void task.finally(() => {
+    if (signupClaim === task) signupClaim = undefined;
+  });
+  return task;
+}
 
 export function browserCollectionEnabled() {
   return (
@@ -185,6 +253,10 @@ async function initializeClient() {
   const generation = ++revision;
   clearTimeout(expiry);
   clearTimeout(retry);
+  if ((analyticsWasAllowed && !consent?.analytics) || (consent && !consent.analytics))
+    clearWebsiteAttribution();
+  analyticsWasAllowed = consent?.analytics === true;
+  if (consent?.analytics) websiteAttribution(true);
   // Resolve identity afresh on SDK initialization; never inherit profile traits
   // from a previous account's persisted cookie on a new document.
   stop();
@@ -195,7 +267,9 @@ async function initializeClient() {
     const receipt = await recordBrowserConsent();
     if (generation !== revision || JSON.stringify(browserConsent()) !== choice) return;
     if (!browserCollectionEnabled() || !hasOptionalConsent(consent)) return;
+    const previousAccount = account?.id;
     account = telemetryAccount(receipt.user?.id, receipt.user?.email);
+    if (previousAccount && previousAccount !== account?.id) clearWebsiteAttribution();
     // No SDK, remote config, anonymous cookie, event buffer or identity request before consent.
     const { PostHog: Client } = await import("posthog-js/full/no-external");
     if (generation !== revision || JSON.stringify(browserConsent()) !== choice) return;
@@ -209,7 +283,14 @@ async function initializeClient() {
       before_send: (event) =>
         generation === revision && event
           ? redactTelemetry(
-              { ...event, properties: { ...event.properties, tidy_consent_receipt: receipt.id } },
+              {
+                ...event,
+                properties: {
+                  ...event.properties,
+                  tidy_consent_receipt: receipt.id,
+                  website_visitor_id: websiteAttribution(browserConsent()?.analytics === true),
+                },
+              },
               browserConsent() ?? ESSENTIAL_ONLY,
               location.href,
               account,
@@ -225,6 +306,7 @@ async function initializeClient() {
       tidy_consent_receipt: receipt.id,
     });
     if (consent.analytics) captureWebProduct("product_active_day");
+    if (consent.analytics && receipt.signupCompletionPending) void captureSignupCompletion();
   } catch {
     // Retry failed essential receipt delivery. Capture stays stopped in the meantime.
     if (generation === revision)
@@ -244,6 +326,7 @@ export function startPostHogConsent() {
   window.addEventListener("focus", () => void checkSessionIdentity());
   window.addEventListener("storage", (event) => {
     if (event.key !== AUTH_EVENT) return;
+    clearWebsiteAttribution();
     // No identifiers or email are put in localStorage. Other tabs resolve the
     // current auth session after stopping the previous account's collection.
     account = undefined;
@@ -314,6 +397,7 @@ const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "rese
     afterInitialization((sdk) => sdk.captureException(error, properties));
   },
   identify: (id, properties) => {
+    if (account && account.id !== id) clearWebsiteAttribution();
     account = telemetryAccount(id, properties?.email);
     invalidateConsentReceipt();
     activeChoice = "";
@@ -321,6 +405,7 @@ const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "rese
     notifyAuthChange();
   },
   reset: () => {
+    clearWebsiteAttribution();
     account = undefined;
     invalidateConsentReceipt();
     activeChoice = "";

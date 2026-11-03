@@ -47,8 +47,12 @@ export default function HomePage() {
               <br className={styles.desktopBreak} /> Your canvas, code and coding agents together on
               your Mac.
             </p>
-            <div className={styles.heroActions}>
-              <a className="button button-primary" href={downloadUrl}>
+            <div className={styles.heroActions} data-analytics-placement="hero">
+              <a
+                className="button button-primary"
+                href={downloadUrl}
+                data-analytics-action="download_mac"
+              >
                 <BrandIcon name="apple" />
                 Download for macOS <span className={styles.betaLabel}>Beta</span>
               </a>

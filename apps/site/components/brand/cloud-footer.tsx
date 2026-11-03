@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PrivacyChoicesButton } from "../privacy-choices";
 import { getPosts } from "../../lib/blog";
 import { CloudArtwork } from "./cloud-artwork";
 import { CloudAtmosphere } from "./cloud-atmosphere";
@@ -49,6 +50,7 @@ export async function CloudFooter({
           {showBlog && <Link href="/blog">Blog</Link>}
           <Link href="/about">About</Link>
           <Link href="/privacy">Privacy</Link>
+          <PrivacyChoicesButton />
         </nav>
       </div>
     </footer>

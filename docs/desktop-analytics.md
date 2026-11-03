@@ -157,7 +157,8 @@ A server link timestamp also prevents a backdated delivery from acquiring accoun
 identity. Earlier records stay unlinked, and no PostHog profiles are merged.
 Diagnostic records never receive the account alias.
 
-The revised web notice uses browser consent version 7. Existing browser-only
+The current web notice uses browser consent version 8, including the separately
+consented marketing website and signup attribution. Existing browser-only
 choices must be renewed; renewing them does not turn on desktop collection.
 
 Consenting web activity is included in first-party cross-surface reports only for

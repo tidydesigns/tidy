@@ -42,6 +42,7 @@ import {
   waitForSignal,
 } from "@/lib/auth/request-lifecycle";
 import { startOperation, traceOperation } from "@/lib/trace-context";
+import { recordSignupCompletion } from "@/lib/privacy/signup-completion";
 
 function workerRuntime() {
   return typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
@@ -201,6 +202,9 @@ function createAuth() {
                 message: "Account creation is temporarily unavailable.",
               });
             }
+          },
+          after: async (user, context) => {
+            recordSignupCompletion(user.id, context);
           },
         },
       },

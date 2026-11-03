@@ -17,12 +17,14 @@
     "@tidy/ui": "workspace:*",
     "gray-matter": "4.0.3",
     "next": "16.4.2",
+    "posthog-js": "^1.445.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
+    "@types/bun": "^1.4.4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -5,6 +5,7 @@ import { getPosts } from "../lib/blog";
 import { siteUrl } from "../lib/site-url";
 import { pageMetadata } from "../lib/page-metadata";
 import "./globals.css";
+import { PrivacyChoices } from "../components/privacy-choices";
 
 const instrumentSans = localFont({
   src: "./fonts/instrument-sans-latin.woff2",
@@ -50,6 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </a>
         <SiteHeader showBlog={showBlog} />
         {children}
+        <PrivacyChoices />
       </body>
     </html>
   );

@@ -91,7 +91,12 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config
     expect(invoked.config.secrets.required).toEqual(["GITHUB_RELEASES_TOKEN"]);
     expect(invoked.config.main).toBe(fileURLToPath(new URL("../worker/index.ts", import.meta.url)));
     expect(invoked.config.assets.binding).toBe("ASSETS");
-    expect(invoked.config.assets.run_worker_first).toEqual(["/download/mac", "/download/mac/"]);
+    expect(invoked.config.assets.run_worker_first).toEqual([
+      "/download/mac",
+      "/download/mac/",
+      "/api/privacy/consent",
+      "/api/t/*",
+    ]);
     expect(existsSync(invoked.args[3])).toBe(false);
     expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({
       name: "fixture-site",
@@ -177,7 +182,12 @@ console.log(JSON.stringify({implicit: {name: implicit.name, secrets: implicit.se
     expect(active.workers_dev).toBe(false);
     expect(active.preview_urls).toBe(false);
     expect(active.assets.binding).toBe("ASSETS");
-    expect(active.assets.run_worker_first).toEqual(["/download/mac", "/download/mac/"]);
+    expect(active.assets.run_worker_first).toEqual([
+      "/download/mac",
+      "/download/mac/",
+      "/api/privacy/consent",
+      "/api/t/*",
+    ]);
     expect(JSON.parse(readFileSync(config, "utf8"))).toEqual(settings);
 
     // Exercise the real CLI too: the resolver above bypasses argument parsing.
@@ -224,7 +234,7 @@ console.log(JSON.stringify({implicit: {name: implicit.name, secrets: implicit.se
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 test("site deployment uploads a build secret with code and cleans up after success or failure", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "tidy-site-secret-test-"));

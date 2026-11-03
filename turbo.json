@@ -56,7 +56,12 @@
     "@tidy/site#dev": {
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["DESKTOP_RELEASE_REPOSITORY", "GITHUB_RELEASES_TOKEN"]
+      "passThroughEnv": [
+        "DESKTOP_RELEASE_REPOSITORY",
+        "GITHUB_RELEASES_TOKEN",
+        "ANALYTICS_APP_ORIGIN",
+        "PORT"
+      ]
     },
     "typecheck:tsc": {
       "dependsOn": ["^typecheck:tsc"]

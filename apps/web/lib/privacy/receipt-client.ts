@@ -3,6 +3,7 @@ import { readJsonValue, responseError } from "@/lib/http/json-response";
 
 export type ConsentReceipt = {
   productAnalytics?: boolean;
+  signupCompletionPending?: boolean;
   id: string;
   browserId: string;
   user: { id: string; email: string } | null;

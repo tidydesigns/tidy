@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./privacy-consent": "./privacy-consent.ts",
+    "./analytics-storage": "./analytics-storage.ts",
+    "./website-attribution": "./website-attribution.ts",
     "./fonts.css": "./fonts.css",
     "./privacy-policy": "./privacy-policy.tsx",
     "./privacy-policy.css": "./privacy-policy.css",

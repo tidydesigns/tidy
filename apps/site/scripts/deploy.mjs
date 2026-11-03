@@ -43,7 +43,7 @@ try {
           ? path.resolve(path.dirname(config), settings.assets.directory)
           : path.join(site, "out"),
         binding: "ASSETS",
-        run_worker_first: ["/download/mac", "/download/mac/"],
+        run_worker_first: ["/download/mac", "/download/mac/", "/api/privacy/consent", "/api/t/*"],
       },
     }),
     { mode: 0o600 },

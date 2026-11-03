@@ -14,7 +14,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
     <article className="tidy-privacy-policy">
       <header>
         <h1>Privacy policy</h1>
-        <p className="policy-date">Last updated: 26 October 2026</p>
+        <p className="policy-date">Last updated: 3 November 2026</p>
         <p>
           This notice covers tidydesign.co, the hosted and desktop Tidy apps, registration, login
           and connected features. Sean Dowdall, an individual based in Ireland, operates Tidy and is
@@ -186,9 +186,39 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           Tidy supports PostHog, Inc. for functional rollout settings, server fault monitoring and
           MCP service monitoring, optional analytics, browser diagnostics and session replay when
-          these features are enabled. The marketing website does not load the PostHog browser SDK.
-          Functional settings, core server monitoring and optional browser collection have separate
-          purposes and controls.
+          these features are enabled. On the marketing website, the PostHog browser SDK loads only
+          after you allow an optional purpose and we have recorded that choice. Functional settings,
+          core server monitoring and optional browser collection have separate purposes and
+          controls.
+        </p>
+        <p>
+          <strong>Marketing website. Separate optional choices.</strong> Accept all enables usage
+          analytics, masked session replay and browser performance/errors for this website. Reject
+          all leaves all three off. Customise lets you change each purpose immediately, and the
+          footer&#39;s Privacy choices control lets you revisit them. Closing the banner or doing
+          nothing grants no optional collection. Website choices are separate from the app&#39;s
+          choices and never enable MCP account linking.
+        </p>
+        <p>
+          Website analytics measure page visits, navigation and selected clicks, including Open Tidy
+          and Download for macOS, and whether important sections are viewed. We collect browser and
+          device categories, reviewed campaign labels and referring domains, excluding full referrer
+          paths, unrelated query strings, fragments, field values and copied text. Website
+          recordings are sampled at 20% of consenting sessions. Public marketing text can remain
+          visible; inputs, editable content, images, media and the interactive desktop demo are
+          excluded. Console messages and network bodies or headers are not recorded. We do not
+          create website person profiles or identify website visitors by name or email.
+        </p>
+        <p>
+          When website analytics are allowed, links into the app can carry a random website visitor
+          reference in their URL fragment. The app removes that fragment before optional recording
+          and uses the reference only if app usage analytics are also allowed. Optional session
+          storage can preserve the reference through sign-in for up to 30 minutes. It helps
+          attribute account creation to a website visit without merging website and app person
+          profiles. Rejecting app analytics leaves this attribution off; withdrawal or sign-out
+          clears it. Signup starts mean attempted registration; signup completion means a newly
+          created account, which may still require email verification. Download clicks and public
+          file-request totals are not proof of a completed transfer or installation.
         </p>
         <p>
           <strong>Functional rollout settings. Independent of optional consent.</strong> Tidy's
@@ -407,12 +437,20 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             expiry still stops collection even if SDK storage remains. Browser storage lifetime is
             separate from retention of data already received by PostHog.
           </dd>
+          <dt>Optional signup completion reference</dt>
+          <dd>
+            If usage analytics are allowed when a new account is created, an HttpOnly, host-only
+            <code> tidy_signup_completion</code> cookie can retain signed completion proof for up to
+            24 hours. It is checked only with a matching current analytics choice and server
+            receipt. This avoids counting existing-account logins as new signups. It grants no
+            access to an account and is not sent to PostHog.
+          </dd>
         </dl>
         <p>
-          The marketing website has no optional analytics or advertising cookies. Hosting/security
-          providers may use storage needed to deliver or protect a requested service. You can also
-          remove or block storage in your browser settings; doing so does not itself erase
-          provider-held records.
+          Website and app consent and PostHog cookies are host-only: choices on one do not grant
+          permission on the other. We do not use advertising cookies. Hosting/security providers may
+          use storage needed to deliver or protect a requested service. You can also remove or block
+          storage in your browser settings; doing so does not itself erase provider-held records.
         </p>
       </Section>
 

@@ -145,6 +145,7 @@ test("events remove content, identity traits, raw URLs and DOM properties", () =
     url,
   )!;
   expect(result.properties).toEqual({
+    surface: "web",
     token: "synthetic-key",
     distinct_id: "synthetic-person",
     $current_url: "https://app.example/files/:id",
