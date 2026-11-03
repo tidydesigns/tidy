@@ -46,6 +46,9 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
     assert.equal(first.config.internal_or_test_user_hostname,null);assert.equal(first.config.opt_out_useragent_filter,false);
     assert.equal(first.config.logs.captureConsoleLogs,false);
     assert.equal(first.config.api_host,"https://site.example/api/t");
+    const beforeFocus=requests.length;
+    window.dispatchEvent(new Event("focus"));await settle();
+    assert.equal(instances.length,1);assert.equal(requests.length,beforeFocus);
     assert.ok(link.href.endsWith("#tidy_website="+visitor));
     analytics.captureWebsite("website_cta_clicked",{action:"download_mac",placement:"hero"});
     assert.equal(events.at(-1).event,"website_cta_clicked");assert.equal(events.at(-1).properties.website_visitor_id,visitor);

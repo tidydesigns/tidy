@@ -397,12 +397,6 @@ export function startWebsiteAnalytics() {
   subscribeConsent(() => {
     void refreshWebsiteConsent();
   });
-  window.addEventListener("focus", () => {
-    if (hasOptionalConsent(browserConsent())) {
-      choice = "";
-      void refreshWebsiteConsent();
-    }
-  });
   const click = (event: MouseEvent) => {
     if ((event.type === "auxclick" && event.button !== 1) || !(event.target instanceof Element))
       return;
