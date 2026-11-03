@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { PoolClient } from "pg";
 
+const statementTerminatorPattern = /;$/;
+
 type Scope = {
   client: PoolClient;
   active: boolean;
@@ -69,7 +71,9 @@ export function scopedDatabaseClient(): PoolClient | undefined {
           // Services issue transaction control as plain strings. pg callbacks and
           // query configs retain their original behaviour for all data queries.
           const sql =
-            typeof args[0] === "string" ? args[0].trim().replace(/;$/, "").toLowerCase() : "";
+            typeof args[0] === "string"
+              ? args[0].trim().replace(statementTerminatorPattern, "").toLowerCase()
+              : "";
           if ((sql === "commit" || sql === "rollback") && !begun)
             throw new Error("No nested transaction is active.");
           if (sql === "begin") {

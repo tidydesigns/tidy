@@ -9,6 +9,8 @@ import {
 import type { DesktopAPI, ProjectSnapshot } from "../../../shared/contracts/desktop";
 import { parseChatLink } from "../../../shared/models/chat-links";
 
+const jsonExtensionPattern = /\.json$/i;
+
 if (new URLSearchParams(location.hash.slice(1)).has("token"))
   history.replaceState(null, "", location.pathname + location.search);
 
@@ -89,7 +91,7 @@ async function importDesign(projectId: string, folderId?: string | null) {
     "import-design",
     { projectId, folderId },
     {
-      name: file.name.replace(/\.json$/i, ""),
+      name: file.name.replace(jsonExtensionPattern, ""),
       document: JSON.parse(await file.text()) as unknown,
     },
   );

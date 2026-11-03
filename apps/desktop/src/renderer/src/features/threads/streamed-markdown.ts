@@ -1,6 +1,10 @@
 import type { Code, Root } from "mdast";
 import { useEffect, useRef, useState } from "react";
 
+const newlinePattern = /\r?\n/u;
+const openingFencePattern = /^ {0,3}(`{3,}|~{3,})/u;
+const paragraphSeparationPattern = /\r?\n[ \t]*\r?\n[ \t]*$/u;
+
 export function useBlockReveal(active: boolean) {
   const [lingering, setLingering] = useState(active);
   useEffect(() => {
@@ -52,8 +56,8 @@ export function useBufferedMarkdown(text: string, buffering: boolean) {
 
 function closedFence(block: Code, text: string) {
   const raw = text.slice(block.position?.start.offset ?? 0, block.position?.end.offset).trimEnd();
-  const lines = raw.split(/\r?\n/u);
-  const opening = /^ {0,3}(`{3,}|~{3,})/u.exec(lines[0]);
+  const lines = raw.split(newlinePattern);
+  const opening = openingFencePattern.exec(lines[0]);
   if (!opening || lines.length < 2) return false;
   const marker = opening[1];
   return new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`, "u").test(lines.at(-1) ?? "");
@@ -74,7 +78,7 @@ export function remarkCompleteBlocks({
     const ready = root.children.slice(0, -1);
     const exposed = (tail.position?.start.offset ?? text.length) < minimum;
     const codeReady = tail.type === "code" && closedFence(tail, text);
-    const separated = /\r?\n[ \t]*\r?\n[ \t]*$/u.test(text);
+    const separated = paragraphSeparationPattern.test(text);
     if (exposed) {
       ready.push(tail);
     } else if (tail.type === "list") {

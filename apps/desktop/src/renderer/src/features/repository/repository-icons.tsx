@@ -1,3 +1,7 @@
+const codeExtensionPattern = /\.(?:[cm]?[jt]sx?|css|html?|json|rs|py|go|sh|sql|ya?ml|toml)$/;
+const scriptExtensionPattern = /\.[cm]?[jt]sx?$/;
+const cssExtensionPattern = /\.css$/;
+const dataExtensionPattern = /\.(?:json|ya?ml|toml)$/;
 const paths = {
   wrap: "M2 4h12M2 8h9a2.5 2.5 0 0 1 0 5H8m2-2-2 2 2 2M2 12h3",
   chevron: "m6 4 4 4-4 4",
@@ -43,10 +47,8 @@ export function RepositoryIcon({
 export function FileIcon({ name }: { name: string }) {
   return (
     <RepositoryIcon
-      name={
-        /\.(?:[cm]?[jt]sx?|css|html?|json|rs|py|go|sh|sql|ya?ml|toml)$/.test(name) ? "code" : "file"
-      }
-      className={`repository-entry-icon ${/\.[cm]?[jt]sx?$/.test(name) ? "repository-icon-script" : /\.css$/.test(name) ? "repository-icon-style" : /\.(?:json|ya?ml|toml)$/.test(name) ? "repository-icon-config" : ""}`}
+      name={codeExtensionPattern.test(name) ? "code" : "file"}
+      className={`repository-entry-icon ${scriptExtensionPattern.test(name) ? "repository-icon-script" : cssExtensionPattern.test(name) ? "repository-icon-style" : dataExtensionPattern.test(name) ? "repository-icon-config" : ""}`}
     />
   );
 }

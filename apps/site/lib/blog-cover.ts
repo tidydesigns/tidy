@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+const blogCoverPattern = /^\/blog\/[a-z0-9-]+\.(avif|webp|jpg)$/;
+
 export type BlogCover = {
   width: number;
   height: number;
@@ -12,8 +14,7 @@ export async function readBlogCover(directory: string, name: string): Promise<Bl
   const cover: BlogCover = JSON.parse(
     await readFile(path.join(directory, "covers", `${name}.json`), "utf8"),
   );
-  const safePath = (value: unknown) =>
-    typeof value === "string" && /^\/blog\/[a-z0-9-]+\.(avif|webp|jpg)$/.test(value);
+  const safePath = (value: unknown) => typeof value === "string" && blogCoverPattern.test(value);
   if (
     !Number.isFinite(cover.width) ||
     cover.width <= 0 ||

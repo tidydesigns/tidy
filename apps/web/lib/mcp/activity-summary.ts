@@ -1,14 +1,18 @@
 import type { ActivityDetails } from "@/lib/realtime/agent-activity";
 
+const controlCharactersPattern = /[\u0000-\u001f\u007f]/g;
+const routeSuffixPattern = /[?#]/;
+const unsafeRoutePattern = /^[\\/]|^[a-z]+:|(?:^|[\\/])\.\.(?:[\\/]|$)/i;
+
 export function safeActivityText(value: unknown, limit: number): string | undefined {
   return typeof value === "string"
-    ? value.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, limit)
+    ? value.replace(controlCharactersPattern, "").slice(0, limit)
     : undefined;
 }
 export function activityPath(value: unknown, limit = 96): string | undefined {
   if (typeof value !== "string") return;
-  const path = value.split(/[?#]/)[0];
-  if (/^[\\/]|^[a-z]+:|(?:^|[\\/])\.\.(?:[\\/]|$)/i.test(path)) return;
+  const path = value.split(routeSuffixPattern)[0];
+  if (unsafeRoutePattern.test(path)) return;
   return safeActivityText(path, limit);
 }
 export function record(value: unknown): Record<string, unknown> {
@@ -48,7 +52,7 @@ export function summarizeImportChunks(chunks: Record<string, unknown>): Activity
     sourcePaths: [...paths],
     sourceProject: safeActivityText(source.project, 80),
     sourceRoute: safeActivityText(
-      typeof source.route === "string" ? source.route.split(/[?#]/)[0] : undefined,
+      typeof source.route === "string" ? source.route.split(routeSuffixPattern)[0] : undefined,
       160,
     ),
     nodeIds,

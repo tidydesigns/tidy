@@ -9,6 +9,8 @@ import {
 } from "../../shared/contracts/terminal";
 import type { PreparedHost } from "../../shared/remote";
 
+const sha256Pattern = /^[a-f0-9]{64}$/;
+
 /** Terminal bytes use a transient authenticated stream, never durable request receipts. */
 export function remoteTerminal(
   scope: TerminalScope,
@@ -70,7 +72,7 @@ export function remoteTerminal(
       });
       if (!response.ok) throw new Error("Terminal authentication expired. Reconnect the machine.");
       const { ticket } = z
-        .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
+        .object({ ticket: z.string().regex(sha256Pattern) })
         .parse(await response.json());
       if (closed || generation !== version) return;
       const params = new URLSearchParams({ ticket, scope: JSON.stringify({ ...scope, resume }) });

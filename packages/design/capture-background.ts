@@ -1,4 +1,10 @@
+const percentagePattern = /^-?[\d.]+%$/;
+const pixelLengthPattern = /^-?[\d.]+px$/;
+const whitespacePattern = /\s+/;
+const backgroundRepeatPattern = /^(repeat|no-repeat)( (repeat|no-repeat))?$|^repeat-[xy]$/;
+
 // Paint an image background in CSS coordinates. Inline backgrounds are sliced
+
 // across line boxes; a trailing link icon belongs at the end of the final slice.
 export function drawCaptureBackground(
   context: CanvasRenderingContext2D,
@@ -13,8 +19,8 @@ export function drawCaptureBackground(
   const boxes = inline ? fragments : [bounds];
   const sliced = inline && css.getPropertyValue("box-decoration-break") !== "clone";
   const length = (value: string, total: number) => {
-    if (/^-?[\d.]+%$/.test(value)) return (parseFloat(value) * total) / 100;
-    if (/^-?[\d.]+px$/.test(value) || value === "0") return parseFloat(value);
+    if (percentagePattern.test(value)) return (parseFloat(value) * total) / 100;
+    if (pixelLengthPattern.test(value) || value === "0") return parseFloat(value);
     throw new Error("Background position needs a screenshot.");
   };
   let offset = 0;
@@ -49,19 +55,19 @@ export function drawCaptureBackground(
       w *= scale;
       h *= scale;
     } else {
-      const [x = "auto", y = "auto"] = css.backgroundSize.split(/\s+/);
+      const [x = "auto", y = "auto"] = css.backgroundSize.split(whitespacePattern);
       if (x !== "auto") w = length(x, width);
       if (y !== "auto") h = length(y, height);
       if (x === "auto" && y !== "auto") w = (h * imageWidth) / imageHeight;
       if (y === "auto" && x !== "auto") h = (w * imageHeight) / imageWidth;
     }
     if (w <= 0 || h <= 0) continue;
-    const position = css.backgroundPosition.split(/\s+/);
+    const position = css.backgroundPosition.split(whitespacePattern);
     if (position.length !== 2) throw new Error("Background position needs a screenshot.");
     const x = length(position[0]!, width - w),
       y = length(position[1]!, height - h);
     const repeat = css.backgroundRepeat;
-    if (!/^(repeat|no-repeat)( (repeat|no-repeat))?$|^repeat-[xy]$/.test(repeat))
+    if (!backgroundRepeatPattern.test(repeat))
       throw new Error("Background repetition needs a screenshot.");
     const [rx, ry = rx] = repeat.split(" ");
     const repeatX = rx === "repeat" || rx === "repeat-x";

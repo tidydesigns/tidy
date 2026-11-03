@@ -5,6 +5,8 @@ import { boundedRequest, RequestBodyError } from "@/lib/http/request-body";
 import { db } from "@/lib/db";
 import { IMAGE_READ_LIMITS } from "@/lib/security/resource-limits";
 
+const assetHashPattern = /^[a-f0-9]{64}$/;
+
 export type StoredImage = {
   mimeType: string;
   objectKey: string | null;
@@ -32,7 +34,7 @@ export function designBucket() {
 
 /** Immutable, organization-scoped originals may be shared by live and review rows. */
 export function designObjectKey(organizationId: string, digest: string, mimeType: string) {
-  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Invalid asset digest.");
+  if (!assetHashPattern.test(digest)) throw new Error("Invalid asset digest.");
   const suffix = {
     "image/png": "png",
     "image/jpeg": "jpg",

@@ -3,8 +3,10 @@ import { paintStyle } from "./paints";
 import type { DesignPaint, DesignNode } from "./document";
 import { nodePaints } from "./paints";
 
+const hexColorPattern = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+
 export function normalizeColor(value: string | undefined): string | undefined {
-  return value && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value) ? value.toLowerCase() : undefined;
+  return value && hexColorPattern.test(value) ? value.toLowerCase() : undefined;
 }
 
 /** Actual colors used by the selected layers, including token-backed paints. */

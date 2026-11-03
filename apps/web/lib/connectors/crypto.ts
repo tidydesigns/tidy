@@ -8,10 +8,13 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
+const encryptionKeyPattern = /^[A-Za-z0-9+/]{43}=$/;
+const tokenHashPattern = /^[a-f0-9]{64}$/;
+
 export type Sealed = { iv: string; tag: string; body: string };
 function key() {
   const value = process.env.VAULT_ENCRYPTION_KEY;
-  if (!value || !/^[A-Za-z0-9+/]{43}=$/.test(value))
+  if (!value || !encryptionKeyPattern.test(value))
     throw new Error("Connector encryption is not configured.");
   return Buffer.from(value, "base64");
 }
@@ -47,7 +50,7 @@ export function pkceChallenge(value: string) {
 export function validSignature(body: string, signature: string | null, secret: string) {
   return Boolean(
     signature &&
-    /^[a-f0-9]{64}$/.test(signature) &&
+    tokenHashPattern.test(signature) &&
     timingSafeEqual(
       createHmac("sha256", secret).update(body).digest(),
       Buffer.from(signature, "hex"),

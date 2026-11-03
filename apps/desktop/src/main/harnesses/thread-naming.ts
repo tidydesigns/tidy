@@ -8,6 +8,8 @@ import { harnessEnvironment } from "./harnesses";
 import { HarnessTransport, object, text, type TransportInput } from "./harness-transport";
 import { acpInitializeParams, acpInitializationSchema, acpSessionSchema } from "./opencode-adapter";
 
+const surroundingQuotesPattern = /^["'`“]+|["'`”]+$/g;
+
 export type NamingInput = {
   executable: string;
   harness: HarnessId;
@@ -81,10 +83,7 @@ function namingTransportInput(input: NamingInput, cwd: string): TransportInput {
 }
 
 export function generatedThreadTitle(value: string) {
-  const title = value
-    .trim()
-    .replace(/^["'`“]+|["'`”]+$/g, "")
-    .trim();
+  const title = value.trim().replace(surroundingQuotesPattern, "").trim();
   // Reject explanations and malformed output rather than turning them into a sidebar title.
   const parsed = threadTitleSchema.safeParse(title);
   if (!parsed.success)

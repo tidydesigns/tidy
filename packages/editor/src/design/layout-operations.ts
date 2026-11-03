@@ -12,6 +12,8 @@ import { syncComponentEdit } from "./component-sync";
 import { rotatePoint } from "./resize-box";
 import { boundingBox } from "./snapping";
 
+const pixelLengthPattern = /(?<![\d.])(-?(?:\d+(?:\.\d+)?|\.\d+))px\b/g;
+
 export type MeasuredBoxes = ReadonlyMap<string, DesignNode["box"]>;
 export type WrapKind = "group" | "frame" | "auto";
 const measuredBox = (node: DesignNode, boxes?: MeasuredBoxes) => boxes?.get(node.id) ?? node.box;
@@ -517,7 +519,7 @@ export function scaleLayers(
     for (const key of ["shadow", "innerShadow"] as const)
       if (node.style[key]) {
         const value = node.style[key]!.replace(
-          /(?<![\d.])(-?(?:\d+(?:\.\d+)?|\.\d+))px\b/g,
+          pixelLengthPattern,
           (_, value) => `${Math.round(Number(value) * factor * 1000) / 1000}px`,
         );
         if (value !== current.style[key]) style[key] = value;

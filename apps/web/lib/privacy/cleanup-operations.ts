@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 
+const receiptIdPattern = /^[a-f0-9-]{36}$/;
+
 // Operator-only; no public HTTP endpoint can mark erasure complete.
 export async function completePostHogReview(
   client: Pick<PoolClient, "query">,
   id: string,
   reference: string,
 ) {
-  if (!/^[a-f0-9-]{36}$/.test(id) || !reference.trim() || reference.length > 500)
+  if (!receiptIdPattern.test(id) || !reference.trim() || reference.length > 500)
     throw new Error(
       "Supply the job UUID and a nonempty completion-evidence reference (up to 500 characters)",
     );

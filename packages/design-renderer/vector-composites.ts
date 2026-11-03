@@ -13,6 +13,11 @@ import { strokeWidths, vectorOutset } from "./strokes";
 import { vectorSvg } from "./vector-path";
 import { imageMaskPaint } from "@tidy/design/vector-relationships";
 
+const svgOpeningPattern = /^<svg[^>]*>/;
+const svgClosingPattern = /<\/svg>$/;
+const svgIdPattern = /id="([^"]+)"/g;
+const svgReferencePattern = /url\(#([^)]*)\)/g;
+
 export { booleanRenderNode };
 const transform = (matrix: Affine) => `matrix(${matrix.join(" ")})`;
 
@@ -106,10 +111,10 @@ export function vectorMaskSvg(
     const attributes = `opacity="${source.style.opacity ?? 1}"${filter ? ` style="filter:${filter}"` : ""}`;
     if (rendered.vectorPath) {
       const inner = vectorSvg(rendered, tokens)
-        .replace(/^<svg[^>]*>/, "")
-        .replace(/<\/svg>$/, "")
-        .replace(/id="([^"]+)"/g, (_m, id: string) => `id="${prefix}${id}"`)
-        .replace(/url\(#([^)]*)\)/g, (_m, id: string) => `url(#${prefix}${id})`);
+        .replace(svgOpeningPattern, "")
+        .replace(svgClosingPattern, "")
+        .replace(svgIdPattern, (_m, id: string) => `id="${prefix}${id}"`)
+        .replace(svgReferencePattern, (_m, id: string) => `url(#${prefix}${id})`);
       return `<g transform="${transform(pathAffine(rendered))}" ${attributes}>${inner}</g>`;
     }
     const w = source.box.width,

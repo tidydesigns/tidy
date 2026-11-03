@@ -6,6 +6,10 @@ import {
   type BudgetEnvironment,
 } from "./worker-budget";
 
+const trailingSlashes = /\/+$/;
+const desktopPrivacyPath = /^\/api\/telemetry\/desktop\/(erase|unlink|export|status)$/;
+const webhookPath = /^\/api\/(billing|github|linear)\/webhook$/;
+
 // These are shared admission ceilings, not monthly spend guarantees. Separate
 // essential paths so optional traffic cannot consume authentication/erasure capacity.
 export const INGRESS_LIMITS = {
@@ -21,7 +25,7 @@ export const INGRESS_LIMITS = {
 export function ingressKind(request: Request): keyof typeof INGRESS_LIMITS | null {
   let path: string;
   try {
-    path = decodeURIComponent(new URL(request.url).pathname).replace(/\/+$/, "") || "/";
+    path = decodeURIComponent(new URL(request.url).pathname).replace(trailingSlashes, "") || "/";
   } catch {
     return "application";
   }
@@ -33,11 +37,11 @@ export function ingressKind(request: Request): keyof typeof INGRESS_LIMITS | nul
     path === "/api/internal/analytics/maintenance"
   )
     return "cleanup";
-  if (/^\/api\/telemetry\/desktop\/(erase|unlink|export|status)$/.test(path)) return "privacy";
+  if (desktopPrivacyPath.test(path)) return "privacy";
   if (path === "/api/telemetry/desktop/receipt") return "telemetryReceipt";
   if (path.startsWith("/api/telemetry/")) return "telemetry";
   if (path.startsWith("/api/privacy/")) return "privacy";
-  if (/^\/api\/(billing|github|linear)\/webhook$/.test(path)) return "webhook";
+  if (webhookPath.test(path)) return "webhook";
   if (path === "/api/auth/sign-up/email") return "registration";
   if (
     path.startsWith("/api/auth/") ||

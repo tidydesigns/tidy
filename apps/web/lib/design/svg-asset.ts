@@ -1,6 +1,19 @@
 import { DOMParser } from "@xmldom/xmldom";
 import { PublicActionError } from "../security/public-error";
 
+const unsafePresentationPattern =
+  /[\\@\u0000-\u0008\u000b\u000c\u000e-\u001f]|\/\*|\*\/|expression\s*\(/i;
+const localPaintReferencePattern = /url\(\s*(['"]?)(#[A-Za-z_][\w.:-]*)\1\s*\)/gi;
+const externalPaintReferencePattern = /url\s*\(/i;
+const ampersandPattern = /&/g;
+const lessThanPattern = /</g;
+const greaterThanPattern = />/g;
+const carriageReturnPattern = /\r/g;
+const attributeQuotePattern = /"/g;
+const attributeTabPattern = /\t/g;
+const attributeNewlinePattern = /\n/g;
+const xmlDeclarationPattern = /<!DOCTYPE|<!ENTITY/i;
+
 const svgNamespace = "http://www.w3.org/2000/svg";
 const xlinkNamespace = "http://www.w3.org/1999/xlink";
 const elements = new Set(
@@ -39,30 +52,32 @@ function invalid(): never {
 }
 function safeValue(value: string) {
   // Keep presentation CSS and local paint references; disallow indirect syntax.
-  if (/[\\@\u0000-\u0008\u000b\u000c\u000e-\u001f]|\/\*|\*\/|expression\s*\(/i.test(value))
-    invalid();
-  const rest = value.replace(/url\(\s*(['"]?)(#[A-Za-z_][\w.:-]*)\1\s*\)/gi, "");
-  if (/url\s*\(/i.test(rest)) invalid();
+  if (unsafePresentationPattern.test(value)) invalid();
+  const rest = value.replace(localPaintReferencePattern, "");
+  if (externalPaintReferencePattern.test(rest)) invalid();
 }
 
 // Encode decoded text without expanding formatting whitespace. Carriage returns
 // need character references to survive XML line-ending normalization.
 function escapeText(value: string) {
   return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\r/g, "&#13;");
+    .replace(ampersandPattern, "&amp;")
+    .replace(lessThanPattern, "&lt;")
+    .replace(greaterThanPattern, "&gt;")
+    .replace(carriageReturnPattern, "&#13;");
 }
 
 // Attribute normalization also requires escaping quotes, tabs and newlines.
 function escapeAttribute(value: string) {
-  return escapeText(value).replace(/"/g, "&quot;").replace(/\t/g, "&#9;").replace(/\n/g, "&#10;");
+  return escapeText(value)
+    .replace(attributeQuotePattern, "&quot;")
+    .replace(attributeTabPattern, "&#9;")
+    .replace(attributeNewlinePattern, "&#10;");
 }
 
 /** Normalize static image content identically at ingestion and export. */
 export function sanitizeSvgAsset(source: string): string {
-  if (!source || source.length > 2_000_000 || /<!DOCTYPE|<!ENTITY/i.test(source)) invalid();
+  if (!source || source.length > 2_000_000 || xmlDeclarationPattern.test(source)) invalid();
   const parsed = new DOMParser({
     errorHandler: { warning: invalid, error: invalid, fatalError: invalid },
   }).parseFromString(source, "image/svg+xml");

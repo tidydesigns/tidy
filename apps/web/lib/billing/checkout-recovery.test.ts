@@ -18,7 +18,7 @@ test("checkout retry reuses its idempotency key, then reuses the persisted open 
       if (sql === "begin") snapshot = { ...row };
       if (sql === "rollback") Object.assign(row, snapshot);
       if (/^select "id" from "(organization|user|member)"/.test(sql)) return { rows: [{ id: "authorized" }], rowCount: 1 };
-      if (sql.startsWith('select * from')) return { rows: [{ ...row }] };
+      if (sql.startsWith('select ') && sql.includes(' from "organization_billing"')) return { rows: [{ ...row }] };
       if (sql.startsWith('update "organization_billing"')) {
         if (failUpdate) throw Error("Database update unavailable");
         row.stripeCustomerId = values[1]; row.stripeCheckoutSessionId = values[2];

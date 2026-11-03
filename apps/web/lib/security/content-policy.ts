@@ -1,6 +1,8 @@
+const nonceEncodingPattern = /^[A-Za-z0-9+/=_-]+$/;
+
 /** Page policy shared by the request adapter and its compatibility checks. */
 export function pageContentPolicy(nonce: string, development = false) {
-  if (!/^[A-Za-z0-9+/=_-]+$/.test(nonce)) throw new Error("Invalid page nonce.");
+  if (!nonceEncodingPattern.test(nonce)) throw new Error("Invalid page nonce.");
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'${development ? " 'unsafe-eval'" : ""}`,

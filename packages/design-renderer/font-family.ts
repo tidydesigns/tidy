@@ -1,3 +1,7 @@
+const fontFamilyListPattern = /(?:"[^"]*"|'[^']*'|[^,])+/g;
+const quotedFamilyPattern = /^(['"])(.*)\1$/;
+const unquotedFamilyPattern = /^[a-zA-Z_-][a-zA-Z0-9_-]*(?:\s+[a-zA-Z_-][a-zA-Z0-9_-]*)*$/;
+
 export const genericFonts = new Set([
   "system-ui",
   "sans-serif",
@@ -16,8 +20,8 @@ export const genericFonts = new Set([
 export function fontFamilies(value: string): string[] {
   if (value === "var(--font-instrument-sans)") return ["Instrument Sans"];
   if (value === "var(--font-instrument-serif)") return ["Instrument Serif"];
-  return (value.match(/(?:"[^"]*"|'[^']*'|[^,])+/g) ?? [])
-    .map((family) => family.trim().replace(/^(['"])(.*)\1$/, "$2"))
+  return (value.match(fontFamilyListPattern) ?? [])
+    .map((family) => family.trim().replace(quotedFamilyPattern, "$2"))
     .filter(Boolean);
 }
 
@@ -29,11 +33,7 @@ export function renderFontFamily(value?: string, face?: string) {
       : value === "var(--font-instrument-serif)"
         ? '"Instrument Serif", var(--font-instrument-serif)'
         : fontFamilies(value)
-            .map((name) =>
-              /^[a-zA-Z_-][a-zA-Z0-9_-]*(?:\s+[a-zA-Z_-][a-zA-Z0-9_-]*)*$/.test(name)
-                ? name
-                : JSON.stringify(name),
-            )
+            .map((name) => (unquotedFamilyPattern.test(name) ? name : JSON.stringify(name)))
             .join(", ");
   const fallback = fontFamilies(family).some((family) => genericFonts.has(family.toLowerCase()))
     ? family

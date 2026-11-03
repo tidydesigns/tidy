@@ -1,11 +1,13 @@
 import { z } from "zod";
 
+const controlCharactersPattern = /[\u0000-\u001f\u007f]/;
+
 export const organizationNameSchema = z
   .string()
   .trim()
   .min(1, "Enter an organization name.")
   .max(100, "Use 100 characters or fewer.")
-  .refine((name) => !/[\u0000-\u001f\u007f]/.test(name), "Use a name without control characters.");
+  .refine((name) => !controlCharactersPattern.test(name), "Use a name without control characters.");
 
 export const organizationCreationNavigationSchema = z.object({
   name: organizationNameSchema,

@@ -1,3 +1,6 @@
+const privateElementPattern = /^(textarea|select|iframe|object|embed)$/i;
+const inputElementPattern = /^input$/i;
+
 /** Screenshots cannot safely redact overflowing, animated or closed private content.
  * Inspect all roots without layout reads; fail closed if inspection is unavailable.
  */
@@ -15,10 +18,10 @@ export function inspectScreenshotPage(
       const element = pending.pop();
       if (!element) continue;
       if (++visited > 15000 || performance.now() > deadline) return false;
-      if (/^(textarea|select|iframe|object|embed)$/i.test(element.localName)) return false;
+      if (privateElementPattern.test(element.localName)) return false;
       // Whitespace makes an input type invalid (and therefore visible); do not trim it.
       if (
-        /^input$/i.test(element.localName) &&
+        inputElementPattern.test(element.localName) &&
         element.getAttribute("type")?.toLowerCase() !== "hidden"
       )
         return false;

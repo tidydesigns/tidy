@@ -16,6 +16,8 @@ import {
   type CloudManifest,
 } from "../../shared/contracts/cloud-sync";
 
+const imageDataUrlPattern = /^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/;
+
 export type CloudSnapshot = { revision: number; content: DesignDocument; name?: string };
 export type PendingUpload = { operationId: string; base: CloudSnapshot; patch: DocumentPatch };
 export interface CloudRemote {
@@ -228,9 +230,7 @@ export class HTTPCloudRemote implements CloudRemote {
     return `data:${asset.mimeType};base64,${asset.base64}`;
   }
   async uploadAsset(fileId: string, dataUrl: string, signal?: AbortSignal) {
-    const match = /^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/.exec(
-      dataUrl,
-    );
+    const match = imageDataUrlPattern.exec(dataUrl);
     if (!match) throw new Error("This local image cannot be synced.");
     return z.object({ assetId: z.uuid() }).parse(
       await (

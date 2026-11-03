@@ -17,6 +17,9 @@ import {
 } from "@tidy/design/analytics";
 import type { PrivateState } from "./platform/private-state";
 
+const sha256Pattern = /^[a-f0-9]{64}$/;
+const challengePattern = /^\?challenge=[a-f0-9]{64}$/;
+
 const savedSchema = z
   .object({
     notice: z.literal(ANALYTICS_NOTICE),
@@ -105,7 +108,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
       else if (raw && typeof raw === "object") {
         // A changed notice must revoke collection without losing the ability to erase old reports.
         const prior = raw as Record<string, unknown>;
-        const token = z.string().regex(/^[a-f0-9]{64}$/);
+        const token = z.string().regex(sha256Pattern);
         const receipt = z.object({ token }).safeParse(prior.receipt);
         const erased = z.array(token).max(1000).safeParse(prior.erase);
         this.saved.erase = [
@@ -483,7 +486,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
     if (
       url.origin !== new URL(this.options.origin).origin ||
       url.pathname !== "/privacy/desktop-link" ||
-      !/^\?challenge=[a-f0-9]{64}$/.test(url.search)
+      !challengePattern.test(url.search)
     )
       throw new Error("Invalid link destination.");
     await this.options.open(url.href);

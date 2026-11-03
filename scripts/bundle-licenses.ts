@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import reviewed from "../licenses/bundled/manifest.json";
 
+const dependencyPathPattern = /^(.*\/node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/;
+
 // This module is shared by Bun build scripts and WXT's Node-based configuration.
 type BundleMetadata = {
   metafile?: {
@@ -23,9 +25,7 @@ export async function bundleLicenseBanner(build: BundleMetadata) {
 export async function bundleLicenseBannerForInputs(inputs: Iterable<string>) {
   const packages = new Map<string, string>();
   for (const input of inputs) {
-    const root = resolve(input)
-      .replaceAll("\\", "/")
-      .match(/^(.*\/node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/)?.[1];
+    const root = resolve(input).replaceAll("\\", "/").match(dependencyPathPattern)?.[1];
     if (!root) continue;
     const { name, version, license } = JSON.parse(
       await readFile(resolve(root, "package.json"), "utf8"),

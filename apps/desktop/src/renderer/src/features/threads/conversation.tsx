@@ -39,6 +39,10 @@ import { remarkTableSource } from "./table-markdown";
 import { TurnStatus } from "./turn-status";
 import { remarkCompleteBlocks, useBlockReveal, useBufferedMarkdown } from "./streamed-markdown";
 
+const whitespacePattern = /\s+/g;
+
+const imageExtensionPattern = /\.(?:png|jpe?g|gif|webp)$/i;
+
 const messageTime = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
   minute: "2-digit",
@@ -75,7 +79,7 @@ const MarkdownContent = memo(function MarkdownContent({
         if (node?.children.some((child) => child.type === "element" && child.tagName === "img"))
           return <span>{children}</span>;
         const link = parseChatLink(href);
-        if (href && link?.kind === "file" && /\.(?:png|jpe?g|gif|webp)$/i.test(link.name))
+        if (href && link?.kind === "file" && imageExtensionPattern.test(link.name))
           return (
             <ChatImage
               key={href}
@@ -331,7 +335,10 @@ const TurnButton = memo(function TurnButton({
   onPreview: (index: number | null) => void;
   onJump: (id: string, index: number) => void;
 }) {
-  const label = useMemo(() => prompt.replace(/\s+/g, " ").slice(0, 100) || "Attachment", [prompt]);
+  const label = useMemo(
+    () => prompt.replace(whitespacePattern, " ").slice(0, 100) || "Attachment",
+    [prompt],
+  );
   return (
     <Button
       aria-label={`Jump to turn ${index + 1}: ${label}`}

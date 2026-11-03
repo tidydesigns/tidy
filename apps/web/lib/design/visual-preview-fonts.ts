@@ -5,6 +5,9 @@ import { fontCssForText } from "./fonts/export-css";
 import { resolveNodeTokens } from "@tidy/design/design-tokens";
 import { createVariantResolver } from "@tidy/design/component-variants";
 
+const fontUrlPattern = /url\(([^)]+)\)/g;
+const surroundingQuotesPattern = /^["']|["']$/g;
+
 export type PreviewFonts = { css: string; warnings: string[] };
 export const VISUAL_PREVIEW_MAX_BYTES = 512_000;
 
@@ -107,8 +110,8 @@ export async function packagePreviewFonts(
       );
       const urls = [
         ...new Set(
-          [...faces.matchAll(/url\(([^)]+)\)/g)].map((match) =>
-            match[1].replace(/^["']|["']$/g, ""),
+          [...faces.matchAll(fontUrlPattern)].map((match) =>
+            match[1].replace(surroundingQuotesPattern, ""),
           ),
         ),
       ];

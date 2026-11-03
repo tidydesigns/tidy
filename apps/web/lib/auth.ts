@@ -43,6 +43,9 @@ import {
 } from "@/lib/auth/request-lifecycle";
 import { startOperation, traceOperation } from "@/lib/trace-context";
 
+const recoveryPathPattern =
+  /^\/(get-session|sign-in\/|sign-up\/|callback\/|verify-email|send-verification-email|sign-out|request-password-reset|reset-password)/;
+
 function workerRuntime() {
   return typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 }
@@ -239,8 +242,7 @@ function createAuth() {
       before: createAuthMiddleware(async (ctx) => {
         // Existing cookies may predate mandatory verification. Better Auth's
         // internal session middleware bypasses the public get-session hooks.
-        const recovery =
-          /^\/(get-session|sign-in\/|sign-up\/|callback\/|verify-email|send-verification-email|sign-out|request-password-reset|reset-password)/;
+        const recovery = recoveryPathPattern;
         if (ctx.headers?.get("cookie") && !recovery.test(ctx.path)) {
           const session = await getSessionFromCtx(ctx, { disableCookieCache: true });
           if (session && !session.user.emailVerified) {
@@ -323,6 +325,7 @@ function createAuth() {
         }
         const organization = await ctx.context.adapter.findOne<{ name: string }>({
           model: "organization",
+          select: ["name"],
           where: [{ field: "id", value: ctx.body?.organizationId }],
         });
         requireOrganizationName(

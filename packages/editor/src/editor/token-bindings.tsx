@@ -8,6 +8,9 @@ import {
 } from "../design/design-tokens";
 import { Choice, shared, type Patch } from "./inspector-controls";
 
+const camelCaseBoundaryPattern = /([A-Z])/g;
+const initialCharacterPattern = /^./;
+
 export function TokenBindings({
   selected,
   document,
@@ -37,7 +40,7 @@ export function TokenBindings({
           <Choice
             replayLabel
             key={key}
-            label={`${key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())} token`}
+            label={`${key.replace(camelCaseBoundaryPattern, " $1").replace(initialCharacterPattern, (c) => c.toUpperCase())} token`}
             value={shared(selected, (node) => node.tokenBindings?.[key] ?? "")}
             choices={[
               ["", "Custom"],

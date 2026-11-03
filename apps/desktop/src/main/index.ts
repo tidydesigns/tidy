@@ -60,6 +60,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
+const rendererOrigin = entryURL.startsWith("http") ? new URL(entryURL).origin : undefined;
 const appName = desktopAppName(version, process.platform);
 
 let localClient: RemoteClient | undefined;
@@ -487,7 +488,7 @@ app
           return projectAssetResponse(
             store,
             request,
-            entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
+            rendererOrigin,
             (projectId) => service!.assertProjectAccess(projectId),
             (projectId, assetId) => service!.dispatch(() => cloud!.loadAsset(projectId, assetId)),
           );

@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import { db } from "../db";
 import { organizationNameSchema } from "./name";
 
+const combiningMarksPattern = /[\u0300-\u036f]/g;
+const slugSeparatorsPattern = /[^a-z0-9]+/g;
+const slugEdgesPattern = /^-|-$/g;
+
 export class OrganizationCreationError extends Error {}
 
 export async function organizationCreationStatus(userId: string) {
@@ -41,10 +45,10 @@ export async function createOrganizationForUser(userId: string, name: string, se
   const base = parsed.data
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(combiningMarksPattern, "")
+    .replace(slugSeparatorsPattern, "-")
     .slice(0, 50)
-    .replace(/^-|-$/g, "");
+    .replace(slugEdgesPattern, "");
   const slug = `${base || "organisation"}-${id}`;
   const connection = await db.connect();
   try {

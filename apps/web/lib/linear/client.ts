@@ -5,6 +5,8 @@ import { linearRequestSignal, consumeLinearBytes } from "./work-budget";
 import { waitForSignal } from "@/lib/request-lifecycle";
 import { linearConfig } from "./config";
 
+const scopeSeparatorsPattern = /[ ,]+/;
+
 export class LinearError extends ConnectorError {
   constructor(status: number) {
     super(
@@ -32,7 +34,9 @@ export function parseLinearToken(value: unknown): LinearToken {
   return token.data;
 }
 export function tokenScopes(token: LinearToken) {
-  return Array.isArray(token.scope) ? token.scope : token.scope.split(/[ ,]+/).filter(Boolean);
+  return Array.isArray(token.scope)
+    ? token.scope
+    : token.scope.split(scopeSeparatorsPattern).filter(Boolean);
 }
 export async function exchangeToken(parameters: Record<string, string>) {
   const config = linearConfig();

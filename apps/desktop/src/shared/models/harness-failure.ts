@@ -1,5 +1,7 @@
 import type { HarnessFailureKind } from "../contracts/harness-failure";
 
+const providerNamePattern = /daybreak/i;
+
 const descriptions = {
   policy: {
     title: "Request blocked",
@@ -225,5 +227,9 @@ export function describeHarnessFailure(message: string, knownKind?: HarnessFailu
     knownKind && knownKind !== "unknown"
       ? knownKind
       : (rules.find(([, pattern]) => pattern.test(message))?.[0] ?? "unknown");
-  return { kind, ...descriptions[kind], daybreak: kind === "policy" && /daybreak/i.test(message) };
+  return {
+    kind,
+    ...descriptions[kind],
+    daybreak: kind === "policy" && providerNamePattern.test(message),
+  };
 }

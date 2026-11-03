@@ -8,6 +8,9 @@ import {
   linkAnalyticsAccount,
   unlinkAnalyticsAccount,
 } from "@/lib/analytics/store";
+
+const linkTokenPattern = /^[a-f0-9]{64}$/;
+
 async function handle(request: Request) {
   if (!analyticsStorageEnabled())
     return new Response(null, { status: 503, headers: privateHeaders });
@@ -16,7 +19,7 @@ async function handle(request: Request) {
     const input = z
       .discriminatedUnion("action", [
         z
-          .object({ action: z.literal("link"), challenge: z.string().regex(/^[a-f0-9]{64}$/) })
+          .object({ action: z.literal("link"), challenge: z.string().regex(linkTokenPattern) })
           .strict(),
         z.object({ action: z.literal("unlink") }).strict(),
       ])

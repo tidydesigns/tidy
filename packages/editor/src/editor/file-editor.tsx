@@ -101,6 +101,10 @@ import { CanvasViewMenu, type CanvasPreferences } from "./canvas-view-menu";
 import { CanvasModeSwitch } from "./canvas-mode-switch";
 import { EditorHeader, type EditorUser } from "./editor-header";
 import { lazy } from "react";
+
+const digitKeyPattern = /^Digit[0-9]$/;
+const dataMediaTypePattern = /^data:([^;]+)/;
+
 const EditorReviewControl = lazy(() =>
   import("./editor-review-control").then((module) => ({ default: module.EditorReviewControl })),
 );
@@ -2997,7 +3001,7 @@ export function FileEditor({
         zoomView("out");
         return;
       }
-      if (viewPreferences.numberKeys && /^Digit[0-9]$/.test(event.code)) {
+      if (viewPreferences.numberKeys && digitKeyPattern.test(event.code)) {
         event.preventDefault();
         const number = Number(event.code.slice(-1));
         zoomView(number === 0 ? 1 : number / 10);
@@ -4677,7 +4681,7 @@ export function FileEditor({
                         url,
                         mimeType:
                           snapshot.content.assetMimeTypes?.[assetId] ??
-                          url.match(/^data:([^;]+)/)?.[1] ??
+                          url.match(dataMediaTypePattern)?.[1] ??
                           "image/png",
                         byteSize: 0,
                       }))

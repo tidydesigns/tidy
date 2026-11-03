@@ -1,5 +1,23 @@
 # Postgres migrations
 
+`20261103-document-initialization.sql` requires `schema-design-document.sql` and
+must run before deploying the corresponding file-change reader. It adds a stored
+generated `designDocument.initialized` column so unchanged and incremental reads
+can check initialization without extracting a key from the full document JSON.
+The expression preserves the reader's existing treatment of missing, null,
+boolean and string values. PostgreSQL backfills existing rows and maintains the
+column for every content write, including older application writers and restores.
+The JSON document and its public format remain unchanged.
+
+Adding the stored column rewrites the table under an `ACCESS EXCLUSIVE` lock.
+Measure the duration on a production-sized copy and schedule the approved
+migration accordingly; reads and writes wait until it commits.
+`apps/web/scripts/init-local-postgres.sh` includes it. When using
+`apps/web/scripts/setup-multiplayer-local.mjs`, apply this migration to the local
+database separately before starting the updated reader. Production application
+requires explicit approval. Roll back application readers before removing the
+column; older readers continue to work with the column present.
+
 `20261024-desktop-analytics.sql` follows `20261021-combined-privacy-consent.sql`.
 It adds separate native consent receipts (including a prospective link timestamp), optional account aliases, expiring
 first-party product records, and aggregate release counters/export markers. Reapply

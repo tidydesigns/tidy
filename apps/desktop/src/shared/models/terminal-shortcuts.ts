@@ -1,5 +1,7 @@
 import type { TerminalShortcut } from "../contracts/terminal";
 
+const digitShortcutPattern = /^Digit[1-8]$/;
+
 export function terminalShortcut(
   input: {
     code: string;
@@ -37,5 +39,6 @@ export function terminalShortcut(
   if (input.code === "KeyT") return "new";
   if (input.code === "KeyW") return "close";
   if (input.code === "Enter") return "maximize";
-  if (/^Digit[1-8]$/.test(input.code)) return `select-${input.code.slice(-1)}` as TerminalShortcut;
+  if (digitShortcutPattern.test(input.code))
+    return `select-${input.code.slice(-1)}` as TerminalShortcut;
 }

@@ -8,6 +8,10 @@ import { db } from "@/lib/db";
 import { authorizationVersion, McpGrantError, requireMcpGrant } from "@/lib/mcp/authorizations";
 import { oauthFailure, oauthTransaction } from "./oauth-transaction";
 
+const basicAuthorizationPattern = /^Basic\s+/i;
+const integrationScopePattern = /^(mcp|linear|desktop):/;
+const tokenAuthorizationPattern = /^(Bearer|DPoP)\s+/i;
+
 type Provider = ReturnType<typeof mcp>;
 type Context = Parameters<typeof getOAuthProviderApi>[0];
 type ClientSnapshot = {
@@ -31,7 +35,8 @@ async function introspectionClient(ctx: Context, options: Provider["options"]) {
       id = claims.sub ?? claims.iss;
     } else {
       const header = ctx.request?.headers.get("authorization");
-      if (header && /^Basic\s+/i.test(header)) id = decodeBasicCredentials(header).clientId;
+      if (header && basicAuthorizationPattern.test(header))
+        id = decodeBasicCredentials(header).clientId;
     }
   } catch {
     return;
@@ -160,7 +165,7 @@ async function retainToken(
           ? await authorizationVersion(userId, clientId)
           : claims.bella_grant_version,
       },
-      scopes: scopes.filter((scope) => /^(mcp|linear|desktop):/.test(scope)),
+      scopes: scopes.filter((scope) => integrationScopePattern.test(scope)),
       resource: resources[0],
     };
     try {
@@ -212,7 +217,7 @@ export function oauthUserInfoEndpoint(
   return createAuthEndpoint(endpoint.path, endpoint.options, async (ctx) => {
     try {
       const raw =
-        ctx.headers?.get("authorization")?.replace(/^(Bearer|DPoP)\s+/i, "") ??
+        ctx.headers?.get("authorization")?.replace(tokenAuthorizationPattern, "") ??
         ctx.body?.access_token;
       if (typeof raw === "string" && raw.length > 4096) throw ended();
       const result = await endpoint({
@@ -256,7 +261,7 @@ export function oauthIntrospectionEndpoint(
       if (result.status) ctx.setStatus(result.status as Parameters<typeof ctx.setStatus>[0]);
       if (!result.response.active) return result.response;
       if (!client || client.clientId !== result.response.client_id) return { active: false };
-      const raw = ctx.body.token.replace(/^(Bearer|DPoP)\s+/i, "");
+      const raw = ctx.body.token.replace(tokenAuthorizationPattern, "");
       await retainToken(ctx, options, raw, ctx.body.token_type_hint, client);
       return result.response;
     } catch (error) {

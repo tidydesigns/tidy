@@ -7,6 +7,8 @@ import { TokenBindings } from "../token-bindings";
 import { ResponsiveBreakpoints } from "../responsive-breakpoints";
 import { InspectorDisclosure } from "../inspector-presentation";
 
+const camelCaseBoundaryPattern = /([A-Z])/g;
+
 type Props = Pick<SelectionInspectorProps, "selected" | "document" | "onPatch" | "onDocument"> & {
   sourceSelection: SelectionInspectorProps["selected"];
 };
@@ -64,7 +66,7 @@ function AdvancedControls({ selected, sourceSelection, document, onPatch, onDocu
         <div className="grid grid-cols-2 gap-1.5 px-4 pb-3">
           {(["minWidth", "maxWidth", "minHeight", "maxHeight"] as const).map((key) =>
             numberField(
-              key.replace(/([A-Z])/g, " $1"),
+              key.replace(camelCaseBoundaryPattern, " $1"),
               (item) => item[key],
               (value) => ({ [key]: value }),
               key.startsWith("max") ? 1 : 0,

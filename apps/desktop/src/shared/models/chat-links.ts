@@ -1,3 +1,15 @@
+const controlCharacterPattern = /[\u0000-\u001f\u007f]/;
+const externalSchemePattern = /^(?:https?:|mailto:)/i;
+const fileSchemePattern = /^file:/i;
+const fileDrivePattern = /^\/[a-z]:\//i;
+const filePositionPattern = /(?::(?<colonLine>[1-9]\d*)(?::(?<colonColumn>[1-9]\d*))?(?:-(?<colonEnd>[1-9]\d*))?|#L(?<hashLine>[1-9]\d*)(?:C(?<hashColumn>[1-9]\d*))?(?:-L(?<hashEnd>[1-9]\d*))?)$/;
+const schemePattern = /^[a-z][a-z\d+.-]*:/i;
+const windowsDrivePattern = /^[a-z]:[\\/]/i;
+const queryOrHashPattern = /[?#]/;
+const whitespacePattern = /\s/;
+const encodedCharacterPattern = /%[a-f\d]{2}/i;
+const pathSeparatorPattern = /[\\/]/;
+
 const serviceHosts = {
   "github.com": "github",
   "www.github.com": "github",
@@ -22,8 +34,8 @@ export type ChatLink =
   | { kind: "file"; path: string; name: string; line?: number; column?: number; endLine?: number };
 
 export function parseChatLink(href: string | undefined): ChatLink | null {
-  if (!href || href.length > 4096 || /[\u0000-\u001f\u007f]/.test(href)) return null;
-  if (/^(?:https?:|mailto:)/i.test(href)) {
+  if (!href || href.length > 4096 || controlCharacterPattern.test(href)) return null;
+  if (externalSchemePattern.test(href)) {
     try {
       const url = new URL(href);
       if (url.username || url.password) return null;
@@ -36,37 +48,37 @@ export function parseChatLink(href: string | undefined): ChatLink | null {
     }
   }
   let path = href;
-  if (/^file:/i.test(path)) {
+  if (fileSchemePattern.test(path)) {
     try {
       const url = new URL(path);
       if (url.hostname && url.hostname !== "localhost") return null;
       if (url.search || url.username || url.password) return null;
       path = url.pathname + url.hash;
-      if (/^\/[a-z]:\//i.test(path)) path = path.slice(1);
+      if (fileDrivePattern.test(path)) path = path.slice(1);
     } catch {
       return null;
     }
   }
   const position = path.match(
-    /(?::(?<colonLine>[1-9]\d*)(?::(?<colonColumn>[1-9]\d*))?(?:-(?<colonEnd>[1-9]\d*))?|#L(?<hashLine>[1-9]\d*)(?:C(?<hashColumn>[1-9]\d*))?(?:-L(?<hashEnd>[1-9]\d*))?)$/,
+    filePositionPattern,
   );
   if (position) path = path.slice(0, position.index);
-  if (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:[\\/]/i.test(path)) return null;
-  if (/[?#]/.test(path) || path.replace(/^[a-z]:[\\/]/i, "").includes(":")) return null;
+  if (schemePattern.test(path) && !windowsDrivePattern.test(path)) return null;
+  if (queryOrHashPattern.test(path) || path.replace(windowsDrivePattern, "").includes(":")) return null;
   try {
     path = decodeURIComponent(path).replaceAll("\\", "/");
   } catch {
     return null;
   }
-  if (!path || /[\u0000-\u001f\u007f]/.test(path) || path.startsWith("//")) return null;
+  if (!path || controlCharacterPattern.test(path) || path.startsWith("//")) return null;
   const name = path.split("/").at(-1);
   if (!name || name === "." || name === "..") return null;
   if (
     !name.includes(".") &&
-    /\s/.test(name) &&
+    whitespacePattern.test(name) &&
     !path.includes("/") &&
     !position &&
-    !/%[a-f\d]{2}/i.test(href)
+    !encodedCharacterPattern.test(href)
   )
     return null;
   const lineText = position?.groups?.colonLine ?? position?.groups?.hashLine;
@@ -93,7 +105,7 @@ export function parseChatLink(href: string | undefined): ChatLink | null {
 }
 
 export function fileIconName(path: string) {
-  const name = path.split(/[\\/]/).at(-1)?.toLowerCase() ?? "";
+  const name = path.split(pathSeparatorPattern).at(-1)?.toLowerCase() ?? "";
   if (name === "package.json" || name === "package-lock.json") return "npm";
   if (name === "dockerfile" || name.startsWith("docker-compose.")) return "docker";
   const extension = name.split(".").at(-1);

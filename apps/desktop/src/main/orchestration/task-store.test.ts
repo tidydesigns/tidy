@@ -806,6 +806,37 @@ test("incoming message attribution uses private exact content and survives rich 
   ).toEqual([]);
 });
 
+test("incoming attribution preserves legacy prompt hashing without loading unrelated task fields", async () => {
+  const { store, input, directory } = await fixture();
+  const message = await store.create({
+    ...input,
+    kind: "message",
+    prompt: "Legacy incoming message",
+  });
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  try {
+    database
+      .query(
+        "UPDATE tasks SET record = json_remove(json_set(record, '$.summary', ?), '$.promptHash') WHERE id = ?",
+      )
+      .run("Unrelated result content".repeat(10000), message.id);
+  } finally {
+    database.close();
+  }
+  const userMessage = { id: message.id, role: "user" as const, text: message.prompt };
+  expect(await store.incomingSources(input.projectId, input.childThreadId, [userMessage])).toEqual([
+    { messageId: message.id, threadId: input.parentThreadId },
+  ]);
+  expect(
+    await store.incomingSources(input.projectId, input.childThreadId, [
+      { ...userMessage, text: "Changed" },
+    ]),
+  ).toEqual([]);
+  expect(await store.incomingSources(randomUUID(), input.childThreadId, [userMessage])).toEqual([]);
+  expect(await store.incomingSources(input.projectId, randomUUID(), [userMessage])).toEqual([]);
+});
+
 test("receiver grants bind registered storage paths and fail closed for legacy or missing scopes", async () => {
   const { store, input, directory } = await fixture();
   await store.setReceiver(input.projectId, input.childThreadId, true);
@@ -881,4 +912,154 @@ test("the finite tombstone safety cap never evicts used IDs or uncertain receipt
       .writeReceipt(`canvas-${"e".repeat(64)}`, { kind: "pending" })
       .catch((error: unknown) => error),
   ).toMatchObject({ code: "CAPACITY" });
+});
+
+test("UI history preserves UTF-16 slices, whitespace, and optional fields in narrow rows", async () => {
+  const { store, input } = await fixture();
+  const prompt = "\u00a0\t\ufeffStart\u2028" + "🧪".repeat(3000);
+  const summary = "中🧪é".repeat(3000) + "x";
+  const error = "x" + "🧪中é".repeat(3000);
+  const task = await store.create({ ...input, prompt });
+  await store.transition({ id: task.id, state: "failed", summary, error });
+  const page = await store.threadPage(input.projectId, input.parentThreadId);
+  expect(page.tasks).toHaveLength(1);
+  expect(page.tasks[0]).toMatchObject({
+    id: task.id,
+    label: task.prompt.replace(/\s+/g, " ").slice(0, 160),
+    summary: summary.slice(-1000),
+    error: error.slice(0, 1000),
+  });
+  expect(page.tasks[0].model).toBeUndefined();
+  expect(page.tasks[0].effort).toBeUndefined();
+  expect(page.tasks[0].originatingMessageId).toBeUndefined();
+});
+
+test("incoming attribution retains duplicate keys and precomputed hashes for corrupt prompts", async () => {
+  const { directory, store, input } = await fixture();
+  const task = await store.create({ ...input, kind: "message", prompt: "last" });
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  const write = database.query("UPDATE tasks SET record = ? WHERE id = ?");
+  const legacy = { ...task };
+  delete legacy.promptHash;
+  const message = { id: task.id, role: "user" as const, text: "last" };
+  try {
+    write.run(JSON.stringify({ ...legacy, prompt: { a: 1 } }), task.id);
+    expect(
+      await store
+        .incomingSources(input.projectId, input.childThreadId, [{ ...message, text: '{"a":1}' }])
+        .catch((error: unknown) => error),
+    ).toMatchObject({ code: "ERR_INVALID_ARG_TYPE" });
+    write.run(
+      JSON.stringify(legacy).replace('"prompt":"last"', '"prompt":"first","prompt":"last"'),
+      task.id,
+    );
+    expect(await store.incomingSources(input.projectId, input.childThreadId, [message])).toEqual([
+      { messageId: task.id, threadId: input.parentThreadId },
+    ]);
+    write.run(JSON.stringify({ ...task, prompt: { a: 1 } }), task.id);
+    expect(await store.incomingSources(input.projectId, input.childThreadId, [message])).toEqual([
+      { messageId: task.id, threadId: input.parentThreadId },
+    ]);
+  } finally {
+    database.close();
+  }
+});
+
+test("persisted read models stay narrow and external legacy writes invalidate them", async () => {
+  const { store, input, directory } = await fixture();
+  const task = await store.create({
+    ...input,
+    kind: "message",
+    prompt: "private prompt tail ".repeat(500),
+  });
+  await store.transition({
+    id: task.id,
+    state: "failed",
+    summary: "🧪".repeat(3000),
+    error: "中".repeat(3000),
+  });
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  try {
+    const model = database
+      .query<{ page: string; incoming: string }, [string]>(
+        "SELECT page, incoming FROM task_read_models WHERE source = 'tasks' AND id = ?",
+      )
+      .get(task.id)!;
+    expect(Buffer.byteLength(model.page)).toBeLessThan(20000);
+    expect(Buffer.byteLength(model.incoming)).toBeLessThan(500);
+    expect(model.incoming).not.toContain("private prompt tail");
+    expect(JSON.parse(model.page).summary).toBe("🧪".repeat(3000).slice(-1000));
+    const original = database
+      .query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?")
+      .get(task.id)!;
+    expect(JSON.parse(original.record).prompt).toBe(task.prompt);
+    const changed = {
+      ...JSON.parse(original.record),
+      prompt: "external replacement",
+      summary: "fresh",
+    };
+    delete changed.promptHash;
+    database
+      .query("UPDATE tasks SET record = ? WHERE id = ?")
+      .run(JSON.stringify(changed), task.id);
+    expect(database.query("SELECT id FROM task_read_models").all()).toEqual([]);
+    expect((await store.threadPage(input.projectId, input.parentThreadId)).tasks[0]).toMatchObject({
+      label: "external replacement",
+      summary: "fresh",
+    });
+    expect(
+      await store.incomingSources(input.projectId, input.childThreadId, [
+        { id: task.id, role: "user", text: "external replacement" },
+      ]),
+    ).toEqual([{ messageId: task.id, threadId: input.parentThreadId }]);
+    // A normal write repopulates the projection in its transaction.
+    await store.delivered(task.id);
+    expect(database.query("SELECT id FROM task_read_models").all()).toEqual([{ id: task.id }]);
+    database.query("DELETE FROM tasks WHERE id = ?").run(task.id);
+    expect(database.query("SELECT id FROM task_read_models").all()).toEqual([]);
+  } finally {
+    database.close();
+  }
+});
+
+test("legacy replacement writes cannot leave stale or orphaned read models", async () => {
+  const { store, input, directory } = await fixture();
+  const first = await store.create({ ...input, kind: "message" });
+  const second = await store.create({ ...input, kind: "message", requestId: randomUUID() });
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  try {
+    // REPLACE deletes a conflicting row without DELETE triggers by default.
+    // The BEFORE trigger must invalidate both sides of a uniqueness conflict.
+    database
+      .query("UPDATE OR REPLACE tasks SET request_id = ? WHERE id = ?")
+      .run(input.requestId, second.id);
+    expect(database.query("SELECT id FROM task_read_models").all()).toEqual([]);
+    expect(await store.get(first.id)).toBeUndefined();
+    await store.transition({ id: second.id, state: "failed" });
+    expect(database.query("SELECT id FROM task_read_models").all()).toEqual([{ id: second.id }]);
+    const replacementId = randomUUID();
+    const replacement = { ...second, id: replacementId, prompt: "legacy insert" };
+    database
+      .query("INSERT OR REPLACE INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        replacementId,
+        input.projectId,
+        input.parentThreadId,
+        input.requestId,
+        "legacy",
+        "queued",
+        3,
+        0,
+        JSON.stringify(replacement),
+      );
+    expect(database.query("SELECT id FROM task_read_models").all()).toEqual([]);
+    expect((await store.threadPage(input.projectId, input.parentThreadId)).tasks[0].label).toBe(
+      "legacy insert",
+    );
+  } finally {
+    database.close();
+  }
 });

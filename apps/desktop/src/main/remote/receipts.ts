@@ -6,6 +6,8 @@ import { z } from "zod";
 import { projectSetupResultSchema } from "../../shared/contracts/workspace-response";
 import { remoteRequestSchema, type RemoteRequest } from "../../shared/remote";
 
+const receiptFilenamePattern = /^[a-f0-9-]{36}-[a-f0-9-]{36}\.json$/i;
+
 const responseSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), data: z.unknown().optional() }),
   z.object({ ok: z.literal(false), error: z.string() }),
@@ -84,7 +86,7 @@ export class RequestReceipts {
       throw error;
     }
     for await (const entry of directory) {
-      if (!entry.isFile() || !/^[a-f0-9-]{36}-[a-f0-9-]{36}\.json$/i.test(entry.name)) continue;
+      if (!entry.isFile() || !receiptFilenamePattern.test(entry.name)) continue;
       const path = join(this.directory, entry.name);
       let file;
       try {

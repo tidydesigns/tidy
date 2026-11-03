@@ -6,6 +6,9 @@ import {
   versionFailure,
   versionHeaders,
 } from "@/lib/design/file-version-http";
+
+const historyRevisionPattern = /^\d{1,19}$/;
+
 export const runtime = "nodejs";
 const creation = z
   .object({
@@ -22,7 +25,8 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
     if (cursor !== undefined)
       z.string()
         .refine(
-          (value) => /^\d{1,19}$/.test(value) && BigInt(value) <= BigInt("9223372036854775807"),
+          (value) =>
+            historyRevisionPattern.test(value) && BigInt(value) <= BigInt("9223372036854775807"),
         )
         .parse(cursor);
     return Response.json(await listFileVersions(user, uid, cursor), { headers: versionHeaders });

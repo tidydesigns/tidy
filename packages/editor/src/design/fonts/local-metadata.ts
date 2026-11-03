@@ -1,3 +1,5 @@
+const fontNameSeparatorPattern = /[\s_-]+/g;
+const controlCharacterPattern = /[\u0000-\u001f]/;
 export type LocalFaceName = {
   family: string;
   fullName: string;
@@ -11,7 +13,7 @@ export type LocalInstance = {
   coordinates: Record<string, number>;
 };
 type Table = { offset: number; length: number };
-const normalized = (name: string) => name.replace(/[\s_-]+/g, "").toLowerCase();
+const normalized = (name: string) => name.replace(fontNameSeparatorPattern, "").toLowerCase();
 const tag = (view: DataView, offset: number) =>
   String.fromCharCode(...[0, 1, 2, 3].map((index) => view.getUint8(offset + index)));
 function tables(view: DataView, start: number): Map<string, Table> | undefined {
@@ -58,7 +60,7 @@ function names(view: DataView, table?: Table) {
     const value = new TextDecoder("utf-16be").decode(
       new Uint8Array(view.buffer, view.byteOffset + offset + start, size),
     );
-    if (value && value.length <= 200 && !/[\u0000-\u001f]/.test(value)) result.set(id, value);
+    if (value && value.length <= 200 && !controlCharacterPattern.test(value)) result.set(id, value);
   }
   return result;
 }

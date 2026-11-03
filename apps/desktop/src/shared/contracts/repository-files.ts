@@ -1,25 +1,27 @@
 import { z } from "zod";
 
+const controlCharacterPattern = /[\x00-\x1f\x7f]/;
+const trailingDotOrSpacePattern = /[. ]+$/;
+
 export const repositoryPathSchema = z
   .string()
   .max(4096)
   .refine(
     (path) =>
       !path.includes("\\") &&
-      !/[\x00-\x1f\x7f]/.test(path) &&
+      !controlCharacterPattern.test(path) &&
       (path === "" ||
-        path.split("/").every(
-          (part) =>
-            part !== "" &&
-            part !== "." &&
-            part !== ".." &&
-            ![".git", "git~1"].includes(
-              part
-                .split(":")[0]
-                .replace(/[. ]+$/, "")
-                .toLowerCase(),
-            ),
-        )),
+        path
+          .split("/")
+          .every(
+            (part) =>
+              part !== "" &&
+              part !== "." &&
+              part !== ".." &&
+              ![".git", "git~1"].includes(
+                part.split(":")[0].replace(trailingDotOrSpacePattern, "").toLowerCase(),
+              ),
+          )),
     "Choose a path inside this repository.",
   );
 export const repositoryEntrySchema = z.object({

@@ -11,6 +11,10 @@ import { documentPages } from "@/lib/design/pages";
 import type { DesignDocument } from "@/lib/design/document";
 
 import type { CommentMessage, CommentReaction, CommentThread } from "./comment-contract";
+
+const commentIdentifierPattern = /^[A-Za-z0-9_-]+$/;
+const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
 export type { CommentReaction, CommentMessage, CommentThread } from "./comment-contract";
 
 function cleanBody(body: string) {
@@ -99,11 +103,11 @@ const COMMENT_PAGE_SIZE = 100;
 function readCommentCursor(cursor?: string) {
   if (!cursor) return null;
   try {
-    if (cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error();
+    if (cursor.length > 512 || !commentIdentifierPattern.test(cursor)) throw new Error();
     const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
     if (
       typeof value.at !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value.at) ||
+      !timestampPattern.test(value.at) ||
       !Number.isFinite(Date.parse(value.at)) ||
       Number(value.at.slice(0, 4)) < 1 ||
       new Date(value.at).toISOString().slice(0, 19) !== value.at.slice(0, 19) ||

@@ -7,6 +7,8 @@ import { openProjectVideo as openImageFile } from "../platform/project-video-fil
 import { parseChatLink } from "../../shared/models/chat-links";
 import type { Thread } from "../../shared/contracts/desktop";
 
+const imageExtensionPattern = /\.(?:png|jpe?g|gif|webp)$/i;
+
 const referenceCache = new Map<string, { paths: Set<string>; cost: number }>();
 let referenceCacheBytes = 0;
 const referenceCacheLimit = 4 * 1024 * 1024;
@@ -72,7 +74,7 @@ export async function readChatImage({
   revision?: string;
 }) {
   const link = parseChatLink(href);
-  if (!link || link.kind !== "file" || !/\.(?:png|jpe?g|gif|webp)$/i.test(link.name))
+  if (!link || link.kind !== "file" || !imageExtensionPattern.test(link.name))
     throw new Error("This image format is not supported.");
   if (!thread.messages.some((message) => imagePaths(message.text).has(link.path)))
     throw new Error("This image is not referenced in the thread.");

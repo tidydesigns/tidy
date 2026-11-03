@@ -1,6 +1,10 @@
 import type { Client } from "pg";
 import { unreferencedObjectsSql } from "./object-collection";
 
+const feedbackKeyPattern =
+  /^feedback\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/[0-2]$/i;
+const originalKeyPattern = /^originals\/([^/]+)\/[a-f0-9]{64}\.(png|jpg|webp|svg)$/;
+
 export type OrphanStore = "design" | "feedback";
 export type ObjectStamp = { etag: string; size: number; lastModified: Date };
 export type ReconciliationBucket = {
@@ -12,13 +16,10 @@ const graceMs = 7 * 24 * 60 * 60 * 1000;
 /** Only the key grammars published by this application belong to this collector. */
 function identity(store: OrphanStore, key: string) {
   if (store === "feedback") {
-    const match =
-      /^feedback\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/[0-2]$/i.exec(
-        key,
-      );
+    const match = feedbackKeyPattern.exec(key);
     return match ? { lock: `feedback-upload:${match[1].toLowerCase()}`, id: match[1] } : null;
   }
-  const match = /^originals\/([^/]+)\/[a-f0-9]{64}\.(png|jpg|webp|svg)$/.exec(key);
+  const match = originalKeyPattern.exec(key);
   if (!match) return null;
   try {
     const organizationId = decodeURIComponent(match[1]);

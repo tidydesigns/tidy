@@ -1,6 +1,11 @@
 import { designNodeSchema, type DesignNode } from "./document";
 import { parsePathContours, serializeContours } from "@tidy/design/vector-geometry";
 
+const xmlDeclarationPattern = /<!DOCTYPE|<!ENTITY/i;
+const coordinateSeparatorPattern = /[\s,]+/;
+const shortHexColorPattern = /^#[\da-f]{3}$/i;
+const hexColorPattern = /^#[\da-f]{6}([\da-f]{2})?$/i;
+
 type Imported = Pick<DesignNode, "vectorPath" | "style">;
 export type SvgImportResult =
   | { editable: Imported; reason?: never }
@@ -11,7 +16,7 @@ export function inspectSvgImport(source: string): SvgImportResult {
   const fallback = (reason: string): SvgImportResult => ({
     reason: `Original SVG retained: ${reason}`,
   });
-  if (typeof DOMParser === "undefined" || /<!DOCTYPE|<!ENTITY/i.test(source))
+  if (typeof DOMParser === "undefined" || xmlDeclarationPattern.test(source))
     return fallback("unsupported XML declarations.");
   const document = new DOMParser().parseFromString(source, "image/svg+xml"),
     root = document.documentElement;
@@ -33,11 +38,7 @@ export function inspectSvgImport(source: string): SvgImportResult {
     [...element.attributes].every((a) => keys.includes(a.name));
   if (!allowed(root, ["xmlns", "viewBox", "width", "height", ...presentation]))
     return fallback("viewport attributes require asset rendering.");
-  const values = root
-    .getAttribute("viewBox")
-    ?.trim()
-    .split(/[\s,]+/)
-    .map(Number);
+  const values = root.getAttribute("viewBox")?.trim().split(coordinateSeparatorPattern).map(Number);
   if (!values || values.length !== 4 || values.some((v) => !Number.isFinite(v)))
     return fallback("a numeric viewBox is required for editing.");
   const [x, y, width, height] = values;
@@ -110,11 +111,7 @@ export function inspectSvgImport(source: string): SvgImportResult {
       paths.push(`M ${n("x1")} ${n("y1")} L ${n("x2")} ${n("y2")}`);
     else {
       const points =
-        shape
-          .getAttribute("points")
-          ?.trim()
-          .split(/[\s,]+/)
-          .map(Number) ?? [];
+        shape.getAttribute("points")?.trim().split(coordinateSeparatorPattern).map(Number) ?? [];
       if (points.length < 4 || points.length % 2 || points.some((v) => !Number.isFinite(v)))
         return fallback("invalid polygon points.");
       paths.push(
@@ -132,9 +129,9 @@ export function inspectSvgImport(source: string): SvgImportResult {
         ? "#000000"
         : value === "white"
           ? "#ffffff"
-          : /^#[\da-f]{3}$/i.test(value)
+          : shortHexColorPattern.test(value)
             ? `#${[...value.slice(1)].map((c) => c + c).join("")}`
-            : /^#[\da-f]{6}([\da-f]{2})?$/i.test(value)
+            : hexColorPattern.test(value)
               ? value
               : null;
   const [fillValue, fillRule, strokeValue, strokeWidth, strokeCap, strokeJoin] = paints!;

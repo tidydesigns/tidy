@@ -11,6 +11,8 @@ import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../../../shared/contracts/desktop";
 import { CanvasRefresh } from "./canvas-refresh";
 
+const jsonExtensionPattern = /\.json$/;
+
 function LoadingCanvas({
   content,
   pageId,
@@ -227,12 +229,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         externalDocument={external}
         localPersistence={{
           async loadLibrary(source) {
-            const id =
-              source
-                .trim()
-                .split("/")
-                .at(-1)
-                ?.replace(/\.json$/, "") ?? source;
+            const id = source.trim().split("/").at(-1)?.replace(jsonExtensionPattern, "") ?? source;
             const value = await api.readDesign(projectId, id);
             setAssets((current) => ({ ...current, ...value.assets }));
             return {

@@ -9,6 +9,8 @@ import type {
 import { VISUAL_PREVIEW_MAX_BYTES, type PreviewFonts } from "./visual-preview-fonts";
 import { visualPreviewRuntime } from "./visual-preview-runtime.generated";
 
+const closingScriptPattern = /<\/script/gi;
+
 export type PreviewSelection = {
   node_id: string;
   label?: string;
@@ -66,7 +68,7 @@ export function buildVisualPreview(data: VisualPreviewData, fonts: PreviewFonts)
   // No request to Tidy or a CDN is needed inside the opaque T3 iframe.
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'"><style>${fonts.css.replaceAll("<", "\\3c ")}
 *{box-sizing:border-box}html,body{margin:0;padding:0}body{color:var(--foreground,#282a28);font-family:var(--font-sans,system-ui);overflow-wrap:anywhere}.tidy-controls{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 10px;align-items:center}.tidy-controls button{font:inherit;font-size:12px;cursor:pointer;padding:4px 8px;border:1px solid var(--border,#d0d0d0);border-radius:5px;background:var(--background,#fff);color:var(--foreground,#282a28)}.tidy-controls button[aria-pressed=true]{background:var(--accent,#e7e7e7)}.tidy-controls button:focus-visible{outline:2px solid var(--ring,#777);outline-offset:2px}.tidy-viewport{width:100%;overflow:hidden}[data-tidy-design]{color:#282a28;font-family:system-ui;font-size:16px;line-height:1.5;overflow-wrap:normal}footer,details{font-size:11px;margin-top:8px;color:var(--muted-foreground,#777)}details li{margin:5px 0}summary{cursor:pointer}
-</style></head><body><div id="tidy-preview"></div><script id="tidy-preview-data" type="application/json">${json}</script><script>${visualPreviewRuntime.replace(/<\/script/gi, "<\\/script")}</script></body></html>`;
+</style></head><body><div id="tidy-preview"></div><script id="tidy-preview-data" type="application/json">${json}</script><script>${visualPreviewRuntime.replace(closingScriptPattern, "<\\/script")}</script></body></html>`;
   const byteSize = Buffer.byteLength(html, "utf8");
   if (byteSize > VISUAL_PREVIEW_MAX_BYTES)
     throw new Error(

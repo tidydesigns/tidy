@@ -1,5 +1,6 @@
+const betaVersionPattern = /^\d+\.\d+\.\d+-beta\.\d+$/;
 export function isDesktopBeta(version: string) {
-  return /^\d+\.\d+\.\d+-beta\.\d+$/.test(version);
+  return betaVersionPattern.test(version);
 }
 
 /** Stable releases and other platforms retain their existing product name. */

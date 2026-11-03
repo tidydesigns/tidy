@@ -1,3 +1,4 @@
+const rasterMimePattern = /^image\/(png|jpeg|webp)$/;
 /** One fetch/recovery sequence and object URL per resolved URL while consumers remain mounted. */
 export type ImageLoad =
   | { status: "loading" }
@@ -162,7 +163,7 @@ export function createImagePool(retain = false) {
             // Stable small raster URLs let the browser reuse its decoded cache
             // across canvas mounts. Fresh blob URLs otherwise leave distinct native
             // cache entries even after revocation. Keep larger images as blobs.
-            if (retain && blob.size <= 256 * 1024 && /^image\/(png|jpeg|webp)$/.test(blob.type)) {
+            if (retain && blob.size <= 256 * 1024 && rasterMimePattern.test(blob.type)) {
               const bytes = new Uint8Array(await blob.arrayBuffer());
               current.controller.signal.throwIfAborted();
               let binary = "";

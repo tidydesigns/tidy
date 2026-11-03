@@ -10,6 +10,8 @@ import {
   type ProjectSetup,
 } from "../../shared/contracts/project-setup";
 
+const projectNamePattern = /^[\w.-]+$/;
+
 const execute = promisify(execFile);
 export async function projectDirectories(input: string) {
   const path = await realpath(input || homedir());
@@ -97,7 +99,7 @@ export async function setupProject(
   const key = repositoryKey(input.repository);
   if (!key) return { kind: "failed", reason: "invalid-repository" };
   const name = basename(key);
-  if (!/^[\w.-]+$/.test(name) || name === "." || name === "..")
+  if (!projectNamePattern.test(name) || name === "." || name === "..")
     return { kind: "failed", reason: "invalid-repository" };
   const path = join(parent, name);
   const created = await mkdir(path, { mode: 0o700 }).then(

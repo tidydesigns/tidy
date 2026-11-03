@@ -11,6 +11,8 @@ import { RequestReceipts } from "./receipts";
 import { SessionStore, writePrivateJSON } from "./session-store";
 import { readLocalFile } from "../platform/local-files";
 
+const manifestFilenamePattern = /^[a-f0-9]{64}\.json$/;
+
 export const workspaceHostDirectory = () =>
   process.env.TIDY_HOST_STATE ?? join(homedir(), ".local", "state", "tidy-host");
 const errorCodeSchema = z.object({ code: z.string() });
@@ -103,7 +105,7 @@ export async function migrateWorkspaceRegistry(source: string, destination: stri
     throw error;
   });
   for (const name of names) {
-    if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+    if (!manifestFilenamePattern.test(name)) continue;
     const value = await readLocalFile(join(source, "thread-authority", name), 4096);
     try {
       await writeFile(join(destination, "thread-authority", name), value, {

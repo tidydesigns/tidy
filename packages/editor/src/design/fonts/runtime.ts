@@ -12,6 +12,20 @@ import { mapConcurrent } from "../../lib/map-concurrent";
 import { localFontMetadata, localFontExportError } from "./local-metadata";
 import { fontCssForText } from "./export-css";
 import { createEmbeddedFontCache } from "./embedded-font-cache";
+
+const fontStyleSeparatorPattern = /[ -]/g;
+const fontQuotePattern = /['"]/g;
+const googleFontUrlPattern = /url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g;
+
+const thinWeightPattern = /thin/;
+const extraLightWeightPattern = /extralight|ultralight/;
+const lightWeightPattern = /light/;
+const mediumWeightPattern = /medium/;
+const semiBoldWeightPattern = /semibold|demibold/;
+const extraBoldWeightPattern = /extrabold|ultrabold/;
+const blackWeightPattern = /black|heavy/;
+const boldWeightPattern = /bold/;
+const italicPattern = /italic|oblique/i;
 function whileActive<Value>(promise: Promise<Value>, signal?: AbortSignal): Promise<Value> {
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
@@ -78,22 +92,22 @@ export function installedFont(family: string, sample = "mmmmmmmmWWiiii0123456789
   });
 }
 function localWeight(style: string) {
-  const value = style.toLowerCase().replace(/[ -]/g, "");
-  return /thin/.test(value)
+  const value = style.toLowerCase().replace(fontStyleSeparatorPattern, "");
+  return thinWeightPattern.test(value)
     ? 100
-    : /extralight|ultralight/.test(value)
+    : extraLightWeightPattern.test(value)
       ? 200
-      : /light/.test(value)
+      : lightWeightPattern.test(value)
         ? 300
-        : /medium/.test(value)
+        : mediumWeightPattern.test(value)
           ? 500
-          : /semibold|demibold/.test(value)
+          : semiBoldWeightPattern.test(value)
             ? 600
-            : /extrabold|ultrabold/.test(value)
+            : extraBoldWeightPattern.test(value)
               ? 800
-              : /black|heavy/.test(value)
+              : blackWeightPattern.test(value)
                 ? 900
-                : /bold/.test(value)
+                : boldWeightPattern.test(value)
                   ? 700
                   : 400;
 }
@@ -182,7 +196,7 @@ class FontRegistry {
         metadataReady: false,
         styles: entries.map((entry) => {
           const weight = localWeight(entry.style),
-            italic = /italic|oblique/i.test(entry.style);
+            italic = italicPattern.test(entry.style);
           return {
             weight,
             italic,
@@ -206,7 +220,7 @@ class FontRegistry {
           buffer,
           entry,
           localWeight(entry.style),
-          /italic|oblique/i.test(entry.style),
+          italicPattern.test(entry.style),
         );
         if (!metadata.valid)
           throw new Error(
@@ -333,7 +347,9 @@ class FontRegistry {
         if (
           source === "local" &&
           faceName &&
-          ![...document.fonts].some((face) => face.family.replace(/['"]/g, "") === faceName)
+          ![...document.fonts].some(
+            (face) => face.family.replace(fontQuotePattern, "") === faceName,
+          )
         ) {
           const face = new FontFace(faceName, `local(${JSON.stringify(faceName)})`, {
             weight: String(weight),
@@ -350,7 +366,9 @@ class FontRegistry {
         // A script-specific font may not contain the preview's Latin characters.
         if (!faces.length) {
           const face = [...document.fonts].find(
-            (face) => face.family.replace(/['"]/g, "").toLowerCase() === actualFamily.toLowerCase(),
+            (face) =>
+              face.family.replace(fontQuotePattern, "").toLowerCase() ===
+              actualFamily.toLowerCase(),
           );
           if (face) await face.load();
           else if (!installedFont(actualFamily, text + "mmmmWWii"))
@@ -466,13 +484,7 @@ class FontRegistry {
       );
     }
     const combined = [...new Set(css)].join("\n"),
-      urls = [
-        ...new Set(
-          [...combined.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map(
-            (match) => match[1],
-          ),
-        ),
-      ];
+      urls = [...new Set([...combined.matchAll(googleFontUrlPattern)].map((match) => match[1]))];
     const replacements = await mapConcurrent(urls, 4, async (url) => {
       signal?.throwIfAborted();
       return [url, await whileActive(embeddedWebFont(url), signal)] as const;

@@ -8,6 +8,8 @@ import { lockPrivacyAccount, PrivacyError } from "./access";
 import { checkDeletionOwnership } from "./deletion-eligibility";
 import { mcpAnalyticsId } from "./mcp-consent";
 
+const sqlLikeEscapePattern = /[\\%_]/g;
+
 export const DELETED_USER = "tidy-deleted-user";
 export async function deleteAccount(userId: string, sessionId: string, confirmation: string) {
   if (userId === DELETED_USER) throw new PrivacyError("Account unavailable.", 403);
@@ -125,8 +127,8 @@ export async function deleteAccount(userId: string, sessionId: string, confirmat
       [
         userId,
         user.email,
-        `%"userId":"${userId.replace(/[\\%_]/g, "\\$&")}"%`,
-        `%"email":"${user.email.replace(/[\\%_]/g, "\\$&")}"%`,
+        `%"userId":"${userId.replace(sqlLikeEscapePattern, "\\$&")}"%`,
+        `%"email":"${user.email.replace(sqlLikeEscapePattern, "\\$&")}"%`,
         `privacy-attempt:${userId}`,
       ],
     );

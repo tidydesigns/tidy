@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+const catalogPath = /^\/api\/desktop\/organizations\/[^/]+\/catalog$/;
+const filesPath = /^\/api\/desktop\/organizations\/[^/]+\/files$/;
+const filePath = /^\/api\/desktop\/files\/[^/]+$/;
+const fileNamePath = /^\/api\/desktop\/files\/[^/]+\/name$/;
+const assetsPath = /^\/api\/desktop\/files\/[^/]+\/assets$/;
+const thumbnailPath = /^\/api\/desktop\/files\/[^/]+\/thumbnail$/;
+const creatorAvatarPath = /^\/api\/desktop\/files\/[^/]+\/creator-avatar$/;
+
 export const serviceMetricSchema = z
   .object({
     day: z.iso.date(),
@@ -42,25 +50,22 @@ export function desktopServiceOperation(request: Request): ServiceMetric["operat
   const method = request.method;
   if (method === "GET" && path === "/api/desktop/account") return "account";
   if (method === "POST" && path === "/api/desktop/manifest") return "manifest";
-  if (/^\/api\/desktop\/organizations\/[^/]+\/catalog$/.test(path) && method === "GET")
-    return "catalog";
-  if (/^\/api\/desktop\/organizations\/[^/]+\/files$/.test(path)) {
+  if (catalogPath.test(path) && method === "GET") return "catalog";
+  if (filesPath.test(path)) {
     if (method === "GET") return "file_list";
     if (method === "POST") return "file_create";
   }
-  if (/^\/api\/desktop\/files\/[^/]+$/.test(path)) {
+  if (filePath.test(path)) {
     if (method === "GET") return "file_read";
     if (method === "POST") return "file_commit";
   }
-  if (/^\/api\/desktop\/files\/[^/]+\/name$/.test(path) && method === "POST") return "file_rename";
-  if (/^\/api\/desktop\/files\/[^/]+\/assets$/.test(path)) {
+  if (fileNamePath.test(path) && method === "POST") return "file_rename";
+  if (assetsPath.test(path)) {
     if (method === "GET") return "asset_read";
     if (method === "POST") return "asset_write";
   }
-  if (/^\/api\/desktop\/files\/[^/]+\/thumbnail$/.test(path) && method === "GET")
-    return "thumbnail";
-  if (/^\/api\/desktop\/files\/[^/]+\/creator-avatar$/.test(path) && method === "GET")
-    return "creator_avatar";
+  if (thumbnailPath.test(path) && method === "GET") return "thumbnail";
+  if (creatorAvatarPath.test(path) && method === "GET") return "creator_avatar";
 }
 
 function outcome(status: number): ServiceMetric["outcome"] {

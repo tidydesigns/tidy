@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { readAttachment } from "@/lib/feedback/storage";
 import { FeedbackError, UUID } from "@/lib/feedback/validation";
 
+const attachmentIndexPattern = /^[0-2]$/;
+
 export const runtime = "nodejs";
 export async function GET(
   request: Request,
@@ -13,7 +15,8 @@ export async function GET(
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
   };
-  if (!UUID.test(id) || !/^[0-2]$/.test(index)) return new Response(null, { status: 404, headers });
+  if (!UUID.test(id) || !attachmentIndexPattern.test(index))
+    return new Response(null, { status: 404, headers });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     const login = new URL("/login", request.url);

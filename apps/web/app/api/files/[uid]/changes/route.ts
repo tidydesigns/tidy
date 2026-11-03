@@ -13,6 +13,8 @@ import { documentPatchSchema } from "@/lib/design/document-patch";
 import { retryableEditResponse } from "@/lib/design/retryable-edit-response";
 import { realtimeSchemaReady } from "@/lib/realtime/server";
 
+const decimalRevisionPattern = /^\d+$/;
+
 export const runtime = "nodejs";
 const inputSchema = z
   .object({
@@ -40,7 +42,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
   const revision = requestedRevision === null ? null : Number(requestedRevision);
   if (
     revision !== null &&
-    (!/^\d+$/.test(requestedRevision!) ||
+    (!decimalRevisionPattern.test(requestedRevision!) ||
       !Number.isSafeInteger(revision) ||
       revision < 0 ||
       revision > 2147483647)

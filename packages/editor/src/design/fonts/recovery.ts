@@ -7,6 +7,9 @@ import {
 } from "../document";
 import { closestFontStyle, fontFamilies, type FontFamily } from "./font-utils";
 import { mergeNodeChanges } from "../component-variants";
+
+const quotedFamilyPattern = /[,"']/;
+
 type Style = DesignNode["style"];
 export type FontReference = { nodeId: string; style: Style; text: string };
 export type FontIdentity = { family: string; source?: Style["fontSource"] };
@@ -82,7 +85,9 @@ export function documentFontReferences(document: DesignDocument): FontReference[
 function replacement(style: Style, target: FontFamily): Style {
   const face = closestFontStyle(target, style.fontWeight ?? 400, style.fontStyle === "italic");
   return {
-    fontFamily: /[,"']/.test(target.family) ? JSON.stringify(target.family) : target.family,
+    fontFamily: quotedFamilyPattern.test(target.family)
+      ? JSON.stringify(target.family)
+      : target.family,
     fontSource: target.source,
     fontFace: face.face,
     fontWeight: face.weight,

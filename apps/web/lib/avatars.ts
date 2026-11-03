@@ -5,6 +5,8 @@ import {
   validateSignature,
 } from "@/lib/feedback/validation";
 
+const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export { IMAGE_TYPES, MAX_IMAGE_BYTES };
 export type AvatarKind = "user" | "organization";
 
@@ -25,7 +27,6 @@ export function avatarObjectKey(url: string | null, kind: AvatarKind, id: string
   const prefix = `${avatarPath(kind, id)}?v=`;
   if (!url.startsWith(prefix)) return null;
   const version = url.slice(prefix.length);
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(version))
-    return null;
+  if (!uuidV4Pattern.test(version)) return null;
   return `avatars/${kind}/${encodeURIComponent(id)}/${version}`;
 }

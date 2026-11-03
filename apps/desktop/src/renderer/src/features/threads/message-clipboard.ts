@@ -16,6 +16,17 @@ import {
   resolveAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 
+const lineBreakPattern = /[\r\n]/g;
+const markdownBracketPattern = /[\\[\]]/g;
+const imageReferencePattern =
+  /!\[(?:\\.|[^\]\\\r\n]){0,400}\]\(tidy-context:\/\/v1\/image\/([0-9a-f-]{36})\)/g;
+const ampersandPattern = /&/g;
+const lessThanPattern = /</g;
+const greaterThanPattern = />/g;
+const messageAttributePattern = /data-tidy-message=(?:"([^"]+)"|'([^']+)')/;
+const carriageReturnPattern = /\r\n?/g;
+const dataUrlPattern = /^data:([^;,]*);base64,([A-Za-z0-9+/]*={0,2})$/;
+
 export const MESSAGE_CLIPBOARD_MIME = "web application/x-tidy-message+json";
 const maxFragmentLength = 1_100_000;
 const clipboardMessageSchema = z
@@ -98,7 +109,7 @@ function rememberImages(message: ClipboardMessage, storage: ClipboardStorage | u
   } catch {}
 }
 function imageMarkdown(file: ClipboardMessage["attachments"][number]) {
-  const name = file.name.replace(/[\r\n]/g, " ").replace(/[\\[\]]/g, "\\$&");
+  const name = file.name.replace(lineBreakPattern, " ").replace(markdownBracketPattern, "\\$&");
   return `![${name}](tidy-context://v1/image/${file.id})`;
 }
 export function messageClipboardText(message: CopyableMessage) {
@@ -123,25 +134,22 @@ function readImageReferences(text: string, storage: ClipboardStorage | undefined
   const files = new Map<string, ClipboardMessage["attachments"][number]>();
   let source: ClipboardMessage["source"] | undefined;
   let invalid = false;
-  const restored = text.replace(
-    /!\[(?:\\.|[^\]\\\r\n]){0,400}\]\(tidy-context:\/\/v1\/image\/([0-9a-f-]{36})\)/g,
-    (markdown, id: string) => {
-      const entry = references.get(id);
-      if (
-        !entry ||
-        entry.source.clientId !== clipboardClientId() ||
-        (source &&
-          (source.machineId !== entry.source.machineId ||
-            source.projectId !== entry.source.projectId))
-      ) {
-        invalid = true;
-        return markdown;
-      }
-      source = entry.source;
-      files.set(id, entry.attachment);
-      return attachmentReference(entry.attachment);
-    },
-  );
+  const restored = text.replace(imageReferencePattern, (markdown, id: string) => {
+    const entry = references.get(id);
+    if (
+      !entry ||
+      entry.source.clientId !== clipboardClientId() ||
+      (source &&
+        (source.machineId !== entry.source.machineId ||
+          source.projectId !== entry.source.projectId))
+    ) {
+      invalid = true;
+      return markdown;
+    }
+    source = entry.source;
+    files.set(id, entry.attachment);
+    return attachmentReference(entry.attachment);
+  });
   if (invalid || !source || !files.size) return null;
   const parsed = clipboardMessageSchema.safeParse({
     version: 1,
@@ -189,7 +197,10 @@ export function messageClipboardContent({
   if (encoded.length > maxFragmentLength) throw new Error("This message is too large to copy.");
   rememberImages(fragment, storage);
   const text = messageClipboardText(fragment);
-  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const escaped = text
+    .replace(ampersandPattern, "&amp;")
+    .replace(lessThanPattern, "&lt;")
+    .replace(greaterThanPattern, "&gt;");
   return {
     text,
     encoded,
@@ -280,7 +291,7 @@ export function readMessageClipboard(
   if (!fragment) {
     const html = data.getData("text/html");
     if (html.length <= maxFragmentLength * 9 + 4096) {
-      const match = /data-tidy-message=(?:"([^"]+)"|'([^']+)')/.exec(html);
+      const match = messageAttributePattern.exec(html);
       try {
         fragment = decodeMessageClipboard(decodeURIComponent(match?.[1] ?? match?.[2] ?? ""));
       } catch {}
@@ -289,7 +300,7 @@ export function readMessageClipboard(
   const plain = data.getData("text/plain");
   if (!fragment || fragment.source.clientId !== clipboardClientId())
     return readImageReferences(plain, storage);
-  const normalize = (text: string) => text.replace(/\r\n?/g, "\n");
+  const normalize = (text: string) => text.replace(carriageReturnPattern, "\n");
   return normalize(plain) === normalize(messageClipboardText(fragment))
     ? fragment
     : readImageReferences(plain, storage);
@@ -348,7 +359,7 @@ export async function importMessageAttachment({
     return exportAttachment(message.source.projectId, file.id);
   });
   check();
-  const match = /^data:([^;,]*);base64,([A-Za-z0-9+/]*={0,2})$/.exec(value.dataUrl);
+  const match = dataUrlPattern.exec(value.dataUrl);
   const padding = match?.[2].endsWith("==") ? 2 : match?.[2].endsWith("=") ? 1 : 0;
   if (!match || match[1] !== file.mimeType || (match[2].length / 4) * 3 - padding !== file.size)
     throw new Error("The original attachment no longer matches the copied message.");

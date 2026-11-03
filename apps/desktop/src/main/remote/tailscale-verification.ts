@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const httpsUrlPattern = /https:\/\/[^\s<>"']+/g;
+
+const verificationPathPattern = /^\/a\/[a-zA-Z0-9/_-]+$/;
+const newlinePattern = /\r?\n/;
+
 export const tailscaleVerificationSchema = z
   .string()
   .max(2048)
@@ -14,7 +19,7 @@ export const tailscaleVerificationSchema = z
         !url.password &&
         !url.search &&
         !url.hash &&
-        /^\/a\/[a-zA-Z0-9/_-]+$/.test(url.pathname)
+        verificationPathPattern.test(url.pathname)
       );
     } catch {
       return false;
@@ -27,10 +32,10 @@ export class VerificationOutput {
   constructor(private notify: (url: string) => void) {}
   receive(chunk: string) {
     this.buffer = (this.buffer + chunk).slice(-8192);
-    const lines = this.buffer.split(/\r?\n/);
+    const lines = this.buffer.split(newlinePattern);
     this.buffer = lines.pop() ?? "";
     for (const line of lines) {
-      for (const match of line.matchAll(/https:\/\/[^\s<>"']+/g)) {
+      for (const match of line.matchAll(httpsUrlPattern)) {
         const parsed = tailscaleVerificationSchema.safeParse(match[0]);
         if (parsed.success && !this.seen.has(parsed.data)) {
           this.seen.add(parsed.data);

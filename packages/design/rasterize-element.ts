@@ -1,5 +1,16 @@
 import { decodeCaptureImage, isProtectedElement, isFullyClipped } from "./capture-effects";
 
+const cssUrlPattern = /url\(["']?([^"')]+)["']?\)/g;
+const cssStringPattern = /"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g;
+const cssEscapePattern = /\\([\da-f]{1,6})\s?|\\([^\n\r\f])/gi;
+
+const resourceProtocolPattern = /^(https?:|blob:)/;
+const eventAttributePattern = /^on/i;
+const linkAttributePattern = /^(?:href|xlink:href)$/i;
+const quotedContentPattern = /^["']/;
+const contentUrlPattern = /^url\(/;
+const contentUrlValuePattern = /^url\(["']?([^"')]+)["']?\)/;
+
 // Render an isolated, inert clone in SVG foreignObject. The browser applies the
 // original masks, with transparent pixels around the group. 3D scenes need
 // a real browser screenshot; foreignObject does not preserve their compositing.
@@ -34,7 +45,7 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       return Promise.resolve(url);
     }
     const absolute = new URL(url, document.baseURI).href;
-    if (!/^(https?:|blob:)/.test(absolute))
+    if (!resourceProtocolPattern.test(absolute))
       return Promise.reject(new Error("Unsupported resource."));
     if (!resources.has(absolute))
       resources.set(
@@ -78,7 +89,7 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
     return resources.get(absolute)!;
   };
   const inlineUrls = async (value: string) => {
-    const matches = [...value.matchAll(/url\(["']?([^"')]+)["']?\)/g)];
+    const matches = [...value.matchAll(cssUrlPattern)];
     for (const match of matches) {
       if (match[1]!.startsWith("#")) continue;
       value = value.replace(match[0], `url("${await embed(match[1]!)}")`);
@@ -100,7 +111,7 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       throw new Error("SVG reference needs a screenshot.");
     const target = source.cloneNode(false) as SVGElement;
     for (const attribute of [...target.attributes]) {
-      if (/^on/i.test(attribute.name) || /^(?:href|xlink:href)$/i.test(attribute.name))
+      if (eventAttributePattern.test(attribute.name) || linkAttributePattern.test(attribute.name))
         target.removeAttribute(attribute.name);
       else if (attribute.value.includes("url("))
         target.setAttribute(attribute.name, await inlineUrls(attribute.value));
@@ -173,7 +184,7 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
     // Keep structural SVG attributes but never event handlers or live resources.
     for (const attribute of [...target.attributes]) {
       if (
-        /^on/i.test(attribute.name) ||
+        eventAttributePattern.test(attribute.name) ||
         ["src", "srcset", "href", "xlink:href", "value", "autofocus"].includes(attribute.name)
       )
         target.removeAttribute(attribute.name);
@@ -207,13 +218,13 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       for (const name of style)
         span.style.setProperty(name, await inlineUrls(style.getPropertyValue(name)), "important");
       if (style.display === "none" || style.visibility === "hidden") return;
-      if (/^["']/.test(style.content)) {
-        const matches = [...style.content.matchAll(/"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g)];
+      if (quotedContentPattern.test(style.content)) {
+        const matches = [...style.content.matchAll(cssStringPattern)];
         if (!matches.length) throw new Error("Unsupported generated content.");
         span.textContent = matches
           .map((match) =>
             (match[1] ?? match[2] ?? "").replace(
-              /\\([\da-f]{1,6})\s?|\\([^\n\r\f])/gi,
+              cssEscapePattern,
               (_match, hex: string | undefined, escaped: string | undefined) =>
                 hex
                   ? String.fromCodePoint(Math.min(parseInt(hex, 16), 0x10ffff) || 0xfffd)
@@ -221,9 +232,9 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
             ),
           )
           .join("");
-      } else if (/^url\(/.test(style.content)) {
+      } else if (contentUrlPattern.test(style.content)) {
         const img = document.createElement("img");
-        const resource = style.content.match(/^url\(["']?([^"')]+)["']?\)/)?.[1];
+        const resource = style.content.match(contentUrlValuePattern)?.[1];
         if (!resource) throw new Error("Unsupported generated image.");
         img.src = await embed(resource);
         img.style.cssText = "width:100%;height:100%;object-fit:contain";

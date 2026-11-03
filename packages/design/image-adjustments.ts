@@ -1,3 +1,8 @@
+const ampersandPattern = /&/g;
+const lessThanPattern = /</g;
+const greaterThanPattern = />/g;
+const doubleQuotePattern = /"/g;
+const singleQuotePattern = /'/g;
 export const imageAdjustmentLabels = {
   exposure: "Exposure",
   contrast: "Contrast",
@@ -20,11 +25,11 @@ export function imageAdjustmentFilter(id: string, value: ImageAdjustments = {}) 
   // This exported helper is also consumed through innerHTML. Escape at the
   // markup boundary rather than relying on callers to supply a generated ID.
   const escapedId = id
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+    .replace(ampersandPattern, "&amp;")
+    .replace(lessThanPattern, "&lt;")
+    .replace(greaterThanPattern, "&gt;")
+    .replace(doubleQuotePattern, "&quot;")
+    .replace(singleQuotePattern, "&apos;");
   if (!hasImageAdjustments(value))
     return `<filter id="${escapedId}"><feComponentTransfer/></filter>`;
   const safe = (key: ImageAdjustment) => Math.max(-1, Math.min(1, value[key] || 0));

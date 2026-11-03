@@ -7,10 +7,15 @@ import { findExecutable, findHarness, harnessEnvironment } from "./harnesses";
 import { readLocalFile } from "../platform/local-files";
 import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates";
 
+const harnessVersionPattern = /^(?:codex-cli\s+)?(\d+\.\d+\.\d+)(?:\s+\(Claude Code\))?\s*$/;
+const windowsExecutablePattern = /\.(?:cmd|bat)$/i;
+const homebrewExecutablePattern =
+  /^(.*)\/(Caskroom|Cellar)\/(codex|claude-code(?:@latest)?|opencode)\//;
+
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 /** Normalize supported CLI version output, rejecting prereleases and unsafe numeric segments. */
 export function parseHarnessVersion(output: string) {
-  const match = /^(?:codex-cli\s+)?(\d+\.\d+\.\d+)(?:\s+\(Claude Code\))?\s*$/.exec(output.trim());
+  const match = harnessVersionPattern.exec(output.trim());
   if (!match || !stableVersion.test(match[1])) throw new Error("Unsupported harness version.");
   if (!match[1].split(".").map(Number).every(Number.isSafeInteger))
     throw new Error("Unsupported harness version.");
@@ -136,11 +141,9 @@ export async function inspectHarnessInstallation(
     channel: "latest",
   };
   // Avoid spawning .cmd wrappers through a shell. Native installers still work on Windows.
-  if (/\.(?:cmd|bat)$/i.test(executable)) return installation;
+  if (windowsExecutablePattern.test(executable)) return installation;
   const normalized = executable.split(sep).join("/");
-  const brew = /^(.*)\/(Caskroom|Cellar)\/(codex|claude-code(?:@latest)?|opencode)\//.exec(
-    normalized,
-  );
+  const brew = homebrewExecutablePattern.exec(normalized);
   if (brew) {
     const expected = id === "claude" ? ["claude-code", "claude-code@latest"] : [id];
     if (!expected.includes(brew[3])) return installation;
@@ -185,7 +188,7 @@ export async function inspectHarnessInstallation(
   for (const manager of ["npm", "pnpm", "bun"] as const) {
     if (!normalized.includes("/node_modules/")) break;
     const updater = await find(manager);
-    if (!updater || /\.(?:cmd|bat)$/i.test(updater)) continue;
+    if (!updater || windowsExecutablePattern.test(updater)) continue;
     try {
       const root =
         manager === "bun"

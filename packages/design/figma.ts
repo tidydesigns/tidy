@@ -20,6 +20,14 @@ import {
   type DesignPaint,
 } from "./document";
 
+const slugCharactersPattern = /[^a-zA-Z0-9_-]+/g;
+const slugEdgesPattern = /^-+|-+$/g;
+
+const archiveImagePattern = /(?:^|\/)images\/[a-fA-F0-9]+$/;
+const schemaIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const leadingLetterPattern = /^[a-zA-Z]/;
+const italicPattern = /italic|oblique/i;
+
 export type FigmaAsset = { id: string; mimeType: string; bytes: Uint8Array };
 export type FigmaImport = { document: DesignDocument; assets: FigmaAsset[]; name: string };
 import { FIGMA_LIMITS } from "./figma-input";
@@ -66,8 +74,7 @@ export function decodeFigma(input: Uint8Array): FigDocument {
     const unzip = new Unzip((file) => {
       if (file.originalSize && file.originalSize > FIGMA_LIMITS.expandedBytes)
         fail("Expanded Figma file is too large.");
-      const relevant =
-        file.name === "canvas.fig" || /(?:^|\/)images\/[a-fA-F0-9]+$/.test(file.name);
+      const relevant = file.name === "canvas.fig" || archiveImagePattern.test(file.name);
       if (!relevant) return;
       const parts: Uint8Array[] = [];
       let size = 0;
@@ -117,8 +124,7 @@ export function decodeFigma(input: Uint8Array): FigDocument {
   const schema = decodeBinarySchema(expand(chunks[0], 2_000_000));
   // Kiwi compiles schemas to JS. Only safe identifiers may enter that compiler.
   const safe = (name: string) =>
-    /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
-    !["__proto__", "constructor", "prototype"].includes(name);
+    schemaIdentifierPattern.test(name) && !["__proto__", "constructor", "prototype"].includes(name);
   if (
     (schema.package !== null && !safe(schema.package)) ||
     schema.definitions.length > 1000 ||
@@ -329,9 +335,9 @@ export function convertFigma(
           token = tokenNames.get(identity);
           if (!token) {
             const slug = (name: string) =>
-              name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+              name.replace(slugCharactersPattern, "-").replace(slugEdgesPattern, "");
             let base = slug(variable?.name ?? "color") || "color";
-            if (!/^[a-zA-Z]/.test(base)) base = `color-${base}`;
+            if (!leadingLetterPattern.test(base)) base = `color-${base}`;
             base = base.slice(0, 54);
             token = base;
             const collection = variable?.variableSetID?.guid;
@@ -520,7 +526,7 @@ export function convertFigma(
       style.fontSize = numeric(n.fontSize, 16);
       const face = n.fontName?.style ?? "Regular";
       style.fontWeight = figmaFontWeight(face);
-      style.fontStyle = /italic|oblique/i.test(face) ? "italic" : "normal";
+      style.fontStyle = italicPattern.test(face) ? "italic" : "normal";
       style.textAlign =
         n.textAlignHorizontal === "CENTER"
           ? "center"

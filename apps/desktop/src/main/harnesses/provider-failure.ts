@@ -3,6 +3,8 @@ import type { HarnessFailureKind } from "../../shared/contracts/harness-failure"
 import { describeHarnessFailure } from "../../shared/models/harness-failure";
 import { plainToolText } from "./tool-events";
 
+const codeSeparatorPattern = /[_-]/g;
+
 const codes: Readonly<Record<string, HarnessFailureKind>> = {
   contextwindowexceeded: "context",
   sessionbudgetexceeded: "budget",
@@ -57,7 +59,7 @@ const codes: Readonly<Record<string, HarnessFailureKind>> = {
   refusal: "policy",
 };
 
-const normalizeCode = (code: string) => code.replace(/[_-]/g, "").toLowerCase();
+const normalizeCode = (code: string) => code.replace(codeSeparatorPattern, "").toLowerCase();
 export function providerFailureKind(message: string, code: string): HarnessFailureKind {
   const normalized = normalizeCode(code);
   const kind = Object.hasOwn(codes, normalized) ? codes[normalized] : undefined;

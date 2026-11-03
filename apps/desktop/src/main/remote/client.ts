@@ -35,6 +35,8 @@ import { openTunnel } from "./tunnel";
 import { MAX_REMOTE_BYTES } from "./host";
 import { RemoteFailure, remoteFailure } from "./errors";
 
+const sha256Pattern = /^[a-f0-9]{64}$/;
+
 const CONNECTION_PROBE_TIMEOUT_MS = 15_000;
 const QUICK_CONNECTION_PROBE_TIMEOUT_MS = 3_000;
 
@@ -200,7 +202,7 @@ export class RemoteClient {
         });
         if (!response.ok) throw new Error("Browser authentication expired. Reconnect the machine.");
         const { ticket } = z
-          .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
+          .object({ ticket: z.string().regex(sha256Pattern) })
           .parse(await response.json());
         if (closed || version !== generation) return;
         const params = new URLSearchParams({ ...scope, viewerId, ticket });
@@ -742,7 +744,7 @@ export class RemoteClient {
         "Backend authentication failed. Retry to renew the SSH session.",
       );
     const { ticket } = z
-      .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
+      .object({ ticket: z.string().regex(sha256Pattern) })
       .parse(await response.json());
     const socket = new WebSocket(
       `${connection.origin.replace("http:", "ws:")}/events?ticket=${ticket}`,

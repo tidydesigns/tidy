@@ -20,6 +20,8 @@ import {
   type ThreadSummary,
 } from "./protocol";
 
+const consentIdPattern = /^[a-f0-9-]{36}$/;
+
 export const AGENT_HISTORY_LIMITS = {
   events: 1000,
   threads: 500,
@@ -402,7 +404,7 @@ export async function listAgentThreads(
       extra.length ||
       !["0", "1"].includes(active) ||
       !Number.isFinite(Date.parse(timestamp)) ||
-      !/^[a-f0-9-]{36}$/.test(id)
+      !consentIdPattern.test(id)
     )
       throw new AgentError("invalid_cursor", "Invalid thread position.");
     position = { timestamp, id, active: active === "1" };

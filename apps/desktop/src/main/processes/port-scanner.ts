@@ -3,6 +3,15 @@ import { readFile, readdir, readlink } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { ThreadPort } from "../../shared/contracts/thread-ports";
 
+const whitespacePattern = /\s+/;
+const digitsPattern = /^\d+$/;
+const socketInodePattern = /^socket:\[(\d+)\]$/;
+const macProcessPattern = /^(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\d+)\s+(.+)$/;
+const processCommandPattern = /^\s*(\d+)\s+(.*)$/;
+const macProcessTablePattern = /^\s*(\d+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.+)$/;
+const lsofListenerPattern = /^n(\*|127\.0\.0\.1|\[::1\]|\[::\]):(\d+)$/;
+const macIdentityPattern = /^(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\S+)$/;
+
 export const THREAD_OWNER_ENV = "TIDY_THREAD_OWNER";
 const execute = promisify(execFile);
 export type OwnedProcess = {
@@ -36,9 +45,14 @@ export function parseLinuxProcess(pid: number, stat: string) {
   const fields = stat
     .slice(end + 2)
     .trim()
-    .split(/\s+/);
+    .split(whitespacePattern);
   const parentPid = Number(fields[1]);
-  if (begin < 0 || end < begin || !/^\d+$/.test(fields[19] ?? "") || !Number.isInteger(parentPid))
+  if (
+    begin < 0 ||
+    end < begin ||
+    !digitsPattern.test(fields[19] ?? "") ||
+    !Number.isInteger(parentPid)
+  )
     throw new Error("Could not inspect a local process.");
   return {
     pid,
@@ -51,7 +65,7 @@ export function parseLinuxProcess(pid: number, stat: string) {
 export function parseLinuxListeners(table: string) {
   const listeners = new Map<string, Pick<ThreadPort, "port" | "host">>();
   for (const line of table.trim().split("\n").slice(1)) {
-    const fields = line.trim().split(/\s+/);
+    const fields = line.trim().split(whitespacePattern);
     if (fields[3] !== "0A") continue;
     const [address, rawPort] = (fields[1] ?? "").split(":");
     const port = Number.parseInt(rawPort, 16);
@@ -61,7 +75,7 @@ export function parseLinuxListeners(table: string) {
       address === "0100007F" ||
       address === "00000000000000000000000000000000" ||
       address === "00000000000000000000000001000000";
-    if (local && port > 0 && port <= 65535 && /^\d+$/.test(fields[9] ?? ""))
+    if (local && port > 0 && port <= 65535 && digitsPattern.test(fields[9] ?? ""))
       listeners.set(fields[9], { port, host });
   }
   return listeners;
@@ -70,7 +84,7 @@ export function parseLinuxListeners(table: string) {
 async function linuxProcesses(owners: ReadonlySet<string>): Promise<OwnedProcess[]> {
   const entries = await readdir("/proc");
   const result = await batches(
-    entries.filter((entry) => /^\d+$/.test(entry)),
+    entries.filter((entry) => digitsPattern.test(entry)),
     async (entry) => {
       try {
         const environment = await readFile(`/proc/${entry}/environ`, "utf8");
@@ -101,7 +115,7 @@ async function linuxListeners(owners: ReadonlySet<string>): Promise<ProcessListe
       const found = new Map<string, ProcessListener>();
       await batches(descriptors, async (descriptor) => {
         const link = await readlink(`${directory}/${descriptor}`).catch(() => "");
-        const inode = /^socket:\[(\d+)\]$/.exec(link)?.[1];
+        const inode = socketInodePattern.exec(link)?.[1];
         const socket = inode ? sockets.get(inode) : undefined;
         if (socket) found.set(`${socket.host}:${socket.port}`, { ...process, ...socket });
       });
@@ -121,14 +135,14 @@ async function ps(args: string[]) {
 async function macProcess(pid: number, owners: ReadonlySet<string>): Promise<OwnedProcess | null> {
   try {
     const before = await ps(["-p", String(pid), "-o", "lstart=,ppid=,comm="]);
-    const match = /^(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\d+)\s+(.+)$/.exec(before);
+    const match = macProcessPattern.exec(before);
     if (!match) return null;
     const command = await ps(["-ww", "-p", String(pid), "-o", "command="]);
     const environment = await ps(["eww", "-p", String(pid), "-o", "command="]);
     if (!environment.startsWith(`${command} `)) return null;
     const values = environment
       .slice(command.length + 1)
-      .split(/\s+/)
+      .split(whitespacePattern)
       .join("\0");
     const owner = ownerFromEnvironment(values, owners);
     if (!owner || before !== (await ps(["-p", String(pid), "-o", "lstart=,ppid=,comm="])))
@@ -154,13 +168,13 @@ async function macProcesses(owners: ReadonlySet<string>): Promise<OwnedProcess[]
     ]);
     const commandByPid = new Map(
       commands.split("\n").flatMap((line) => {
-        const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+        const match = processCommandPattern.exec(line);
         return match ? [[Number(match[1]), match[2]] as const] : [];
       }),
     );
     const ownerByPid = new Map<number, string>();
     for (const line of environments.split("\n")) {
-      const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+      const match = processCommandPattern.exec(line);
       if (!match) continue;
       const pid = Number(match[1]),
         command = commandByPid.get(pid);
@@ -168,14 +182,14 @@ async function macProcesses(owners: ReadonlySet<string>): Promise<OwnedProcess[]
       const owner = ownerFromEnvironment(
         match[2]
           .slice(command.length + 1)
-          .split(/\s+/)
+          .split(whitespacePattern)
           .join("\0"),
         owners,
       );
       if (owner) ownerByPid.set(pid, owner);
     }
     return table.split("\n").flatMap((line) => {
-      const match = /^\s*(\d+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.+)$/.exec(line);
+      const match = macProcessTablePattern.exec(line);
       const pid = Number(match?.[1]),
         owner = ownerByPid.get(pid);
       return match && owner
@@ -201,7 +215,7 @@ export function parseLsofListeners(output: string) {
   for (const line of output.split("\n")) {
     if (line.startsWith("p")) pid = Number(line.slice(1));
     if (!line.startsWith("n") || !Number.isInteger(pid) || pid <= 0) continue;
-    const match = /^n(\*|127\.0\.0\.1|\[::1\]|\[::\]):(\d+)$/.exec(line);
+    const match = lsofListenerPattern.exec(line);
     const port = Number(match?.[2]);
     if (match && port > 0 && port <= 65535)
       listeners.push({ pid, port, host: match[1].includes(":") ? "::1" : "127.0.0.1" });
@@ -218,7 +232,7 @@ export async function inspectProcessIdentity(pid: number): Promise<string | null
     }
     if (process.platform === "darwin") {
       const value = await ps(["-p", String(pid), "-o", "lstart=,stat="]);
-      const match = /^(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\S+)$/.exec(value);
+      const match = macIdentityPattern.exec(value);
       if (!match) throw new Error("Could not inspect the process identity.");
       return match[2].startsWith("Z") ? null : `${pid}:${match[1]}`;
     }

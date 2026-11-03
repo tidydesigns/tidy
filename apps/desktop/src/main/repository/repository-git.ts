@@ -16,6 +16,13 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isUtf8 } from "node:buffer";
 import { assertRepositoryPathStable, openRepositoryPath } from "./repository-path";
 
+const sharedSha1Pattern = /^sharedindex\.[a-f0-9]{40}$/;
+const sharedSha256Pattern = /^sharedindex\.[a-f0-9]{64}$/;
+const headSha1Pattern = /^[a-f0-9]{40}$/;
+const headSha256Pattern = /^[a-f0-9]{64}$/;
+const trailingNewlinePattern = /\r?\n$/;
+const metadataControlsPattern = /[\x00-\x1f\x7f]/;
+
 export type GitView = {
   directory: string;
   index: string;
@@ -210,7 +217,7 @@ async function copyIndex(source: string, directory: string, format: string) {
   const size = await copyMetadata(source, index, remaining);
   if (!size) return index;
   remaining -= size;
-  const sharedName = new RegExp(`^sharedindex\\.[a-f0-9]{${format === "sha256" ? 64 : 40}}$`);
+  const sharedName = format === "sha256" ? sharedSha256Pattern : sharedSha1Pattern;
   const entries = await opendir(dirname(source));
   let count = 0;
   for await (const entry of entries) {
@@ -351,7 +358,7 @@ export async function createGitView(root: string, signal?: AbortSignal): Promise
     ),
   ]);
   signal?.throwIfAborted();
-  const fields = metadata.text.replace(/\r?\n$/, "").split("\n");
+  const fields = metadata.text.replace(trailingNewlinePattern, "").split("\n");
   const [index, objects, attributes, exclude, sparse, format, workTree, head] = fields;
   if (
     ![0, 128].includes(metadata.code) ||
@@ -360,10 +367,10 @@ export async function createGitView(root: string, signal?: AbortSignal): Promise
     ![0, 1].includes(settings.code) ||
     ![7, 8].includes(fields.length) ||
     ![index, objects, attributes, exclude, sparse, workTree].every(
-      (path) => path && isAbsolute(path) && !/[\x00-\x1f\x7f]/.test(path),
+      (path) => path && isAbsolute(path) && !metadataControlsPattern.test(path),
     ) ||
     !["sha1", "sha256"].includes(format) ||
-    (head !== undefined && !new RegExp(`^[a-f0-9]{${format === "sha256" ? 64 : 40}}$`).test(head))
+    (head !== undefined && !(format === "sha256" ? headSha256Pattern : headSha1Pattern).test(head))
   )
     throw new Error("Could not create a safe Git preview.");
   const values = new Map<string, string>();
@@ -371,7 +378,7 @@ export async function createGitView(root: string, signal?: AbortSignal): Promise
     const separator = entry.indexOf("\n");
     const key = entry.slice(0, separator),
       value = entry.slice(separator + 1);
-    if (separator < 0 || !configurationKeys.includes(key) || /[\x00-\x1f\x7f]/.test(value))
+    if (separator < 0 || !configurationKeys.includes(key) || metadataControlsPattern.test(value))
       throw new Error("Git settings cannot be previewed safely.");
     values.set(key, value);
   }

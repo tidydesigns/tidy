@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+const githubRepositoryPattern = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)\/?$/i;
+const gitSuffixPattern = /\.git$/;
+
 const refreshInterval = 5 * 60 * 1000;
 // Keep the last result across client-side page navigation, including failed refreshes.
 const starCache = new Map<string, { stars: number; refreshedAt: number }>();
@@ -12,7 +15,7 @@ export function GitHubStars({ repositoryUrl }: { repositoryUrl: string }) {
   );
 
   useEffect(() => {
-    const repository = repositoryUrl.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)\/?$/i);
+    const repository = repositoryUrl.match(githubRepositoryPattern);
     if (!repository) return;
 
     const [, owner, name] = repository;
@@ -48,7 +51,7 @@ export function GitHubStars({ repositoryUrl }: { repositoryUrl: string }) {
       requestInFlight = true;
       try {
         const response = await fetch(
-          `https://api.github.com/repos/${owner}/${name.replace(/\.git$/, "")}`,
+          `https://api.github.com/repos/${owner}/${name.replace(gitSuffixPattern, "")}`,
           {
             headers: { Accept: "application/vnd.github+json" },
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),

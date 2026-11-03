@@ -5,6 +5,8 @@ import type { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { CodexAppServer } from "./app-server";
 
+const accountRoutePattern = /^\/v1\/accounts\/([a-f0-9]{64})\/([a-z]+)$/;
+
 export type Runtime = Pick<CodexAppServer, "start" | "request" | "reject" | "respond" | "close"> &
   Pick<EventEmitter, "on" | "off"> &
   Partial<Pick<CodexAppServer, "stop">>;
@@ -124,9 +126,7 @@ export function createRunnerHandler(options: RunnerOptions) {
       const supplied = Buffer.from(request.headers.get("authorization") ?? "");
       if (supplied.length !== secret.length || !timingSafeEqual(supplied, secret))
         return new Response(null, { status: 401 });
-      const match = new URL(request.url).pathname.match(
-        /^\/v1\/accounts\/([a-f0-9]{64})\/([a-z]+)$/,
-      );
+      const match = new URL(request.url).pathname.match(accountRoutePattern);
       if (request.method !== "POST" || !match || !actions.has(match[2]))
         return new Response(null, { status: 404 });
       const [, owner, action] = match;

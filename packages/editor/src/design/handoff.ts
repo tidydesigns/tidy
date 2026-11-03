@@ -6,6 +6,9 @@ import { nodeStyle } from "./node-style";
 import { nodePaints } from "./paints";
 import { nodeStrokePaints } from "./strokes";
 
+const uppercasePattern = /[A-Z]/g;
+const msPrefixPattern = /^ms-/;
+
 export type TokenBinding = { property: string; name: string; value?: string; missing: boolean };
 export function layerHandoff(document: DesignDocument, id: string) {
   const nodes = resolveVariantNodes(document.nodes);
@@ -118,7 +121,9 @@ export function styleDeclarations(style: CSSProperties) {
     .map(([key, value]) => {
       const property = key.startsWith("--")
         ? key
-        : key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`).replace(/^ms-/, "-ms-");
+        : key
+            .replace(uppercasePattern, (letter) => `-${letter.toLowerCase()}`)
+            .replace(msPrefixPattern, "-ms-");
       return [
         property,
         typeof value === "number" && value !== 0 && !unitless.has(key) && !key.startsWith("--")

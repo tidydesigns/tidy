@@ -22,6 +22,10 @@ import {
 import { pageRequest } from "../lib/page-request";
 import { TIDY_URL } from "../lib/config";
 
+const httpUrlPattern = /^https?:\/\//;
+const webStoreUrlPattern =
+  /^https?:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)/;
+
 export default defineBackground(() => {
   const setJob = (job: ImportJob) => browser.storage.session.set({ job });
   const getJob = async () => readImportJob((await browser.storage.session.get("job")).job);
@@ -350,8 +354,8 @@ export default defineBackground(() => {
         if (
           !tab?.id ||
           !tab.url ||
-          !/^https?:\/\//.test(tab.url) ||
-          /^https?:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)/.test(tab.url)
+          !httpUrlPattern.test(tab.url) ||
+          webStoreUrlPattern.test(tab.url)
         ) {
           throw new Error(
             "Open a website to copy. Chrome's internal pages and Web Store cannot be captured.",

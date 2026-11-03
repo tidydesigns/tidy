@@ -2,6 +2,8 @@ import type { DesignDocument, DesignNode } from "./document";
 import { createVariantResolver } from "./component-variants";
 import { childrenByParent } from "@tidy/design/node-hierarchy";
 
+const buttonName = /(?:^|[\s_-])(button|btn)(?:$|[\s_-])/i;
+
 export type LayoutIssue = {
   nodeId: string;
   code: string;
@@ -114,7 +116,7 @@ function diagnoseResolvedLayout(
     const all = children.get(node.id) ?? [];
     const flow = all.filter((child) => child.positionMode !== "absolute");
     const interactive = ["button", "a"].includes(node.semantics?.element ?? "");
-    if (!node.semantics && /(?:^|[\s_-])(button|btn)(?:$|[\s_-])/i.test(node.name))
+    if (!node.semantics && buttonName.test(node.name))
       add(
         node,
         "missing-control-semantics",

@@ -39,7 +39,7 @@ export class CompletionPullRequests extends CachedPullRequests<CompletionPullReq
           defaultBranch: null,
           endedAt: value.closedAt,
         };
-      const repository = new URL(url).pathname.split("/").slice(1, 3).join("/");
+      const repository = url.slice("https://github.com/".length).split("/").slice(0, 2).join("/");
       let entry = repositories.get(repository);
       if (!entry || entry.expires < Date.now()) {
         const result = execute(

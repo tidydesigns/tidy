@@ -7,6 +7,15 @@ import { homedir } from "node:os";
 import { remoteTargetSchema } from "../../shared/remote";
 
 import { RemoteFailure, sshFailure } from "./errors";
+
+const terminalControlsPattern = /[\x00-\x08\x0b-\x1f\x7f]/g;
+
+const confirmationPromptPattern = /yes\/no|fingerprint/i;
+const passwordPromptPattern = /password|passphrase/i;
+const verificationPromptPattern = /code|otp|token|verification/i;
+const newlinePattern = /\r?\n/;
+const whitespacePattern = /\s+/;
+
 export const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 export type AuthenticationPrompt = (input: {
   question: string;
@@ -101,11 +110,11 @@ export class SshSession {
           question += chunk.toString();
           if (question.length > 4096) throw new Error("SSH prompt too large.");
         }
-        const secret = !/yes\/no|fingerprint/i.test(question);
+        const secret = !confirmationPromptPattern.test(question);
         const cacheable =
           secret &&
-          /password|passphrase/i.test(question) &&
-          !/code|otp|token|verification/i.test(question);
+          passwordPromptPattern.test(question) &&
+          !verificationPromptPattern.test(question);
         const cached = cacheable ? this.cache.get(question) : undefined;
         let answer: string | null;
         if (cached && cached.generation !== this.generation) {
@@ -250,7 +259,7 @@ export class SshSession {
       if (code !== 0) {
         this.cache.clear();
         throw this.failure(
-          stderr.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "").trim() ||
+          stderr.replace(terminalControlsPattern, "").trim() ||
             "SSH setup failed. Check the destination and access permissions.",
         );
       }
@@ -283,8 +292,8 @@ export async function discoverSshHosts(directory = join(homedir(), ".ssh")) {
     } catch {
       return;
     }
-    for (const line of content.split(/\r?\n/)) {
-      const [key, ...values] = line.trim().split(/\s+/);
+    for (const line of content.split(newlinePattern)) {
+      const [key, ...values] = line.trim().split(whitespacePattern);
       if (key?.toLowerCase() === "host")
         for (const alias of values)
           if (remoteTargetSchema.safeParse(alias).success) hosts.add(alias);
@@ -300,7 +309,7 @@ export async function discoverSshHosts(directory = join(homedir(), ".ssh")) {
   await read(join(directory, "config"), 0);
   try {
     const content = await readFile(join(directory, "known_hosts"), "utf8");
-    for (const line of content.split(/\r?\n/))
+    for (const line of content.split(newlinePattern))
       for (const alias of (line.split(" ")[0] ?? "").split(","))
         if (remoteTargetSchema.safeParse(alias).success) hosts.add(alias);
   } catch {}

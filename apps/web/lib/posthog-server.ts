@@ -5,6 +5,20 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { normalizedRoute } from "./route-normalization";
 import { diagnosticMessage } from "./privacy/error-diagnostics";
 
+const stackUrlSuffixPattern = /[?#][^\s)]*/g;
+
+const releaseValue = /^[a-zA-Z0-9._-]{1,100}$/;
+const timeoutMessage = /timeout|timed out|Query read timeout/i;
+const lineBreak = /[\r\n\u2028\u2029]/;
+const missingBindingMessage = /binding is (?:missing|required)/i;
+const stackFrameLine = /^\s+at /;
+const stackFrameLocation =
+  /(?:^|[\s/\\(])([a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?)):(\d{1,8}):(\d{1,8})\)?$/;
+const stackFileName = /(?:^|[\/\\])([a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?))$/;
+const pathSeparator = /[\/\\]/;
+const chunkIdValue = /^[\da-f-]{36}$/i;
+const diagnosticCode = /^[\w.-]{1,100}$/;
+
 export type ErrorDetails = {
   source: "worker" | "next" | "operation";
   event: string;
@@ -116,7 +130,7 @@ function safeDetails(details: ErrorDetails) {
   return result;
 }
 function safeBuildLabel(value: string | undefined) {
-  return value && /^[a-zA-Z0-9._-]{1,100}$/.test(value) ? value : undefined;
+  return value && releaseValue.test(value) ? value : undefined;
 }
 
 export function serverErrorCategory(value: unknown) {
@@ -158,19 +172,18 @@ function directServerErrorCategory(value: Error) {
   };
   if (typeof code === "string" && Object.hasOwn(codes, code)) return codes[code];
   if (value.name === "AbortError") return "canceled";
-  if (value.name === "TimeoutError" || /timeout|timed out|Query read timeout/i.test(value.message))
-    return "timeout";
+  if (value.name === "TimeoutError" || timeoutMessage.test(value.message)) return "timeout";
   if (
     value.message
       .toLowerCase()
-      .split(/[\r\n\u2028\u2029]/)
+      .split(lineBreak)
       .some((line) => {
         const start = line.indexOf("i/o");
         return start !== -1 && line.includes("different request", start + 3);
       })
   )
     return "cross_request_io";
-  if (/binding is (?:missing|required)/i.test(value.message)) return "missing_runtime_binding";
+  if (missingBindingMessage.test(value.message)) return "missing_runtime_binding";
   return "unknown";
 }
 
@@ -201,14 +214,12 @@ export function safeServerError(value: unknown, event: string) {
     const frames = value.stack
       .split("\n")
       .slice(0, 40)
-      .filter((line) => /^\s+at /.test(line))
+      .filter((line) => stackFrameLine.test(line))
       .flatMap((line) => {
         // Only a code file basename and numeric location. Drop function names,
         // machine paths, hosts, query/fragment values and non-code frames.
-        const clean = line.replace(/[?#][^\s)]*/g, "");
-        const match = clean.match(
-          /(?:^|[\s/\\(])([a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?)):(\d{1,8}):(\d{1,8})\)?$/,
-        );
+        const clean = line.replace(stackUrlSuffixPattern, "");
+        const match = clean.match(stackFrameLocation);
         return match ? [`    at ${match[1]}:${match[2]}:${match[3]}`] : [];
       });
     error.stack = `${error.name}: ${message}\n${frames.join("\n")}`;
@@ -262,7 +273,7 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
       value instanceof Error && value.stack
         ? `${safeError.name}: ${safeError.message}\n${value.stack
             .split("\n")
-            .filter((line) => /^\s+at /.test(line))
+            .filter((line) => stackFrameLine.test(line))
             .slice(0, 40)
             .join("\n")}`
         : safeError.stack;
@@ -319,14 +330,12 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
                         .filter(
                           (frame) =>
                             typeof frame.filename === "string" &&
-                            /(?:^|[\/\\])([a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?))$/.test(
-                              frame.filename,
-                            ) &&
+                            stackFileName.test(frame.filename) &&
                             Number.isSafeInteger(frame.lineno) &&
                             Number.isSafeInteger(frame.colno),
                         )
                         .map((frame) => ({
-                          filename: frame.filename!.split(/[\/\\]/).at(-1),
+                          filename: frame.filename!.split(pathSeparator).at(-1),
                           // Keep the required wire field without exposing the SDK's name.
                           function: "<redacted>",
                           lineno: frame.lineno,
@@ -334,7 +343,7 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
                           platform: "node:javascript",
                           in_app: true,
                           ...(typeof frame.chunk_id === "string" &&
-                          /^[\da-f-]{36}$/i.test(frame.chunk_id)
+                          chunkIdValue.test(frame.chunk_id)
                             ? { chunk_id: frame.chunk_id }
                             : {}),
                         }))
@@ -344,7 +353,7 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
             ],
             $exception_level: "error",
             ...(typeof event.properties?.$release_id === "string" &&
-            /^[\w.-]{1,100}$/.test(event.properties.$release_id)
+            diagnosticCode.test(event.properties.$release_id)
               ? { $release_id: event.properties.$release_id }
               : {}),
             $lib: "posthog-node",

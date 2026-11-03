@@ -5,6 +5,9 @@ import type { DesignDocument } from "./document";
 import { isLayerLocked } from "./edit-document";
 import { nodeIndex } from "./node-index";
 
+const instanceChildrenErrorPattern =
+  /^Detach the instance before (?:adding or reparenting|deleting or moving|reparenting|reordering) its children\.$/;
+
 export type EditorErrorNotice = {
   message: string;
   detach?: { instanceId: string; componentId: string };
@@ -37,11 +40,7 @@ export function editorErrorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof Error) || error instanceof ZodError || error.name === "ZodError")
     return fallback;
   const message = error.message.trim();
-  if (
-    /^Detach the instance before (?:adding or reparenting|deleting or moving|reparenting|reordering) its children\.$/.test(
-      message,
-    )
-  )
+  if (instanceChildrenErrorPattern.test(message))
     return "This layer belongs to a component instance. Use Detach instance in the Component section before changing its layers.";
   // Server errors can carry a serialized Zod issue array rather than its class.
   if (message.startsWith("[")) {

@@ -1,8 +1,16 @@
 import type { DesignPaint } from "./document";
 
+const whitespacePattern = /\s+/;
+const radialPositionPattern = /\s*\bat\b\s*/;
+const gradientStopPattern = /^(rgba?\([^)]*\)|#[\da-f]+|[a-z]+)(.*)$/i;
+const gradientPattern = /^(linear|radial)-gradient\((.*)\)$/;
+const radialColorPattern = /^(?:rgba?\(|#|transparent\b)/i;
+
 type Size = { width: number; height: number };
 type Color = (value: string) => string | undefined;
 const number = "[-+]?(?:\\d*\\.)?\\d+";
+const lengthPattern = new RegExp(`^(${number})(%|px)?$`);
+const anglePattern = new RegExp(`^(${number})(deg|rad|turn|grad)$`);
 /** CSS commas inside color functions do not separate background layers or stops. */
 export function splitCssList(value: string): string[] {
   const parts: string[] = [];
@@ -21,16 +29,16 @@ export function splitCssList(value: string): string[] {
   return [...parts, value.slice(start).trim()];
 }
 function length(value: string, size: number): number | undefined {
-  const match = value.match(new RegExp(`^(${number})(%|px)?$`));
+  const match = value.match(lengthPattern);
   if (!match || (!match[2] && Number(match[1]) !== 0)) return undefined;
   return Number(match[1]) * (match[2] === "%" ? size / 100 : 1);
 }
 function angle(value: string, size: Size): number | undefined {
-  const match = value.match(new RegExp(`^(${number})(deg|rad|turn|grad)$`));
+  const match = value.match(anglePattern);
   if (match)
     return Number(match[1]) * { deg: 1, rad: 180 / Math.PI, turn: 360, grad: 0.9 }[match[2]!]!;
   if (!value.startsWith("to ")) return undefined;
-  const sides = value.slice(3).split(/\s+/);
+  const sides = value.slice(3).split(whitespacePattern);
   if (
     sides.length > 2 ||
     new Set(sides).size !== sides.length ||
@@ -48,8 +56,8 @@ function angle(value: string, size: Size): number | undefined {
   return (Math.atan2(x * size.height, -y * size.width) * 180) / Math.PI;
 }
 function radialGeometry(header: string, size: Size) {
-  const [shapeText = "", positionText = "center"] = header.split(/\s*\bat\b\s*/);
-  const parts = positionText.trim().split(/\s+/);
+  const [shapeText = "", positionText = "center"] = header.split(radialPositionPattern);
+  const parts = positionText.trim().split(whitespacePattern);
   if (parts.length > 2) return;
   let [x = "center", y = "center"] = parts;
   if (["top", "bottom"].includes(x) || ["left", "right"].includes(y)) [x, y] = [y, x];
@@ -64,7 +72,7 @@ function radialGeometry(header: string, size: Size) {
   const cx = coordinate(x, size.width, "x"),
     cy = coordinate(y, size.height, "y");
   if (cx === undefined || cy === undefined) return;
-  const shapeParts = shapeText.trim().split(/\s+/).filter(Boolean);
+  const shapeParts = shapeText.trim().split(whitespacePattern).filter(Boolean);
   const circle = shapeParts.includes("circle");
   const sizes = shapeParts.filter((part) => part !== "circle" && part !== "ellipse");
   if (shapeParts.includes("circle") && shapeParts.includes("ellipse")) return;
@@ -104,11 +112,11 @@ function radialGeometry(header: string, size: Size) {
 function stops(parts: string[], extent: number, color: Color) {
   const result: { color: string; position?: number }[] = [];
   for (const part of parts) {
-    const match = part.match(/^(rgba?\([^)]*\)|#[\da-f]+|[a-z]+)(.*)$/i);
+    const match = part.match(gradientStopPattern);
     if (!match) return;
     const parsedColor = color(match[1]!);
     if (!parsedColor) return;
-    const positions = match[2]!.trim().split(/\s+/).filter(Boolean);
+    const positions = match[2]!.trim().split(whitespacePattern).filter(Boolean);
     if (positions.length > 2) return;
     if (!positions.length) result.push({ color: parsedColor });
     for (const position of positions) {
@@ -151,7 +159,7 @@ export function captureGradient(
   id = "css-gradient",
 ): DesignPaint | undefined {
   if (!(size.width > 0 && size.height > 0)) return;
-  const match = value.match(/^(linear|radial)-gradient\((.*)\)$/);
+  const match = value.match(gradientPattern);
   if (!match) return;
   const parts = splitCssList(match[2]!);
   if (parts.length < 2) return;
@@ -167,7 +175,7 @@ export function captureGradient(
     if (!colors) return;
     return { ...base, type: "linear", angle: degrees, stops: colors };
   }
-  const header = /^(?:rgba?\(|#|transparent\b)/i.test(parts[0]!) ? "" : parts.shift()!;
+  const header = radialColorPattern.test(parts[0]!) ? "" : parts.shift()!;
   const geometry = radialGeometry(header, size);
   if (!geometry) return;
   if (

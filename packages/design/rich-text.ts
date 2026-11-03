@@ -1,6 +1,9 @@
 import * as z from "zod";
 import { richTextPlain } from "./rich-text-runtime";
 
+const linkProtocolPattern = /^(https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i;
+const linkControlPattern = /[\u0000-\u0020]/;
+
 export {
   richTextPlain,
   textParagraphs,
@@ -13,8 +16,7 @@ export const textLinkSchema = z
   .string()
   .max(2000)
   .refine(
-    (value) =>
-      /^(https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i.test(value) && !/[\u0000-\u0020]/.test(value),
+    (value) => linkProtocolPattern.test(value) && !linkControlPattern.test(value),
     "Use an http(s), mailto, tel, root-relative or fragment URL.",
   );
 export const textRunSchema = z

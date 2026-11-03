@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
+const terminalCsiPattern = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+
 export type MobileProcess = {
   process: ChildProcessWithoutNullStreams;
   done: Promise<string>;
@@ -47,7 +49,7 @@ export function mobileProcess(
   };
   let output = "";
   const receive = (chunk: Buffer) => {
-    const text = chunk.toString("utf8").replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+    const text = chunk.toString("utf8").replace(terminalCsiPattern, "");
     output = (output + text).slice(-64_000);
     options.output?.(text);
   };

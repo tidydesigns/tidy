@@ -1,3 +1,14 @@
+const httpStatusMessage = /^HTTP [1-5][0-9]{2}$/;
+const nullPropertyMessage = /^Cannot (?:read|set) propert(?:y|ies) of (?:undefined|null)\b/;
+const notFunctionMessage = /^.+ is not a function$/;
+const notDefinedMessage = /^.+ is not defined$/;
+const invalidTypeMessage = /^.+ is not (?:iterable|a constructor)$/;
+const chunkLoadMessage =
+  /^(?:Loading chunk \S+ failed|Failed to fetch dynamically imported module:)/;
+const reactErrorMessage = /^Minified React error #(\d{1,4});/;
+const hydrationMessage = /^Hydration failed because/;
+const jsonParseMessage = /^(?:Unexpected token|Unexpected end of JSON input|JSON\.parse:)/;
+const requestIoMessage = /I\/O.*different request/;
 // Only reviewed technical text crosses the telemetry boundary. Arbitrary error
 // strings can contain designs, SQL, tokens or provider response bodies.
 const messages = new Set([
@@ -66,24 +77,22 @@ export function diagnosticType(value: unknown): string {
 export function diagnosticMessage(value: unknown, type: string): string {
   if (typeof value !== "string" || value.length > 4096) return diagnosticType(type);
   if (messages.has(value)) return value;
-  if (/^HTTP [1-5][0-9]{2}$/.test(value)) return value;
+  if (httpStatusMessage.test(value)) return value;
   // Normalize engine/framework templates instead of transmitting their dynamic
   // property names, identifiers, component text, URLs or serialized values.
-  if (/^Cannot (?:read|set) propert(?:y|ies) of (?:undefined|null)\b/.test(value))
+  if (nullPropertyMessage.test(value))
     return value.startsWith("Cannot set")
       ? "Cannot set a property of null or undefined"
       : "Cannot read a property of null or undefined";
-  if (/^.+ is not a function$/.test(value)) return "Attempted to call a non-function";
-  if (/^.+ is not defined$/.test(value)) return "Referenced an undefined variable";
-  if (/^.+ is not (?:iterable|a constructor)$/.test(value))
+  if (notFunctionMessage.test(value)) return "Attempted to call a non-function";
+  if (notDefinedMessage.test(value)) return "Referenced an undefined variable";
+  if (invalidTypeMessage.test(value))
     return value.endsWith("iterable") ? "Value is not iterable" : "Value is not a constructor";
-  if (/^(?:Loading chunk \S+ failed|Failed to fetch dynamically imported module:)/.test(value))
-    return "Application JavaScript chunk failed to load";
-  const react = /^Minified React error #(\d{1,4});/.exec(value);
+  if (chunkLoadMessage.test(value)) return "Application JavaScript chunk failed to load";
+  const react = reactErrorMessage.exec(value);
   if (react) return `Minified React error #${react[1]}`;
-  if (/^Hydration failed because/.test(value)) return "React hydration failed";
-  if (/^(?:Unexpected token|Unexpected end of JSON input|JSON\.parse:)/.test(value))
-    return "Invalid JSON response";
-  if (/I\/O.*different request/.test(value)) return "I/O used outside its originating request";
+  if (hydrationMessage.test(value)) return "React hydration failed";
+  if (jsonParseMessage.test(value)) return "Invalid JSON response";
+  if (requestIoMessage.test(value)) return "I/O used outside its originating request";
   return diagnosticType(type);
 }

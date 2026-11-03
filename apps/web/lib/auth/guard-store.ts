@@ -1,5 +1,9 @@
 import { validateCimdMetadata, validateClientIdUrl } from "@better-auth/cimd";
 
+const privateCacheDirective = /(?:^|,)\s*(?:no-store|private|no-cache)(?:\s|=|,|$)/i;
+const cacheAgeDirective = /^(?:s-maxage|max-age)\b/i;
+const cacheAgeValue = /^(s-maxage|max-age)\s*=\s*(?:"(\d+)"|(\d+))$/i;
+
 type CacheRow = {
   url: string;
   body: string;
@@ -249,13 +253,13 @@ export class AuthGuardStore {
 
 export function metadataFreshness(headers: Headers, now: number) {
   const control = headers.get("cache-control") ?? "";
-  if (/(?:^|,)\s*(?:no-store|private|no-cache)(?:\s|=|,|$)/i.test(control)) return 0;
+  if (privateCacheDirective.test(control)) return 0;
   const vary = headers.get("vary");
   if (vary && vary.split(",").some((name) => name.trim().toLowerCase() !== "accept")) return 0;
   const ages = new Map<string, number>();
   for (const directive of control.split(",").map((value) => value.trim())) {
-    if (!/^(?:s-maxage|max-age)\b/i.test(directive)) continue;
-    const matched = directive.match(/^(s-maxage|max-age)\s*=\s*(?:"(\d+)"|(\d+))$/i);
+    if (!cacheAgeDirective.test(directive)) continue;
+    const matched = directive.match(cacheAgeValue);
     if (!matched || ages.has(matched[1].toLowerCase())) return 0;
     const seconds = Number(matched[2] ?? matched[3]);
     if (!Number.isSafeInteger(seconds)) return 0;

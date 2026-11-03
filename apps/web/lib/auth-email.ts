@@ -1,6 +1,8 @@
 import "server-only";
 import { reserveEmailDelivery } from "./auth/email-budget";
 
+const mailboxPattern = /^([^<>]+)\s*<([^<>\s]+@[^<>\s]+)>$/;
+
 export function authEmailConfigured() {
   return Boolean(
     process.env.CLOUDFLARE_EMAIL_API_TOKEN?.trim() &&
@@ -20,7 +22,7 @@ type SendResponse = {
 };
 
 function sender(from: string) {
-  const named = from.match(/^([^<>]+)\s*<([^<>\s]+@[^<>\s]+)>$/);
+  const named = from.match(mailboxPattern);
   return named ? { address: named[2], name: named[1].trim() } : from;
 }
 

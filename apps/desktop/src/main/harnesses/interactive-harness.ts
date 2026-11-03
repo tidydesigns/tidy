@@ -20,9 +20,14 @@ import { plainToolText } from "./tool-events";
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SessionContext, TurnInput, HarnessAdapter, AdapterContext } from "./session-types";
 
+const bidiControlsPattern = /[\u202a-\u202e\u2066-\u2069]/g;
+
+const sensitiveFieldPattern =
+  /password|secret|api.?key|token|authorization|signature|thinking|reasoning/i;
+
 const approvalText = (value: string) =>
   plainToolText(value).replace(
-    /[\u202a-\u202e\u2066-\u2069]/g,
+    bidiControlsPattern,
     (character) => `\\u${character.charCodeAt(0).toString(16)}`,
   );
 type Turn = {
@@ -335,12 +340,7 @@ export class HarnessSession {
         ? details
         : (JSON.stringify(
             details,
-            (name, value) =>
-              /password|secret|api.?key|token|authorization|signature|thinking|reasoning/i.test(
-                name,
-              )
-                ? "[redacted]"
-                : value,
+            (name, value) => (sensitiveFieldPattern.test(name) ? "[redacted]" : value),
             2,
           ) ?? ""),
     );

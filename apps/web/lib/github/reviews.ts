@@ -32,6 +32,9 @@ import {
 } from "./validation";
 
 import type { Review, Capture, Feedback } from "./review-contract";
+
+const productionEnvironmentPattern = /production/i;
+
 export type { Review, Capture, Feedback } from "./review-contract";
 export type { Pull } from "./validation";
 export async function fileOrganization(userId: string, fileId: string) {
@@ -343,7 +346,11 @@ export const getReviewContext = boundedGitHubOperation(async function getReviewC
   ]);
   let previewUrl: string | null = null;
   for (const deployment of deployments) {
-    if (deployment.sha !== pull.head.sha || /production/i.test(deployment.environment)) continue;
+    if (
+      deployment.sha !== pull.head.sha ||
+      productionEnvironmentPattern.test(deployment.environment)
+    )
+      continue;
     const statuses = await checkedGitHub(
       z.array(z.object({ state: z.string(), environment_url: z.string() })),
       githubRequest(access.token, `${path}/deployments/${deployment.id}/statuses?per_page=1`),
@@ -589,8 +596,10 @@ export const sendFeedback = boundedGitHubOperation(async function sendFeedback(
   const client = await db.connect();
   try {
     await client.query("begin");
-    const result = await client.query<Feedback>(
-      `select * from "githubFeedback" where "id"=$1 and "reviewId"=$2 and "authorId"=$3 for update`,
+    const result = await client.query<
+      Pick<Feedback, "githubCommentId" | "nodeId" | "body" | "sha" | "captureId" | "point">
+    >(
+      `select "githubCommentId","nodeId","body","sha","captureId","point" from "githubFeedback" where "id"=$1 and "reviewId"=$2 and "authorId"=$3 for update`,
       [feedbackId, id, userId],
     );
     const feedback = result.rows[0];

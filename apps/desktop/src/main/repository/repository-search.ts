@@ -8,6 +8,10 @@ import {
   type RepositorySearch,
 } from "../../shared/contracts/repository-search";
 
+const notRepositoryPattern = /^fatal: not a git repository \(/;
+const unsafeSearchPattern =
+  /Symbolic link|Choose a (path|regular)|Not a repository folder|project directory moved/;
+
 const excludedDirectories = new Set([".git", "node_modules", ".next", ".turbo", "dist", "build"]);
 type Inventory = { paths: string[]; limited: boolean };
 const inventories = new Map<string, Promise<Inventory>>();
@@ -38,7 +42,7 @@ async function readInventory(root: string): Promise<Inventory> {
     const paths = files.text.split("\0", 30001).filter(Boolean);
     return { paths: paths.slice(0, 30000), limited: paths.length > 30000 };
   }
-  if (!/^fatal: not a git repository \(/.test(result.stderr))
+  if (!notRepositoryPattern.test(result.stderr))
     throw new Error("Could not search this repository. Check its configuration and retry.");
   const directories = [""];
   const paths: string[] = [];
@@ -108,13 +112,7 @@ export async function searchRepositoryFiles(
         ["ENOENT", "EACCES", "EPERM", "ELOOP", "ENOTDIR"].includes(String(error.code))
       )
         continue;
-      if (
-        error instanceof Error &&
-        /Symbolic link|Choose a (path|regular)|Not a repository folder|project directory moved/.test(
-          error.message,
-        )
-      )
-        continue;
+      if (error instanceof Error && unsafeSearchPattern.test(error.message)) continue;
       throw error;
     }
   }

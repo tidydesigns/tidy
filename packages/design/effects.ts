@@ -1,4 +1,12 @@
 import type { DesignNode, DesignEffect } from "./document";
+
+const shortHexColorPattern = /^#[\da-f]{3,4}$/i;
+const hexColorPattern = /^#[\da-f]{6}(?:[\da-f]{2})?$/i;
+const rgbColorPattern =
+  /^rgba?\(\s*([\d.]+)(%)?[,\s]+([\d.]+)(%)?[,\s]+([\d.]+)(%)?(?:\s*[,/]\s*([\d.]+)(%)?)?\s*\)$/;
+const whitespacePattern = /\s/;
+const shadowLengthPattern = /^-?(?:\d*\.)?\d+(?:px)?$/;
+const insetPrefixPattern = /^inset\s+/i;
 export type Shadow = NonNullable<DesignNode["style"]["shadows"]>[number] & { id: string };
 type Style = DesignNode["style"];
 export const effectControls = {
@@ -56,16 +64,14 @@ function cssColor(value: string, currentColor: string): string | undefined {
     green: "#008000",
   };
   if (named[value]) return named[value];
-  if (/^#[\da-f]{3,4}$/i.test(value))
+  if (shortHexColorPattern.test(value))
     return `#${value
       .slice(1)
       .split("")
       .map((part) => part + part)
       .join("")}`;
-  if (/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(value)) return value;
-  const match = value.match(
-    /^rgba?\(\s*([\d.]+)(%)?[,\s]+([\d.]+)(%)?[,\s]+([\d.]+)(%)?(?:\s*[,/]\s*([\d.]+)(%)?)?\s*\)$/,
-  );
+  if (hexColorPattern.test(value)) return value;
+  const match = value.match(rgbColorPattern);
   if (!match) return;
   const byte = (channel: number) =>
     Math.max(0, Math.min(255, Math.round(channel)))
@@ -87,7 +93,10 @@ function shadowParts(source: string, separator: "," | " "): string[] | undefined
     } else if (character === ")") {
       if (!inFunction) return;
       inFunction = false;
-    } else if (!inFunction && (separator === "," ? character === "," : /\s/.test(character!))) {
+    } else if (
+      !inFunction &&
+      (separator === "," ? character === "," : whitespacePattern.test(character!))
+    ) {
       const part = source.slice(start, index).trim();
       if (part) parts.push(part);
       else if (separator === ",") return;
@@ -121,7 +130,7 @@ export function parseCssShadows(
     const numbers: number[] = [];
     let color: string | undefined;
     for (const token of tokens.filter((token) => token !== "inset")) {
-      if (/^-?(?:\d*\.)?\d+(?:px)?$/.test(token)) {
+      if (shadowLengthPattern.test(token)) {
         const value = parseFloat(token);
         if (!token.endsWith("px") && value !== 0) return;
         numbers.push(value);
@@ -188,7 +197,7 @@ export function shadowCss(style: Style) {
   return (
     [
       style.shadow,
-      style.innerShadow ? `inset ${style.innerShadow.replace(/^inset\s+/i, "")}` : undefined,
+      style.innerShadow ? `inset ${style.innerShadow.replace(insetPrefixPattern, "")}` : undefined,
       ...(style.shadows ?? [])
         .filter((shadow) => shadow.visible)
         .map(

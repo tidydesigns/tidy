@@ -17,6 +17,13 @@ import {
   type RepositoryFile,
 } from "../../shared/contracts/repository-files";
 
+const gitFilterPattern = /^filter\.[^\x00-\x20=]+\.(clean|smudge|process|required)$/i;
+const relativePrefixPattern = /^\.\//;
+const notRepositoryPattern = /^fatal: not a git repository \(/;
+const trailingNewlinePattern = /\r?\n$/;
+const renameStatusPattern = /[RC]/;
+const blobEntryPattern = /^100(?:644|755) blob [a-f0-9]+\t/;
+
 const fileLimit = 1024 * 1024;
 const diffLimit = 2 * fileLimit;
 export class RepositoryObservers {
@@ -87,7 +94,7 @@ async function filterOverrides(root: string) {
   if (![0, 1].includes(filters.code))
     throw new Error("Could not read repository filter configuration.");
   const keys = filters.text.split("\n").filter(Boolean);
-  if (keys.some((key) => !/^filter\.[^\x00-\x20=]+\.(clean|smudge|process|required)$/i.test(key)))
+  if (keys.some((key) => !gitFilterPattern.test(key)))
     throw new Error("This repository's filter configuration cannot be safely previewed.");
   return {
     args: keys.flatMap((key) => ["-c", `${key}=${key.endsWith(".required") ? "false" : ""}`]),
@@ -129,7 +136,8 @@ async function externalFilteredPaths(
     if (result.code !== 0) throw new Error("Could not read repository file attributes.");
     const fields = result.text.split("\0");
     for (let index = 0; index + 2 < fields.length; index += 3)
-      if (filters.has(fields[index + 2])) filtered.add(fields[index].replace(/^\.\//, ""));
+      if (filters.has(fields[index + 2]))
+        filtered.add(fields[index].replace(relativePrefixPattern, ""));
   }
   return filtered;
 }
@@ -146,10 +154,10 @@ async function hasRepository(root: string, signal?: AbortSignal) {
     signal,
   );
   if (result.code !== 0) {
-    if (/^fatal: not a git repository \(/.test(result.stderr)) return false;
+    if (notRepositoryPattern.test(result.stderr)) return false;
     throw new Error("Could not inspect this Git repository. Check its configuration and retry.");
   }
-  const top = await realpath(result.text.replace(/\r?\n$/, ""));
+  const top = await realpath(result.text.replace(trailingNewlinePattern, ""));
   const delta = relative(top, await realpath(root));
   if (delta === ".." || delta.startsWith(`..${sep}`) || isAbsolute(delta))
     throw new Error("Git's working tree is outside the selected project.");
@@ -231,7 +239,9 @@ export async function readRepositoryDirectory(
     ]);
     clearTimeout(deadline);
     const excluded = new Set(
-      ignored.code === 0 ? ignored.text.split("\0").map((path) => path.replace(/^\.\//, "")) : [],
+      ignored.code === 0
+        ? ignored.text.split("\0").map((path) => path.replace(relativePrefixPattern, ""))
+        : [],
     );
     await assertRepositoryPathStable(checked);
     return {
@@ -258,7 +268,7 @@ export function parseRepositoryStatus(text: string): RepositoryChange[] {
     if (!field) continue;
     const code = field.slice(0, 2),
       path = field.slice(3);
-    const previousPath = /[RC]/.test(code) ? (fields[++i] ?? null) : null;
+    const previousPath = renameStatusPattern.test(code) ? (fields[++i] ?? null) : null;
     if (
       !repositoryPathSchema.safeParse(path).success ||
       (previousPath !== null && !repositoryPathSchema.safeParse(previousPath).success)
@@ -482,7 +492,7 @@ export async function readRepositoryFile(
       if (!view.head) return unavailable("unsupported");
       const entry = await readGit(["ls-tree", "-z", "HEAD", "--", previousPath ?? path]);
       if (entry.code !== 0) throw new Error("Could not read this file's HEAD entry.");
-      if (!/^100(?:644|755) blob [a-f0-9]+\t/.test(entry.text)) return unavailable("unsupported");
+      if (!blobEntryPattern.test(entry.text)) return unavailable("unsupported");
     }
     const head = { code: view.head ? 0 : 128 };
     const prefix = { code: 0, text: view.prefix };
@@ -491,7 +501,7 @@ export async function readRepositoryFile(
     const overrides = await filterOverrides(checked.root);
     if ((await externalFilteredPaths(checked.root, [path], overrides.names, view)).size)
       return unavailable("filtered");
-    const prefixPath = prefix.text.replace(/\r?\n$/, "");
+    const prefixPath = prefix.text.replace(trailingNewlinePattern, "");
     const object = `HEAD:${prefixPath}${previousPath ?? path}`;
     const size = await readGit(["cat-file", "-s", object], undefined, 1024);
     if (size.code === 0 && Number(size.text) > fileLimit) return unavailable("oversized");

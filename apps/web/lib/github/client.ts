@@ -12,6 +12,9 @@ import {
   reserveGitHubRequest,
   consumeGitHubResponseBytes,
 } from "./work-budget";
+
+const escapedNewlinePattern = /\\n/g;
+
 export { boundedGitHubOperation, GitHubWorkLimitError } from "./work-budget";
 
 export class GitHubError extends Error {
@@ -320,7 +323,7 @@ async function readUserToken(userId: string) {
   }
 }
 export async function installationToken(installationId: string) {
-  const key = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const key = process.env.GITHUB_PRIVATE_KEY?.replace(escapedNewlinePattern, "\n");
   if (!key) throw new Error("GitHub installation authentication is not configured.");
   const now = Math.floor(Date.now() / 1000);
   const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");

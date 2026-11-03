@@ -6,6 +6,8 @@ import { renderFontFamily } from "../design/fonts/family";
 import { readEditableRichText, richTextElements, sanitizeRichPaste } from "./rich-text-dom";
 import { registerRichTextSelection, applyTextCommand } from "./rich-text-selection";
 
+const carriageReturnPattern = /\r\n?/g;
+
 /** Native selection/typing/undo stay in the browser; commit the complete editing session once. */
 export function EditableDesignText({
   node,
@@ -103,7 +105,7 @@ export function EditableDesignText({
   function paste(event: ClipboardEvent<HTMLDivElement>) {
     event.preventDefault();
     const rich = event.clipboardData.getData("text/html"),
-      plain = event.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n");
+      plain = event.clipboardData.getData("text/plain").replace(carriageReturnPattern, "\n");
     if (rich) document.execCommand("insertHTML", false, sanitizeRichPaste(rich, plain));
     else document.execCommand("insertText", false, plain);
     draft();

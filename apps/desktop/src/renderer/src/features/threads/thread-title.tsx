@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 
+const titleControlsPattern = /[\x00-\x1f\x7f]/g;
+
 export function ThreadTitle({
   thread,
   generating,
@@ -43,7 +45,7 @@ export function ThreadTitle({
   function finish(cancel = false, restoreFocus = false) {
     if (finished.current) return;
     finished.current = true;
-    const title = draft.replace(/[\x00-\x1f\x7f]/g, " ").trim();
+    const title = draft.replace(titleControlsPattern, " ").trim();
     if (!cancel && title && (title !== thread.title || thread.titleSource !== "manual"))
       onRename(thread, title);
     setEditing(false);

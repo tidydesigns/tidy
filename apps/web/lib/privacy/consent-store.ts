@@ -9,6 +9,8 @@ import {
   type Consent,
 } from "./consent";
 
+const tokenHashPattern = /^[a-f0-9]{64}$/;
+
 export const RECEIPT_COOKIE = "tidy_consent_receipt";
 type Decision = Consent & {
   id: string;
@@ -22,7 +24,7 @@ export function receiptToken(cookie: string | null) {
     .map((s) => s.trim())
     .filter((s) => s.startsWith(`${RECEIPT_COOKIE}=`));
   const token = values?.length === 1 ? values[0].slice(RECEIPT_COOKIE.length + 1) : "";
-  return /^[a-f0-9]{64}$/.test(token) ? token : undefined;
+  return tokenHashPattern.test(token) ? token : undefined;
 }
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const projection =

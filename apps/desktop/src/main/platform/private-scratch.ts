@@ -3,6 +3,9 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 
+const scratchProcessPattern = /^process-([1-9]\d*)-[a-zA-Z0-9]+$/;
+const scratchPrefixPattern = /^[a-z-]+$/;
+
 const storageFailure = z.object({ code: z.string().optional(), errno: z.number().optional() });
 const errorCode = (error: unknown) => storageFailure.safeParse(error).data?.code;
 
@@ -66,7 +69,7 @@ export class PrivateScratch {
     let scanned = 0;
     for await (const entry of await opendir(root)) {
       if (++scanned > 256) break;
-      const match = /^process-([1-9]\d*)-[a-zA-Z0-9]+$/.exec(entry.name);
+      const match = scratchProcessPattern.exec(entry.name);
       if (!match || !entry.isDirectory() || entry.isSymbolicLink()) continue;
       const directory = join(root, entry.name);
       try {
@@ -89,7 +92,7 @@ export class PrivateScratch {
 
   async create(prefix: string) {
     if (this.closing) throw new Error("Tidy private storage is closing.");
-    if (!/^[a-z-]+$/.test(prefix)) throw new Error("Invalid private storage prefix.");
+    if (!scratchPrefixPattern.test(prefix)) throw new Error("Invalid private storage prefix.");
     try {
       this.pending ??= this.initialize().catch((error: unknown) => {
         this.pending = undefined;

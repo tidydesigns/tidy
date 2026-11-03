@@ -1,3 +1,4 @@
+const contentLengthDigits = /^\d+$/;
 /** Bound the bytes actually received before handing a body to JSON/multipart parsers. */
 export class RequestBodyError extends Error {
   constructor(
@@ -17,7 +18,10 @@ export async function boundedRequest(
   if (encoding && encoding.toLowerCase() !== "identity")
     throw new RequestBodyError("Unsupported content encoding.", 415);
   const length = request.headers.get("content-length");
-  if (length !== null && (!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)))) {
+  if (
+    length !== null &&
+    (!contentLengthDigits.test(length) || !Number.isSafeInteger(Number(length)))
+  ) {
     throw new RequestBodyError("Invalid content length.", 400);
   }
   if (length !== null && Number(length) > limit) {

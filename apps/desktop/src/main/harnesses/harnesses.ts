@@ -7,6 +7,9 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
+
+const harnessIdPattern = /^[a-z][a-z0-9-]*$/;
+
 export { startInteractiveHarness as startHarness } from "./interactive-harness";
 import type { ApprovalRequest, ApprovalDecision } from "../../shared/contracts/permissions";
 import { createToolEventParser } from "./tool-events";
@@ -108,7 +111,7 @@ export function harnessEnvironment(harness?: HarnessId): NodeJS.ProcessEnv {
 }
 
 export async function findExecutable(id: string, environment = harnessEnvironment()) {
-  if (!/^[a-z][a-z0-9-]*$/.test(id)) return null;
+  if (!harnessIdPattern.test(id)) return null;
   const extensions = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
   for (const directory of (environment.PATH ?? "").split(delimiter).filter(Boolean)) {
     if (!isAbsolute(directory)) continue;

@@ -1,5 +1,7 @@
 import { fileVersionAtLeast } from "./file-version";
 
+const revisionDigits = /^\d+$/;
+
 // Version the renderer in the existing column so opaque previews can refresh
 // without editing the document or introducing a schema migration.
 const format = "png-v2:";
@@ -12,7 +14,7 @@ function documentRevision(version: string) {
   const separator = version.indexOf(":");
   const prefix = version.slice(0, separator);
   const revision = Number(prefix);
-  return /^\d+$/.test(prefix) &&
+  return revisionDigits.test(prefix) &&
     Number.isSafeInteger(revision) &&
     Number.isFinite(Date.parse(version.slice(separator + 1)))
     ? revision

@@ -22,6 +22,8 @@ import {
 import { canvasElements } from "./canvas-elements";
 import { useEditorEvent } from "./use-editor-event";
 
+const safeIdPattern = /[^a-zA-Z0-9_-]/g;
+
 type Source =
   | { kind: "none" }
   | { kind: "pressed" }
@@ -62,7 +64,7 @@ export function CanvasHover({
   enabled: boolean;
   view: CanvasView;
 }) {
-  const prefix = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const prefix = useId().replace(safeIdPattern, "");
   const [outlines, setOutlines] = useState<readonly HoverOutline[]>([]);
   const selection = useMemo(() => new Set(selectedIds), [selectedIds]);
   const source = useRef<Source>({ kind: "none" });

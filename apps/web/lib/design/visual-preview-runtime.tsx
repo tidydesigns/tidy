@@ -7,6 +7,10 @@ import type {
   VisualPreviewView,
 } from "./visual-preview-types";
 
+const shadowColorPattern = /rgba?\([^)]*\)/g;
+const pixelLengthPattern = /(-?[\d.]+)px/g;
+const filterBlurPattern = /blur\(([\d.]+)px\)/g;
+
 const data: VisualPreviewData = JSON.parse(
   document.getElementById("tidy-preview-data")!.textContent!,
 );
@@ -38,15 +42,15 @@ function Screen({ view }: { view: VisualPreviewView }) {
         top = (rect.top - wrapper.top) / currentScale;
       const style = getComputedStyle(node);
       let padding = parseFloat(style.outlineWidth) || 0;
-      for (const shadow of style.boxShadow.replace(/rgba?\([^)]*\)/g, "").split(",")) {
-        const values = [...shadow.matchAll(/(-?[\d.]+)px/g)].map((match) => Number(match[1]));
+      for (const shadow of style.boxShadow.replace(shadowColorPattern, "").split(",")) {
+        const values = [...shadow.matchAll(pixelLengthPattern)].map((match) => Number(match[1]));
         if (values.length >= 3 && !shadow.includes("inset"))
           padding = Math.max(
             padding,
             Math.abs(values[0]) + Math.abs(values[1]) + values[2] * 2 + (values[3] ?? 0),
           );
       }
-      for (const blur of style.filter.matchAll(/blur\(([\d.]+)px\)/g))
+      for (const blur of style.filter.matchAll(filterBlurPattern))
         padding = Math.max(padding, Number(blur[1]) * 2);
       const scale = Math.min(1, host.current.clientWidth / (width + padding * 2));
       setGeometry((old) =>

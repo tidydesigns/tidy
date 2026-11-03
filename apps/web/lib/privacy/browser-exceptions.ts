@@ -5,20 +5,20 @@ import {
   type AppErrorOperation,
 } from "./error-diagnostics";
 
+const applicationChunkPattern = /^\/_next\/static\/[\w/.[\]%()-]+\.m?js$/;
+const chunkIdentifierPattern = /^[\da-f-]{36}$/i;
+
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data =>
   value && typeof value === "object" ? (value as Data) : {};
 
-function frameLocation(value: unknown, pageUrl: string) {
+function frameLocation(value: unknown, pageUrl: string, pageOrigin: () => string | null) {
   if (typeof value !== "string") return undefined;
   try {
     const url = new URL(value, pageUrl);
     // Only shipped application chunks, never document URLs, filesystem paths,
     // extension scripts, customer source files, queries or fragments.
-    if (
-      url.origin === new URL(pageUrl).origin &&
-      /^\/_next\/static\/[\w/.[\]%()-]+\.m?js$/.test(url.pathname)
-    )
+    if (url.origin === pageOrigin() && applicationChunkPattern.test(url.pathname))
       return `${url.origin}${url.pathname}`;
   } catch {
     /* Unknown locations are private. */
@@ -26,6 +26,17 @@ function frameLocation(value: unknown, pageUrl: string) {
 }
 
 export function browserExceptions(value: unknown, pageUrl: string, operation?: AppErrorOperation) {
+  let origin: string | null | undefined;
+  const pageOrigin = () => {
+    if (origin === undefined) {
+      try {
+        origin = new URL(pageUrl).origin;
+      } catch {
+        origin = null;
+      }
+    }
+    return origin;
+  };
   const list = Array.isArray(value) && value.length ? value.slice(0, 3) : operation ? [{}] : [];
   return list.flatMap((entry: unknown, index) => {
     const item = object(entry);
@@ -35,7 +46,7 @@ export function browserExceptions(value: unknown, pageUrl: string, operation?: A
       .slice(-80)
       .flatMap((raw) => {
         const frame = object(raw);
-        const filename = frameLocation(frame.filename, pageUrl);
+        const filename = frameLocation(frame.filename, pageUrl, pageOrigin);
         if (
           !filename ||
           !Number.isSafeInteger(frame.lineno) ||
@@ -53,7 +64,7 @@ export function browserExceptions(value: unknown, pageUrl: string, operation?: A
             colno: frame.colno,
             platform: "web:javascript",
             in_app: true,
-            ...(typeof frame.chunk_id === "string" && /^[\da-f-]{36}$/i.test(frame.chunk_id)
+            ...(typeof frame.chunk_id === "string" && chunkIdentifierPattern.test(frame.chunk_id)
               ? { chunk_id: frame.chunk_id }
               : {}),
           },

@@ -3,6 +3,8 @@ import { agentBody, agentFailure, agentJson, agentSession } from "@/lib/agents/h
 import { agentModel } from "@/lib/agents/config";
 import { listAgentThreads, startAgentRun } from "@/lib/agents/store";
 
+const threadIdentifierPattern = /^[A-Za-z0-9_-]+$/;
+
 export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
@@ -12,12 +14,7 @@ export async function GET(request: Request) {
       .object({
         organizationId: z.string().min(1).max(120),
         fileId: z.string().min(1).max(120).optional(),
-        before: z
-          .string()
-          .min(1)
-          .max(200)
-          .regex(/^[A-Za-z0-9_-]+$/)
-          .optional(),
+        before: z.string().min(1).max(200).regex(threadIdentifierPattern).optional(),
       })
       .parse(Object.fromEntries(params));
     return agentJson({

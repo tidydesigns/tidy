@@ -19,6 +19,9 @@ import {
 } from "../design/gradient-geometry";
 import { PropertyField } from "./property-field";
 import { SelectMenu } from "../components/ui/select-menu";
+
+const hashPrefixPattern = /^#/;
+
 type Stop = Extract<DesignPaint, { type: "linear" }>["stops"][number];
 type FillCrop = NonNullable<Extract<DesignPaint, { type: "image" }>["crop"]>;
 const button =
@@ -210,7 +213,7 @@ export function FillInspector({
   if (compact && count === 0) return null;
   const paintSummary = (current: DesignPaint) =>
     current.type === "solid"
-      ? (current.token ?? current.color).replace(/^#/, "").toUpperCase()
+      ? (current.token ?? current.color).replace(hashPrefixPattern, "").toUpperCase()
       : current.type === "linear"
         ? "Linear gradient"
         : current.type === "radial"

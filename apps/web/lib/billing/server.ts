@@ -76,7 +76,16 @@ export async function billingStatus(
   includeUsage = false,
 ): Promise<BillingStatus> {
   await requireOrganizationPermission(userId, organizationId, "view");
-  let row: BillingRow | undefined;
+  let row:
+    | Pick<
+        BillingRow,
+        | "stripeCustomerId"
+        | "stripeStatus"
+        | "currentPeriodEnd"
+        | "cancelAtPeriodEnd"
+        | "firstMonthUsed"
+      >
+    | undefined;
   let plan: PlanUsage | null = null;
   let tier: PlanUsage["tier"];
   let proLimits: PlanLimits;
@@ -96,8 +105,8 @@ export async function billingStatus(
       ]);
     }
     row = (
-      await db.query<BillingRow>(
-        'select "stripeCustomerId", "stripeSubscriptionId", "stripeCheckoutSessionId", "stripeStatus", "stripePriceId", "currentPeriodEnd", "cancelAtPeriodEnd", "firstMonthUsed" from "organization_billing" where "organizationId" = $1',
+      await db.query<NonNullable<typeof row>>(
+        'select "stripeCustomerId", "stripeStatus", "currentPeriodEnd", "cancelAtPeriodEnd", "firstMonthUsed" from "organization_billing" where "organizationId" = $1',
         [organizationId],
       )
     ).rows[0];
@@ -206,8 +215,17 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
       [organizationId],
     );
     const row = (
-      await connection.query<BillingRow>(
-        'select * from "organization_billing" where "organizationId" = $1 for update',
+      await connection.query<
+        Pick<
+          BillingRow,
+          | "stripeCustomerId"
+          | "stripeSubscriptionId"
+          | "stripeCheckoutSessionId"
+          | "stripeStatus"
+          | "firstMonthUsed"
+        >
+      >(
+        'select "stripeCustomerId","stripeSubscriptionId","stripeCheckoutSessionId","stripeStatus","firstMonthUsed" from "organization_billing" where "organizationId" = $1 for update',
         [organizationId],
       )
     ).rows[0];

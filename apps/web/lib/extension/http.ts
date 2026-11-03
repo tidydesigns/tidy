@@ -5,6 +5,11 @@ import { PublicActionError } from "@/lib/security/public-error";
 import { ZodError } from "zod";
 import { boundedRequest, RequestBodyError } from "@/lib/http/request-body";
 
+const extensionIdPattern = /^[a-p]{32}$/;
+const missingResourcePattern = /access denied|not found/i;
+const conflictErrorPattern = /changed|conflict/i;
+const jsonContentTypePattern = /^application\/json$/i;
+
 export function extensionOrigin(request: Request) {
   const ids = (
     process.env.BELLA_EXTENSION_IDS ??
@@ -12,7 +17,7 @@ export function extensionOrigin(request: Request) {
   )
     .split(",")
     .map((id) => id.trim())
-    .filter((id) => /^[a-p]{32}$/.test(id));
+    .filter((id) => extensionIdPattern.test(id));
   const origin = request.headers.get("origin");
   return origin && ids.some((id) => origin === `chrome-extension://${id}`) ? origin : null;
 }
@@ -33,9 +38,9 @@ export function extensionError(error: unknown) {
   if (error instanceof PublicActionError)
     return {
       message: error.message,
-      status: /access denied|not found/i.test(error.message)
+      status: missingResourcePattern.test(error.message)
         ? 403
-        : /changed|conflict/i.test(error.message)
+        : conflictErrorPattern.test(error.message)
           ? 409
           : 400,
     };
@@ -73,13 +78,7 @@ export function extensionPreflight(request: Request) {
 }
 
 export async function readCaptureBody(request: Request, timeoutMs = 15_000) {
-  if (
-    !request.headers
-      .get("content-type")
-      ?.split(";")[0]
-      .trim()
-      .match(/^application\/json$/i)
-  )
+  if (!request.headers.get("content-type")?.split(";")[0].trim().match(jsonContentTypePattern))
     throw new CaptureBodyError("Use application/json.");
   if (!request.body) throw new CaptureBodyError("Capture body is missing.");
   let bounded: Request;

@@ -11,6 +11,9 @@ import {
   type DesignAgentHandler,
 } from "../../shared/contracts/design-agent";
 
+const bearerTokenPattern = /^Bearer /;
+const loopbackHostPattern = /^127\.0\.0\.1:\d+$/;
+
 const requestSchema = z.union([
   browserActionSchema,
   z.object({ kind: z.literal("state") }).strict(),
@@ -35,11 +38,11 @@ export class BrowserAgentBridge {
     void (async () => {
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Type", "application/json");
-      const token = request.headers.authorization?.replace(/^Bearer /, "");
+      const token = request.headers.authorization?.replace(bearerTokenPattern, "");
       const session = token ? this.sessions.get(token) : undefined;
       if (
         request.headers.origin ||
-        !/^127\.0\.0\.1:\d+$/.test(request.headers.host ?? "") ||
+        !loopbackHostPattern.test(request.headers.host ?? "") ||
         !session ||
         request.method !== "POST" ||
         request.url !== "/browser"

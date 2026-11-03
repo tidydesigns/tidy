@@ -6,6 +6,10 @@ import { db } from "@/lib/db";
 import { activityReport, retentionReport, accountRetentionReport } from "./reports";
 import { analyticsSetting } from "./config";
 
+const desktopReleaseTag = /^desktop-v\d+\.\d+\.\d+(?:-beta\.\d+)?$/;
+const desktopInstallerName = /^Tidy-\d+\.\d+\.\d+(?:-beta\.\d+)?-mac-(arm64|x64)\.dmg$/;
+const desktopUpdateName = /^Tidy-\d+\.\d+\.\d+(?:-beta\.\d+)?-mac-(arm64|x64)\.zip$/;
+
 const releases = z
   .array(
     z.object({
@@ -67,12 +71,11 @@ export async function snapshotDownloads(fetcher: typeof fetch = fetch) {
     }
     const rows = releases.parse(JSON.parse(new TextDecoder().decode(body)));
     for (const release of rows) {
-      if (release.draft || !/^desktop-v\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(release.tag_name))
-        continue;
+      if (release.draft || !desktopReleaseTag.test(release.tag_name)) continue;
       for (const asset of release.assets) {
-        const kind = /^Tidy-\d+\.\d+\.\d+(?:-beta\.\d+)?-mac-(arm64|x64)\.dmg$/.test(asset.name)
+        const kind = desktopInstallerName.test(asset.name)
           ? "installer"
-          : /^Tidy-\d+\.\d+\.\d+(?:-beta\.\d+)?-mac-(arm64|x64)\.zip$/.test(asset.name)
+          : desktopUpdateName.test(asset.name)
             ? "update"
             : null;
         if (kind)
@@ -94,12 +97,8 @@ export async function exportProductAggregates() {
   if (analyticsSetting("DESKTOP_ANALYTICS_POSTHOG_AGGREGATES") !== "1") return;
   const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
   const host = process.env.NEXT_PUBLIC_POSTHOG_HOST;
-  if (
-    !key ||
-    !host ||
-    new URL(host).hostname !== "eu.i.posthog.com" ||
-    new URL(host).protocol !== "https:"
-  )
+  const target = key && host ? new URL(host) : null;
+  if (!key || !target || target.hostname !== "eu.i.posthog.com" || target.protocol !== "https:")
     throw new Error("EU aggregate export is not configured.");
   const day = new Date().toISOString().slice(0, 10);
   if (

@@ -3,6 +3,9 @@ import { lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { readLocalFile } from "./local-files";
 
+const sha256Pattern = /^[a-f0-9]{64}$/;
+const stateKeyPattern = /^[a-zA-Z0-9-]+$/;
+
 /** Authority and sync baselines live in app data, never in a portable project. */
 export class PrivateState {
   constructor(private directory: string) {}
@@ -13,7 +16,7 @@ export class PrivateState {
       throw new Error("Invalid private sync directory.");
   }
   async workspace(key: string) {
-    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid cloud workspace key.");
+    if (!sha256Pattern.test(key)) throw new Error("Invalid cloud workspace key.");
     const path = join(this.directory, `workspace-${key}`);
     await mkdir(path, { recursive: true, mode: 0o700 });
     const info = await lstat(path);
@@ -22,7 +25,7 @@ export class PrivateState {
     return path;
   }
   private path(key: string) {
-    if (!/^[a-zA-Z0-9-]+$/.test(key)) throw new Error("Invalid private state key.");
+    if (!stateKeyPattern.test(key)) throw new Error("Invalid private state key.");
     return join(this.directory, `${key}.json`);
   }
   async read(key: string): Promise<unknown | undefined> {

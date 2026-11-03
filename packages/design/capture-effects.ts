@@ -1,4 +1,11 @@
+const cssColorPattern = /rgba?\([^)]*\)/g;
+const pixelValuePattern = /-?[\d.]+px/g;
+const matrixPattern = /^matrix\(([^)]+)\)$/;
+const clipSeparatorPattern = /[,\s]+/;
+const clipLengthPattern = /^-?(?:\d+(?:\.\d+)?|\.\d+)px$/;
+
 // Effects whose rendered pixels cannot be recovered from an image URL and an axis-aligned box.
+
 export function rasterEffect(css: CSSStyleDeclaration): string | undefined {
   const active = (value: string) => Boolean(value && value !== "none" && value !== "normal");
   if (
@@ -17,10 +24,7 @@ export function rasterEffect(css: CSSStyleDeclaration): string | undefined {
   // Translation is already represented exactly by getBoundingClientRect.
   // Rotation, skew and scaling also affect descendants and typography.
   if (active(css.transform)) {
-    const matrix = css.transform
-      .match(/^matrix\(([^)]+)\)$/)?.[1]
-      ?.split(",")
-      .map(Number);
+    const matrix = css.transform.match(matrixPattern)?.[1]?.split(",").map(Number);
     if (
       !matrix ||
       matrix.length !== 6 ||
@@ -124,9 +128,9 @@ export function effectBounds(element: Element): DOMRect {
     if (box.width && box.height) {
       // Computed shadows serialize colors as rgb(...); remove them before reading lengths.
       let outset = 0;
-      for (const shadow of (css.boxShadow || "none").replace(/rgba?\([^)]*\)/g, "").split(",")) {
+      for (const shadow of (css.boxShadow || "none").replace(cssColorPattern, "").split(",")) {
         if (shadow.includes("inset")) continue;
-        const lengths = shadow.match(/-?[\d.]+px/g)?.map(Number.parseFloat) ?? [];
+        const lengths = shadow.match(pixelValuePattern)?.map(Number.parseFloat) ?? [];
         if (lengths.length >= 2)
           outset = Math.max(
             outset,
@@ -194,13 +198,10 @@ export function isFullyClipped(css: CSSStyleDeclaration): boolean {
   const clip = css.clip ?? "";
   const parts =
     clip.length < 512 && clip.startsWith("rect(") && clip.endsWith(")")
-      ? clip
-          .slice(5, -1)
-          .trim()
-          .split(/[,\s]+/)
+      ? clip.slice(5, -1).trim().split(clipSeparatorPattern)
       : [];
   const rect =
-    parts.length === 4 && parts.every((value) => /^-?(?:\d+(?:\.\d+)?|\.\d+)px$/.test(value))
+    parts.length === 4 && parts.every((value) => clipLengthPattern.test(value))
       ? parts.map(parseFloat)
       : [];
   if (rect?.length === 4 && ["absolute", "fixed"].includes(css.position))

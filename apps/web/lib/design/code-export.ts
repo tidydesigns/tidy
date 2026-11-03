@@ -17,6 +17,8 @@ import {
   standaloneVariants,
 } from "./component-variants";
 
+const componentNamePattern = /^[A-Z][a-zA-Z0-9]*$/;
+
 export type ExportAsset = { id: string; mimeType: string; base64: string };
 const extensions: Record<string, string> = {
   "image/png": "png",
@@ -135,7 +137,7 @@ export function exportComponent(
   assets: ExportAsset[] = [],
 ) {
   if (
-    !/^[A-Z][a-zA-Z0-9]*$/.test(componentName) ||
+    !componentNamePattern.test(componentName) ||
     ["React", "TidyDesign", "ComponentPropsWithoutRef", "Omit", "Record"].includes(componentName)
   )
     throw new Error(

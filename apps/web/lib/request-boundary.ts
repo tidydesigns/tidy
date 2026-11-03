@@ -7,6 +7,10 @@ import {
   waitForSignal,
 } from "./request-lifecycle";
 
+const extensionImportPath = /^\/api\/extension\/import\/[^/]+$/;
+const fileReadPath = /^\/api\/files\/[^/]+\/(changes|snapshot)$/;
+const presenceTicketPath = /^\/api\/files\/[^/]+\/presence-ticket$/;
+
 export function requestDeadline(request: Request) {
   const path = new URL(request.url).pathname;
   // One authenticated erasure delivery can include a 20-second runner request.
@@ -17,9 +21,9 @@ export function requestDeadline(request: Request) {
     (request.method === "GET" &&
       (path === "/api/auth/get-session" ||
         path === "/api/extension/account" ||
-        /^\/api\/extension\/import\/[^/]+$/.test(path) ||
-        /^\/api\/files\/[^/]+\/(changes|snapshot)$/.test(path))) ||
-    (request.method === "POST" && /^\/api\/files\/[^/]+\/presence-ticket$/.test(path))
+        extensionImportPath.test(path) ||
+        fileReadPath.test(path))) ||
+    (request.method === "POST" && presenceTicketPath.test(path))
   )
     return 8000;
   return 20_000;

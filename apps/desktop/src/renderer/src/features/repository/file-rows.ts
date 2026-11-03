@@ -4,6 +4,8 @@ import type {
   RepositoryFile,
 } from "../../../../shared/contracts/repository-files";
 
+const diffHunkPattern = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
 export type TreeRow = RepositoryEntry & { depth: number; position: number; siblings: number };
 export function visibleTreeRows(
   directories: ReadonlyMap<string, RepositoryDirectory>,
@@ -146,7 +148,7 @@ export function prepareFileRows(file: Extract<RepositoryFile, { kind: "text" }>)
       if (file.comparison === "empty" || file.comparison === "unborn") result.added++;
       continue;
     }
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    const hunk = diffHunkPattern.exec(line);
     if (hunk) {
       flush();
       const hidden = Math.max(0, Number(hunk[1]) - Math.max(old, 1));
@@ -201,11 +203,11 @@ export function prepareFileRows(file: Extract<RepositoryFile, { kind: "text" }>)
     if (row.kind !== "lines") continue;
     result.beforeWidth = Math.max(
       result.beforeWidth,
-      row.before?.text.replace(/\t/g, "    ").length ?? 0,
+      row.before?.text.replaceAll("\t", "    ").length ?? 0,
     );
     result.afterWidth = Math.max(
       result.afterWidth,
-      row.after?.text.replace(/\t/g, "    ").length ?? 0,
+      row.after?.text.replaceAll("\t", "    ").length ?? 0,
     );
   }
   return result;

@@ -4,6 +4,11 @@ import { normalizedRoute } from "../route-normalization";
 import { browserExceptions } from "./browser-exceptions";
 import { appErrorOperation } from "./error-diagnostics";
 
+const metricRating = /^[\d+<>=-]{1,20}$/;
+const webVitalsProperty = /^\$web_vitals_(LCP|INP|CLS|FCP)(_value)?$/;
+const releaseValue = /^[\w.-]{1,100}$/;
+const surveyProperty = /^\$survey_(id|submission_id|completed|response(?:_[\w-]+)?)$/;
+
 const customEvents = new Set([
   "vault_login_created",
   "github_installation_linked",
@@ -142,11 +147,11 @@ export function redactTelemetry(
       properties[name] = Math.max(0, Math.min(value, 1e8));
     if (name === "interaction" && ["pointer", "wheel"].includes(String(value)))
       properties[name] = value;
-    if (name === "node_bucket" && typeof value === "string" && /^[\d+<>=-]{1,20}$/.test(value))
+    if (name === "node_bucket" && typeof value === "string" && metricRating.test(value))
       properties[name] = value;
     if (
       event.event === "$web_vitals" &&
-      /^\$web_vitals_(LCP|INP|CLS|FCP)(_value)?$/.test(name) &&
+      webVitalsProperty.test(name) &&
       typeof value === "number" &&
       Number.isFinite(value)
     )
@@ -177,7 +182,7 @@ export function redactTelemetry(
     properties.$exception_level = "error";
     // Let PostHog group by sanitized code location rather than merging every
     // browser fault under a single fingerprint. Release IDs link source maps.
-    if (typeof source.$release_id === "string" && /^[\w.-]{1,100}$/.test(source.$release_id))
+    if (typeof source.$release_id === "string" && releaseValue.test(source.$release_id))
       properties.$release_id = source.$release_id;
   }
   if (event.event === "$snapshot") {
@@ -195,7 +200,7 @@ export function redactTelemetry(
     // Answers are deliberately supplied by the user in an optional survey.
     for (const [key, value] of Object.entries(source))
       if (
-        /^\$survey_(id|submission_id|completed|response(?:_[\w-]+)?)$/.test(key) &&
+        surveyProperty.test(key) &&
         ((typeof value === "string" && value.length <= 10000) ||
           typeof value === "number" ||
           typeof value === "boolean")

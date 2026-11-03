@@ -1,6 +1,8 @@
 import { browserConsent, consentRevision } from "./consent";
 import { readJsonValue, responseError } from "@/lib/http/json-response";
 
+const receiptIdPattern = /^[a-f0-9-]{36}$/;
+
 export type ConsentReceipt = {
   productAnalytics?: boolean;
   id: string;
@@ -71,8 +73,8 @@ export function recordBrowserConsent(): Promise<ConsentReceipt> {
       )) as ConsentReceipt;
       if (
         !receipt ||
-        !/^[a-f0-9-]{36}$/.test(receipt.id) ||
-        !/^[a-f0-9-]{36}$/.test(receipt.browserId)
+        !receiptIdPattern.test(receipt.id) ||
+        !receiptIdPattern.test(receipt.browserId)
       )
         throw new Error("Invalid privacy receipt");
       return receipt;

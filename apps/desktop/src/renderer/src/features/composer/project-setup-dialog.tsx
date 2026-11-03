@@ -22,6 +22,8 @@ import {
   type PreparedWorkspace,
 } from "./machine-context";
 
+const homeDirectoryPattern = /^~(?=\/|$)/;
+
 type Catalog =
   | { kind: "loading" }
   | { kind: "ready"; bootstrap: Bootstrap; matches: string[] }
@@ -576,7 +578,9 @@ export function ProjectSetupDialog({
                         setDirectory(undefined);
                         setMismatch(null);
                         setError("");
-                        setPath(event.currentTarget.value.replace(/^~(?=\/|$)/, home.current));
+                        setPath(
+                          event.currentTarget.value.replace(homeDirectoryPattern, home.current),
+                        );
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {

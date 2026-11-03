@@ -6,6 +6,8 @@ import { reserveAvatarStorage } from "@/lib/security/avatar-budget";
 import { reserveOperation } from "@/lib/security/operation-budget";
 import { validateSignature, IMAGE_TYPES } from "@/lib/feedback/validation";
 
+const googleAvatarHostPattern = /^lh[3-6]\.googleusercontent\.com$/;
+
 /** Only the two configured sign-in providers can supply external profile images. */
 export function providerAvatarURL(value: string) {
   try {
@@ -15,7 +17,7 @@ export function providerAvatarURL(value: string) {
       !url.password &&
       !url.port &&
       (url.hostname === "avatars.githubusercontent.com" ||
-        /^lh[3-6]\.googleusercontent\.com$/.test(url.hostname))
+        googleAvatarHostPattern.test(url.hostname))
       ? url
       : null;
   } catch {

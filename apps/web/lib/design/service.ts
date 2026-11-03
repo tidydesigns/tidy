@@ -5,6 +5,8 @@ import { discoverFileManagement, FileManagementError } from "./file-management-a
 import { withOrganizationEditAuthority } from "./organization-authority";
 import { db } from "@/lib/db";
 
+const controlCharactersPattern = /[\u0000-\u001f\u007f]/;
+
 export type DesignFrame = { id: string; x: number; y: number; width: number; height: number };
 export type FrameInput = Omit<DesignFrame, "id">;
 export type DesignRectangle = DesignFrame;
@@ -12,7 +14,7 @@ export type RectangleInput = FrameInput;
 
 export function cleanDesignName(name: string) {
   const trimmed = name.trim();
-  return trimmed.length > 0 && trimmed.length <= 120 && !/[\u0000-\u001f\u007f]/.test(trimmed)
+  return trimmed.length > 0 && trimmed.length <= 120 && !controlCharactersPattern.test(trimmed)
     ? trimmed
     : null;
 }

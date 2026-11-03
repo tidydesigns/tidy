@@ -46,7 +46,7 @@ async function lockRun(
 ): Promise<Run> {
   const run = (
     await client.query<Run>(
-      `select r.*,t."organizationId",u."name" as "ownerName",r."leaseExpiresAt">now() as "validLease" from "agentRun" r join "agentThread" t on t."id"=r."threadId" join "user" u on u."id"=r."ownerId" where r."id"=$1 for update of r`,
+      `select r."id",r."threadId",r."ownerId",r."generation",r."model",r."agentLimit",r."status",t."organizationId",u."name" as "ownerName",r."leaseExpiresAt">now() as "validLease" from "agentRun" r join "agentThread" t on t."id"=r."threadId" join "user" u on u."id"=r."ownerId" where r."id"=$1 for update of r`,
       [id],
     )
   ).rows[0];
@@ -72,7 +72,10 @@ async function lockRun(
     throw new AgentError("connection_required", "Connect Codex again to continue.", 409);
   return run;
 }
-async function scope(client: PoolClient, run: Run): Promise<StartRun["files"]> {
+async function scope(
+  client: PoolClient,
+  run: Pick<Run, "id" | "threadId" | "organizationId" | "allowOrganizationChanges">,
+): Promise<StartRun["files"]> {
   const row = (
     await client.query<{ files: StartRun["files"]; allowOrganizationChanges: boolean }>(
       `select "payload"->'files' as files,("payload"->>'allowOrganizationChanges')::boolean as "allowOrganizationChanges" from "agentEvent" where "threadId"=$1 and "type"='run.created' and "payload"->>'runId'=$2 order by "sequence" limit 1`,
@@ -128,13 +131,24 @@ export async function claimExecution(runnerId: string): Promise<ExecutionRun | n
     // so child spawning cannot race past per-owner/organisation limits.
     await client.query(`select pg_advisory_xact_lock(68492105)`);
     const expired = (
-      await client.query<Run>(
+      await client.query<Pick<Run, "id" | "threadId">>(
         `select "id","threadId" from "agentRun" where "status" in ('running','waiting') and "leaseExpiresAt"<now() for update skip locked`,
       )
     ).rows;
     for (const run of expired) await failRun(client, run, "runner_disconnected");
     const candidates = (
-      await client.query<Run>(`select r.*,t."organizationId" from "agentRun" r join "agentThread" t on t."id"=r."threadId"
+      await client.query<
+        Pick<
+          Run,
+          | "id"
+          | "threadId"
+          | "ownerId"
+          | "model"
+          | "agentLimit"
+          | "organizationId"
+          | "allowOrganizationChanges"
+        >
+      >(`select r."id",r."threadId",r."ownerId",r."model",r."agentLimit",t."organizationId" from "agentRun" r join "agentThread" t on t."id"=r."threadId"
       where r."status"='queued' and not exists(select 1 from "agentRun" limited where limited."ownerId"=r."ownerId" and limited."status"='limited') order by r."createdAt",r."id" limit 36 for update of r skip locked`)
     ).rows;
     for (const run of candidates) {

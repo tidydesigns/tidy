@@ -3,6 +3,8 @@ import { zipSync, deflateSync } from "fflate";
 import { assembleCanvasFig, encodeFigParts, type FigNode } from "openfig-core";
 import { decodeFigma } from "@tidy/design/figma";
 
+const hexBytePattern = /../g;
+
 /** Synthetic source references: no private design-system content. */
 export async function fidelityFixture(image: Uint8Array) {
   const document = decodeFigma(
@@ -51,7 +53,7 @@ export async function fidelityFixture(image: Uint8Array) {
         type: "IMAGE",
         visible: true,
         opacity: 1,
-        image: { hash: new Uint8Array(hash.match(/../g)!.map((n) => parseInt(n, 16))) },
+        image: { hash: new Uint8Array(hash.match(hexBytePattern)!.map((n) => parseInt(n, 16))) },
       },
     ],
   };

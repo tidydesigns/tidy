@@ -22,6 +22,10 @@ import { oauthRevocationEndpoint } from "./oauth-revocation";
 import { oauthIntrospectionEndpoint, oauthUserInfoEndpoint } from "./oauth-read";
 import { oauthConsentEndpoint } from "./oauth-consent";
 
+const integrationScopePattern = /^(mcp|linear|desktop):/;
+const trailingSlashPattern = /\/$/;
+const trailingSlashesPattern = /\/+$/;
+
 // Matches the pinned provider's default hashed token storage. Do not change
 // independently of storeTokens/formatRefreshToken in the MCP configuration.
 function tokenIdentifier(value: string) {
@@ -91,7 +95,7 @@ async function retainedGrant(source: StoredGrant): Promise<McpGrant> {
   };
   // Protocol scopes don't authorize product operations. Retain every requested
   // product scope, including Linear capabilities, through the provider writes.
-  const scopes = source.scopes.filter((scope) => /^(mcp|linear|desktop):/.test(scope));
+  const scopes = source.scopes.filter((scope) => integrationScopePattern.test(scope));
   const grant = { claims, resource: source.resources[0], scopes };
   for (const resource of source.resources)
     await requireMcpGrant(db, { ...grant, resource }, source.userId);
@@ -205,13 +209,13 @@ export function hardenedMcp(options: Parameters<typeof mcp>[0]) {
   const discover = plugin.onRequest;
   const resourceMetadataPaths = new Set([
     "/.well-known/oauth-protected-resource",
-    `/.well-known/oauth-protected-resource${new URL(options.resource).pathname.replace(/\/$/, "")}`,
+    `/.well-known/oauth-protected-resource${new URL(options.resource).pathname.replace(trailingSlashPattern, "")}`,
   ]);
   plugin.onRequest = async (request, context) => {
     const result = await discover(request, context);
     const pathname = new URL(request.url).pathname;
     const path = context.options.advanced?.skipTrailingSlashes
-      ? pathname.replace(/\/+$/, "") || "/"
+      ? pathname.replace(trailingSlashesPattern, "") || "/"
       : pathname;
     if (
       !result ||

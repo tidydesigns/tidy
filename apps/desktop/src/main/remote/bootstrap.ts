@@ -9,6 +9,9 @@ import { shouldUpdateHost } from "./host-service";
 import { RemoteFailure, remoteFailure } from "./errors";
 import { shellQuote, type SshSession } from "./ssh";
 
+const sha256Pattern = /^[a-f0-9]{64}$/;
+const newlinePattern = /\r?\n/;
+
 type HostDirectories = { runtime: string; state: string };
 const hashBundle = (bundle: Buffer) => createHash("sha256").update(bundle).digest("hex");
 
@@ -36,9 +39,7 @@ export function reconnectScript({
 }) {
   z.string().uuid().parse(clientId);
   if (expectedHostId) z.string().uuid().parse(expectedHostId);
-  z.string()
-    .regex(/^[a-f0-9]{64}$/)
-    .parse(buildId);
+  z.string().regex(sha256Pattern).parse(buildId);
   return `set -eu
 umask 077
 ${hostEnvironment(directories)}
@@ -207,7 +208,7 @@ export async function prepareHost({
         progress,
       });
     }
-    const line = output.trim().split(/\r?\n/).at(-1);
+    const line = output.trim().split(newlinePattern).at(-1);
     if (!line) throw new Error("The remote machine did not return a backend address.");
     const host = preparedHostSchema.parse(JSON.parse(line));
     if (expectedHostId && host.hostId !== expectedHostId)
