@@ -26,11 +26,13 @@ export function MessageCopyButton({
 export function ClipboardCopyButton({
   label,
   copiedLabel = "Copied",
+  copiedDurationMs = 1600,
   onCopy,
   className = "",
 }: {
   label: string;
   copiedLabel?: string;
+  copiedDurationMs?: number;
   onCopy(): Promise<void>;
   className?: string;
 }) {
@@ -53,7 +55,7 @@ export function ClipboardCopyButton({
       if (!mounted.current) return;
       clearTimeout(timer.current);
       setCopied(true);
-      timer.current = setTimeout(() => setCopied(false), 1600);
+      timer.current = setTimeout(() => setCopied(false), copiedDurationMs);
     } catch {
       if (mounted.current) {
         clearTimeout(timer.current);

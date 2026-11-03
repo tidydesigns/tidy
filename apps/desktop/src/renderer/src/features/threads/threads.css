@@ -113,6 +113,76 @@
   background: transparent;
   white-space: pre;
 }
+.markdown-code-block {
+  min-width: 0;
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-hover-surface);
+}
+.markdown-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 0 12px;
+  color: var(--color-muted-ink);
+  user-select: none;
+}
+.markdown-code-language {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font:
+    11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+.markdown-code-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+.markdown-code-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.markdown-code-wrap[aria-pressed="true"] {
+  background: var(--color-subtle-fill);
+  color: var(--color-ink);
+}
+.markdown-code-wrap:focus-visible,
+.markdown-code-block pre:focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .markdown-code-actions button:hover {
+    background: var(--color-pressed-surface);
+    color: var(--color-ink);
+  }
+}
+.message-markdown .markdown-code-block pre {
+  margin: 0;
+  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.markdown-code-block[data-wrap="true"] pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .message-markdown a {
   color: var(--desktop-link-ink);
   text-decoration: none;
