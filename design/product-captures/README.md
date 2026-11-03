@@ -3,10 +3,6 @@
 These are browser captures of the running Tidy source, with public example data.
 They are not generated artwork or HTML approximations of the interface.
 
-The desktop captures match pinned demo version `2026-11-03.2`. Refresh both
-`desktop-*` and `desktop-initial-*` captures when updating the desktop demo pin
-so the live preview and image fallbacks stay in sync.
-
 - `canvas-*.png`: the shared `FileEditor` component used by the web app, mounted
   through `LocalCanvas` with an in-memory document. Layers and the real typography
   inspector are visible with the headline selected.
