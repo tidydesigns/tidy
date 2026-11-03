@@ -1,3 +1,7 @@
+import { compactCanvasPatch, expandCanvasPatch } from "./canvas-patch";
+import type { RenderDiagnostic } from "./render-diagnostics";
+import { canvasImportAssetSchema } from "./canvas-assets";
+import type { SvgImportResult } from "@tidy/editor/design/svg-path-import";
 import { CloudComputeBusyError } from "../cloud/cloud-compute-errors";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -40,50 +44,74 @@ const nodeIds = z.array(entityId).min(1).max(100);
 const version = z.string().min(1).max(256);
 const MAX_RESULT_BYTES = 1024 * 1024;
 const MAX_READ_BYTES = 128 * 1024;
-const compactStyleSchema = designNodeChangesSchema.shape.style.unwrap().pick({
-  fill: true,
-  color: true,
-  borderColor: true,
-  borderWidth: true,
-  radius: true,
-  fontFamily: true,
-  fontSize: true,
-  fontWeight: true,
-  lineHeight: true,
-  textAlign: true,
-  opacity: true,
-});
-const compactChangesSchema = designNodeChangesSchema
-  .pick({
-    name: true,
-    text: true,
-    visible: true,
-    locked: true,
-    box: true,
-    layout: true,
-    positionMode: true,
-    widthMode: true,
-    heightMode: true,
-    align: true,
-    justify: true,
-    gap: true,
-    padding: true,
-    paddingTop: true,
-    paddingRight: true,
-    paddingBottom: true,
-    paddingLeft: true,
-  })
-  .extend({ style: compactStyleSchema.optional() })
-  .strict();
-const authorNodeSchema = compactChangesSchema
+export const canvasChangesSchema = designNodeChangesSchema;
+export const authorNodeSchema = canvasChangesSchema
   .extend({
     id: entityId,
     name: entityId,
     parentId: entityId.nullable(),
     pageId: entityId.optional(),
-    type: z.enum(["artboard", "container", "text"]),
+    type: designNodeSchema.shape.type,
+    isComponent: designNodeSchema.shape.isComponent,
+    instanceOf: designNodeSchema.shape.instanceOf,
   })
   .strict();
+
+export const CANVAS_LIMITS = {
+  document_layers: 10000,
+  rendered_layers: 5000,
+  operations_per_edit: 32,
+  nodes_per_operation: 100,
+  targeted_layers_per_edit: 2000,
+  created_layers_per_edit: 1000,
+  edit_bytes: MAX_RESULT_BYTES,
+  undo_receipt_bytes: 64 * 1024,
+  imported_asset_bytes: 2 * 1024 * 1024,
+  editable_svg_bytes: 24 * 1024,
+  inline_image_encoded_bytes: 900000,
+  request_bytes: 1024 * 1024,
+  render_asset_bytes: 8 * 1024 * 1024,
+  render_side_pixels: 4096,
+  render_pixels: 16_000_000,
+  render_png_bytes: 2 * 1024 * 1024,
+} as const;
+
+export const canvasCapabilities = {
+  node_types: designNodeSchema.shape.type.options,
+  editable_properties: Object.keys(canvasChangesSchema.shape),
+  authoring_properties: Object.keys(authorNodeSchema.shape),
+  style_properties: Object.keys(designNodeChangesSchema.shape.style.unwrap().shape),
+  asset_formats: ["image/png", "image/jpeg", "image/webp", "image/svg+xml"],
+  asset_sources: [
+    ...(process.platform === "linux" ? ["project_relative_path"] : []),
+    "inline_svg",
+    "inline_image",
+  ],
+  svg_security_restrictions: [
+    "scripts",
+    "external references",
+    "style elements",
+    "animation",
+    "embedded documents",
+    "XML declarations and entities",
+  ],
+  svg_conversion:
+    "Supported paths and basic shapes become editable vectors; unsupported artwork remains an SVG asset with a warning.",
+  fonts: {
+    sources: ["web"],
+    bundled: ["Instrument Sans", "Instrument Serif"],
+    embedded: true,
+    local_fonts: false,
+    system_fonts: "diagnosed_as_nonportable",
+    strict_fidelity: true,
+    max_faces: 64,
+    max_embedded_bytes: 8 * 1024 * 1024,
+  },
+  asset_path_base: "authorized_project_root",
+  component_import: false,
+  visual_fidelity_verification: false,
+  limits: CANVAS_LIMITS,
+};
 
 export const canvasReadSchema = z
   .object({
@@ -193,7 +221,7 @@ export const operationSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("update"),
       node_ids: nodeIds,
-      changes: compactChangesSchema,
+      changes: canvasChangesSchema,
     })
     .strict(),
   z
@@ -260,6 +288,7 @@ export const canvasRenderSchema = z
     design_id: z.uuid(),
     expected_version: version,
     node_id: entityId,
+    strict_fidelity: z.boolean().default(false),
   })
   .strict();
 
@@ -313,6 +342,8 @@ export type CanvasSnapshot = {
   assets: Record<string, string>;
   width: number;
   warnings: string[];
+  diagnostics?: RenderDiagnostic[];
+  strictFidelity?: boolean;
 };
 export type CanvasRenderResult = {
   kind: "rendered";
@@ -321,6 +352,9 @@ export type CanvasRenderResult = {
   width: number;
   height: number;
   limitations: string[];
+  diagnostics?: RenderDiagnostic[];
+  resources_complete?: boolean;
+  fidelity?: "unverified";
 };
 export type CanvasReceipts = {
   read(key: string): Promise<unknown | undefined>;
@@ -382,7 +416,13 @@ function applyOperation(
         const box = { x: 0, y: 0, width: 100, height: 100, ...node.box };
         nodes.push(
           designNodeSchema.parse({
-            ...buildDrawnNode(node.id, node.type, node.parentId, box),
+            ...buildDrawnNode(
+              node.id,
+              node.type === "image" || node.type === "vector" ? "container" : node.type,
+              node.parentId,
+              box,
+            ),
+            ...(node.type === "image" || node.type === "vector" ? { style: {} } : {}),
             ...node,
             pageId: page(node.id),
             box,
@@ -494,11 +534,23 @@ export class CanvasService {
       receipts: CanvasReceipts;
       authorize(scope: AgentScope): Promise<void>;
       onChange(projectId: string): Promise<void>;
+      inspectAsset?(
+        data: string,
+        signal: AbortSignal,
+      ): Promise<{ width: number; height: number; svg?: SvgImportResult }>;
       renderSnapshot?(snapshot: CanvasSnapshot): Promise<CanvasRenderResult>;
       prepareEdit?(document: DesignDocument, operations: CanvasOperations): Promise<DesignDocument>;
       diff?(before: DesignDocument, after: DesignDocument): Promise<DocumentPatch>;
     },
   ) {}
+
+  get capabilities() {
+    return {
+      ...canvasCapabilities,
+      asset_import: Boolean(this.options.inspectAsset),
+      render: Boolean(this.options.renderSnapshot),
+    };
+  }
 
   private async access(scope: AgentScope, designId: string, write = false) {
     if (this.closing) throw new Error("Canvas tools are closing.");
@@ -728,7 +780,7 @@ export class CanvasService {
             "CONFLICT",
             "This design changed after that edit. Undo would overwrite intervening changes.",
           );
-        document = applyDocumentPatch(document, receipt.inverse, true);
+        document = applyDocumentPatch(document, expandCanvasPatch(receipt.inverse, document), true);
       } else {
         document = this.options.prepareEdit
           ? await this.options.prepareEdit(document, request.operations)
@@ -746,6 +798,16 @@ export class CanvasService {
         error instanceof Error ? error.message : "The canvas transaction could not be applied.",
       );
     }
+    const previousAssets = new Set(documentAssetIds(file.document));
+    for (const id of documentAssetIds(document)) {
+      if (previousAssets.has(id)) continue;
+      await this.access(scope, request.design_id, true);
+      if (!(await this.options.store.readSyncAsset(scope.projectId, id)))
+        throw new AgentOperationError(
+          "NOT_FOUND",
+          `Import asset ${id} into this project before referencing it.`,
+        );
+    }
     const before = new Set(file.document.nodes.map((node) => node.id));
     const created = document.nodes.filter((node) => !before.has(node.id)).map((node) => node.id);
     if (created.length > 1000 || Buffer.byteLength(JSON.stringify(created)) > 32 * 1024)
@@ -753,9 +815,11 @@ export class CanvasService {
         "BUSY",
         "A transaction may create at most 1,000 layers with a 32 KB identifier budget.",
       );
-    const patch = this.options.diff
-      ? await this.options.diff(file.document, document)
-      : diffDocument(file.document, document);
+    const patch = compactCanvasPatch(
+      this.options.diff
+        ? await this.options.diff(file.document, document)
+        : diffDocument(file.document, document),
+    );
     const inverse = invertPatch(patch);
     const owner = {
       project_id: scope.projectId,
@@ -827,6 +891,75 @@ export class CanvasService {
     return response;
   }
 
+  async importAsset(scope: AgentScope, input: unknown) {
+    const request = canvasImportAssetSchema.parse(input);
+    await this.access(scope, request.design_id, true);
+    const file = await this.options.store.readDesign(scope.projectId, request.design_id, false);
+    if (file.version !== request.expected_version)
+      throw new AgentOperationError(
+        "CONFLICT",
+        "This design changed. Read its latest version before importing.",
+      );
+    if (file.archivedAt)
+      throw new AgentOperationError(
+        "CONFLICT",
+        "Restore this archived design before importing assets.",
+      );
+    if (!this.options.inspectAsset)
+      throw new AgentOperationError("UNAVAILABLE", "Asset inspection is unavailable on this host.");
+    const data =
+      request.source.kind === "inline_svg"
+        ? `data:image/svg+xml;base64,${Buffer.from(request.source.svg).toString("base64")}`
+        : request.source.kind === "inline_image"
+          ? request.source.data_url
+          : (await this.options.store.readCanvasAsset(scope.projectId, request.source.path)).data;
+    if (data.length > 3_000_000)
+      throw new AgentOperationError("BUSY", "Asset exceeds the import limit.");
+    let inspection;
+    try {
+      inspection = await this.options.inspectAsset(data, scope.signal);
+    } catch (error) {
+      scope.signal.throwIfAborted();
+      if (error instanceof AgentOperationError || error instanceof CloudComputeBusyError)
+        throw error;
+      throw new AgentOperationError(
+        "CONFLICT",
+        "Asset could not be decoded or contains active or external SVG content. Choose a static PNG, JPEG, WebP or self-contained SVG.",
+      );
+    }
+    if (
+      inspection.svg?.editable &&
+      Buffer.byteLength(JSON.stringify(inspection.svg.editable)) > CANVAS_LIMITS.editable_svg_bytes
+    )
+      inspection.svg = {
+        reason: "Original SVG retained: editable geometry exceeds the 24 KB authoring budget.",
+      };
+    await this.access(scope, request.design_id, true);
+    const hash = createHash("sha256").update(data).digest("hex");
+    const assetId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+    await this.options.store.cacheSyncAsset(scope.projectId, assetId, data, async () => {
+      await this.access(scope, request.design_id, true);
+      const latest = await this.options.store.readDesign(scope.projectId, request.design_id, false);
+      if (latest.archivedAt || latest.version !== request.expected_version)
+        throw new AgentOperationError(
+          "CONFLICT",
+          "This design changed during asset import. Read its latest version.",
+        );
+    });
+    await this.access(scope, request.design_id, true);
+    return {
+      design_id: file.id,
+      version: file.version,
+      asset_id: assetId,
+      width: inspection.width,
+      height: inspection.height,
+      node: inspection.svg?.editable
+        ? { type: "vector" as const, ...inspection.svg.editable }
+        : { type: "image" as const, assetId },
+      warnings: inspection.svg?.reason ? [inspection.svg.reason] : [],
+    };
+  }
+
   async render(scope: AgentScope, input: unknown) {
     const request = canvasRenderSchema.parse(input);
     await this.access(scope, request.design_id);
@@ -865,7 +998,7 @@ export class CanvasService {
       throw new AgentOperationError("BUSY", "Render a frame with at most 5,000 layers.");
     const document = {
       ...file.document,
-      nodes: file.document.nodes.map((node) => ({ ...node })),
+      nodes: resolvedDocumentNodes(file.document).map((node) => ({ ...node })),
     };
     const root = document.nodes.find((node) => node.id === request.node_id);
     if (!root) throw new AgentOperationError("NOT_FOUND", "Render root not found.");
@@ -881,27 +1014,70 @@ export class CanvasService {
     root.parentId = null;
     const assets: Record<string, string> = {};
     const warnings: string[] = [];
+    const diagnostics: RenderDiagnostic[] = [];
     let assetBytes = 0;
     const renderedNodes = resolvedDocumentNodes(document).filter((node) => selected.has(node.id));
-    for (const id of documentAssetIds({ ...document, nodes: renderedNodes })) {
+    for (const id of documentAssetIds({ ...document, nodes: renderedNodes, reusableStyles: {} })) {
       await this.access(scope, request.design_id);
       const data = await this.options.store.readSyncAsset(scope.projectId, id);
-      if (!data || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) {
-        warnings.push(`Asset ${id} is unavailable or is not a supported raster image.`);
+      if (!data || !/^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(data)) {
+        diagnostics.push({
+          kind: "missing_asset",
+          resource: id,
+          message: "Asset is unavailable or uses an unsupported format.",
+        });
         continue;
       }
       assetBytes += Buffer.byteLength(data);
       if (assetBytes > 8 * 1024 * 1024)
         throw new AgentOperationError("BUSY", "Render assets exceed 8 MB.");
+      if (data.startsWith("data:image/svg+xml")) {
+        if (!this.options.inspectAsset) {
+          diagnostics.push({
+            kind: "missing_asset",
+            resource: id,
+            message: "SVG validation is unavailable on this host.",
+          });
+          continue;
+        }
+        try {
+          await this.options.inspectAsset(data, scope.signal);
+        } catch (error) {
+          scope.signal.throwIfAborted();
+          if (
+            error instanceof CloudComputeBusyError ||
+            (error instanceof AgentOperationError && error.code === "BUSY")
+          )
+            throw error;
+          diagnostics.push({
+            kind: "missing_asset",
+            resource: id,
+            message: "SVG is invalid or contains unsupported external or active content.",
+          });
+          continue;
+        }
+      }
       assets[id] = data;
     }
     await this.access(scope, request.design_id);
+    if (request.strict_fidelity && diagnostics.length)
+      throw new AgentOperationError(
+        "UNAVAILABLE",
+        `Strict preview is incomplete: ${JSON.stringify(diagnostics)}`,
+      );
     const result = await this.options.renderSnapshot({
-      document,
+      document: {
+        ...document,
+        nodes: renderedNodes.map((node) =>
+          node.id === root.id ? { ...node, parentId: null } : node,
+        ),
+      },
       rootId: request.node_id,
       assets,
       width: root.box.width,
       warnings,
+      diagnostics,
+      strictFidelity: request.strict_fidelity,
       projectId: scope.projectId,
       designId: file.id,
       version: file.version,

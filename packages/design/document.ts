@@ -292,6 +292,7 @@ const style = z
     rotation: number.min(-360).max(360).optional(),
     letterSpacing: number.min(-100).max(100).optional(),
     fontStyle: z.enum(["normal", "italic"]).optional(),
+    fontVariantNumeric: z.enum(["normal", "tabular-nums", "proportional-nums"]).optional(),
     textDecoration: z.enum(["none", "underline", "line-through"]).optional(),
     overflow: z.enum(["visible", "hidden", "auto"]).optional(),
     fillToken: tokenName.optional(),

@@ -1,3 +1,7 @@
+import { parseSvgElements } from "@tidy/editor/design/svg-path-import";
+import { resolvedDocumentNodes } from "@tidy/design/design-tokens";
+import { canvasFonts } from "./render-fonts";
+import type { RenderDiagnostic } from "./render-diagnostics";
 import { CloudCompute } from "../cloud/cloud-compute";
 import { BrowserRuntime } from "../browser/runtime";
 import { AgentOperationError } from "./contracts";
@@ -25,6 +29,61 @@ export class CanvasRenderer {
   private active = false;
   private closed = false;
 
+  async inspectAsset(data: string, signal: AbortSignal) {
+    signal.throwIfAborted();
+    if (this.closed)
+      throw new AgentOperationError("UNAVAILABLE", "The canvas renderer is closing.");
+    if (this.active)
+      throw new AgentOperationError(
+        "BUSY",
+        "A canvas preview or import is running. Retry shortly.",
+      );
+    this.active = true;
+    let context: BrowserContext | undefined;
+    const abort = () => {
+      void context?.close().catch(() => {});
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      const browser = await untilAborted(signal, () => this.runtime.get());
+      await untilAborted(signal, async () => {
+        context = await browser.createBrowserContext();
+        if (signal.aborted) {
+          await context.close();
+          signal.throwIfAborted();
+        }
+      });
+      const page = await context!.newPage();
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on("request", (request) => {
+        void (request.url().startsWith("data:") ? request.continue() : request.abort()).catch(
+          () => {},
+        );
+      });
+      let svg;
+      if (data.startsWith("data:image/svg+xml;base64,")) {
+        const source = Buffer.from(data.slice(data.indexOf(",") + 1), "base64").toString("utf8");
+        const elements = await page.evaluate(parseSvgElements, source);
+        svg = await untilAborted(signal, () => this.compute.inspectSvg(elements));
+      }
+      const size = await page.evaluate(async (data) => {
+        const image = new Image();
+        image.src = data;
+        await image.decode();
+        return { width: image.naturalWidth, height: image.naturalHeight };
+      }, data);
+      signal.throwIfAborted();
+      if (!size.width || !size.height || size.width * size.height > 16_000_000)
+        throw new AgentOperationError("BUSY", "Imported image must contain at most 16 megapixels.");
+      return { ...size, svg };
+    } finally {
+      signal.removeEventListener("abort", abort);
+      await context?.close().catch(() => {});
+      this.active = false;
+    }
+  }
+
   async render(snapshot: CanvasSnapshot): Promise<CanvasRenderResult> {
     snapshot.signal.throwIfAborted();
     if (this.closed)
@@ -48,6 +107,18 @@ export class CanvasRenderer {
         }),
       );
       snapshot.signal.throwIfAborted();
+      const fonts = await untilAborted(snapshot.signal, () =>
+        canvasFonts(resolvedDocumentNodes(snapshot.document), snapshot.signal),
+      );
+      const diagnostics: RenderDiagnostic[] = [
+        ...(snapshot.diagnostics ?? []),
+        ...fonts.diagnostics,
+      ];
+      if (snapshot.strictFidelity && diagnostics.length)
+        throw new AgentOperationError(
+          "UNAVAILABLE",
+          `Strict preview is incomplete: ${JSON.stringify(diagnostics)}`,
+        );
       const browser = await untilAborted(snapshot.signal, () => this.runtime.get());
       snapshot.signal.throwIfAborted();
       let context: BrowserContext | undefined;
@@ -83,9 +154,87 @@ export class CanvasRenderer {
         });
         await page.setViewport({ width, height, deviceScaleFactor: 1 });
         await page.setContent(
-          `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; script-src 'none'; connect-src 'none'; frame-src 'none';"><style>html,body{margin:0;padding:0}*{box-sizing:border-box}</style></head><body>${markup}</body></html>`,
+          `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none'; frame-src 'none';"><style>html,body{margin:0;padding:0}*{box-sizing:border-box;animation:none!important;transition:none!important;caret-color:transparent!important}${fonts.css}</style></head><body>${markup}</body></html>`,
           { waitUntil: "load" },
         );
+        const readiness = await untilAborted(snapshot.signal, () =>
+          page.evaluate(
+            async ({ requests, assets }) => {
+              const diagnostics: {
+                kind: "asset_decode_error" | "font_load_error";
+                resource: string;
+                message: string;
+              }[] = [];
+              const ready = async () => {
+                for (const request of requests) {
+                  const spec = `${request.italic ? "italic" : "normal"} ${request.weight} 16px ${JSON.stringify(request.face ?? request.family)}`;
+                  try {
+                    const faces = await document.fonts.load(spec, request.text || "Aa");
+                    if (faces.some((face) => face.status !== "loaded"))
+                      throw new Error("Font did not load.");
+                  } catch {
+                    diagnostics.push({
+                      kind: "font_load_error",
+                      resource: spec,
+                      message: "Embedded font could not be loaded.",
+                    });
+                  }
+                }
+                await document.fonts.ready;
+                await Promise.all(
+                  Object.entries(assets).map(async ([id, data]) => {
+                    try {
+                      const image = new Image();
+                      image.src = data;
+                      await image.decode();
+                    } catch {
+                      diagnostics.push({
+                        kind: "asset_decode_error",
+                        resource: id,
+                        message: "Asset could not be decoded.",
+                      });
+                    }
+                  }),
+                );
+                await Promise.all(
+                  [...document.images].map(async (image) => {
+                    try {
+                      await image.decode();
+                    } catch {
+                      diagnostics.push({
+                        kind: "asset_decode_error",
+                        resource: image.getAttribute("data-asset-id") ?? image.alt ?? "image",
+                        message: "Image could not be decoded.",
+                      });
+                    }
+                  }),
+                );
+              };
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                await Promise.race([
+                  ready(),
+                  new Promise<never>((_, reject) => {
+                    timer = setTimeout(
+                      () => reject(new Error("Preview resources timed out.")),
+                      10000,
+                    );
+                  }),
+                ]);
+              } finally {
+                clearTimeout(timer);
+              }
+              return diagnostics;
+            },
+            { requests: fonts.requests, assets: snapshot.assets },
+          ),
+        );
+        diagnostics.push(...readiness);
+        if (snapshot.strictFidelity && diagnostics.length)
+          throw new AgentOperationError(
+            "UNAVAILABLE",
+            `Strict preview is incomplete: ${JSON.stringify(diagnostics)}`,
+          );
         snapshot.signal.throwIfAborted();
         const pixels = await page.screenshot({ type: "png", omitBackground: true });
         snapshot.signal.throwIfAborted();
@@ -97,9 +246,12 @@ export class CanvasRenderer {
           data: Buffer.from(pixels).toString("base64"),
           width,
           height,
+          diagnostics,
+          resources_complete: diagnostics.length === 0,
+          fidelity: "unverified",
           limitations: [
             ...snapshot.warnings,
-            "Fonts use the host's installed fonts; unavailable font families may be substituted.",
+            "Resource readiness does not establish visual parity with the source UI.",
             "The preview uses the root frame's recorded size. Interactive behavior is disabled.",
           ],
         };

@@ -1,3 +1,4 @@
+import { bundledCanvasFontCss } from "./canvas-fonts";
 import { bundledComputeWorker } from "./build-worker";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -34,6 +35,7 @@ const result = await Bun.build({
   target: "node",
   external: ["@lydell/node-pty"],
   define: {
+    TIDY_CANVAS_FONT_CSS: JSON.stringify(await bundledCanvasFontCss()),
     TIDY_COMPUTE_WORKER_SOURCE: JSON.stringify(await bundledComputeWorker()),
     TIDY_HOST_SOURCE_TIMESTAMP: String(sourceTimestamp),
   },

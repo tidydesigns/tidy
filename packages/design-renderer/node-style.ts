@@ -201,6 +201,7 @@ export function nodeStyle(
     ),
     letterSpacing: node.style.letterSpacing ?? (node.parentId === null ? "normal" : undefined),
     fontStyle: node.style.fontStyle ?? (node.parentId === null ? "normal" : undefined),
+    fontVariantNumeric: node.style.fontVariantNumeric,
     textDecoration: node.richText
       ? "none"
       : (node.style.textDecoration ?? (node.parentId === null ? "none" : undefined)),

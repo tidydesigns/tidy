@@ -1,3 +1,4 @@
+import { mcpInputSchema } from "./mcp-bridge";
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -96,7 +97,7 @@ async function fixture() {
   return { store, documents, parent, scope, tools, call, addThread, sends: () => sends };
 }
 
-test("the initial catalog has ten typed tools within a fixed schema budget", async () => {
+test("the canvas catalog has typed tools within a fixed schema budget", async () => {
   const { tools } = await fixture();
   expect(tools.map((tool) => tool.name)).toEqual([
     "tidy_context",
@@ -108,15 +109,16 @@ test("the initial catalog has ten typed tools within a fixed schema budget", asy
     "task_cancel",
     "canvas_read",
     "canvas_edit",
+    "canvas_import_asset",
     "canvas_render",
   ]);
   const catalog = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    inputSchema: z.toJSONSchema(tool.inputSchema),
+    inputSchema: mcpInputSchema(tool.inputSchema)["~standard"].jsonSchema.input(),
     outputSchema: tool.outputSchema && z.toJSONSchema(tool.outputSchema),
   }));
-  expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(24 * 1024);
+  expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(64 * 1024);
   for (const tool of tools) {
     expect(tool.inputSchema).toBeInstanceOf(z.ZodObject);
     expect(tool.outputSchema).toBeDefined();

@@ -1,3 +1,4 @@
+import { bundledCanvasFontCss } from "./scripts/canvas-fonts";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { bundleLicenseBannerForInputs } from "../../scripts/bundle-licenses";
@@ -43,6 +44,7 @@ export const rendererConfig = {
 
 export default defineConfig({
   main: {
+    define: { TIDY_CANVAS_FONT_CSS: JSON.stringify(await bundledCanvasFontCss()) },
     build: {
       minify: true,
       externalizeDeps: false,

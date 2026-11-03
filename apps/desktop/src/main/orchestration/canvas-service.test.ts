@@ -750,3 +750,252 @@ test("a known version rejection remains distinguishable from an uncertain write 
   expect(await f.store.processState.read(key)).toMatchObject({ kind: "rejected" });
   expect((await f.service.edit(f.scope, f.edit)).request_id).toBe(f.edit.request_id);
 });
+
+test("canonical vector, image, typography, layout and variant authoring stays validated and scoped", async () => {
+  const f = await fixture();
+  const asset = await f.store.uploadDesignAsset(f.project.id, "data:image/png;base64,iVBORw0KGgo=");
+  const root = f.file.document.nodes[0];
+  const result = await f.service.edit(f.scope, {
+    ...f.edit,
+    operations: [
+      {
+        kind: "update",
+        node_ids: [root.id],
+        changes: {
+          layout: "grid",
+          gridColumns: 2,
+          columnGap: 8,
+          style: { overflow: "hidden", radiusTopLeft: 12 },
+        },
+      },
+      {
+        kind: "add",
+        nodes: [
+          {
+            id: "mark",
+            parentId: root.id,
+            name: "Editable mark",
+            type: "vector",
+            vectorPath: { d: "M0 0L10 0L5 10Z", viewBox: { x: 0, y: 0, width: 10, height: 10 } },
+            style: { fill: "#15803d" },
+          },
+          {
+            id: "photo",
+            parentId: root.id,
+            name: "Image",
+            type: "image",
+            assetId: asset.assetId,
+            style: { objectFit: "cover" },
+          },
+          {
+            id: "label",
+            parentId: root.id,
+            name: "Label",
+            type: "text",
+            text: "Editable text",
+            style: {
+              fontFamily: "Instrument Sans",
+              fontWeight: 500,
+              lineHeightMode: "px",
+              lineHeightPx: 20,
+              textWrap: "nowrap",
+              textOverflow: "ellipsis",
+              letterSpacing: -0.1,
+            },
+          },
+          {
+            id: "component",
+            parentId: root.id,
+            name: "Status",
+            type: "container",
+            isComponent: true,
+            variants: {
+              default: "empty",
+              options: { empty: {}, working: { root: { style: { fill: "#1d4ed8" } } } },
+            },
+            variant: "working",
+          },
+        ],
+      },
+    ],
+  });
+  const document = (await f.store.readDesign(f.project.id, f.file.id)).document;
+  expect(document.nodes.find((node) => node.id === "mark")?.vectorPath?.d).toBe("M0 0L10 0L5 10Z");
+  expect(document.nodes.find((node) => node.id === "label")?.style.lineHeightPx).toBe(20);
+  expect(document.nodes.find((node) => node.id === "component")?.variant).toBe("working");
+  await expect(
+    f.service.edit(f.scope, {
+      ...f.edit,
+      request_id: randomUUID(),
+      expected_version: result.version,
+      operations: [{ kind: "update", node_ids: ["photo"], changes: { assetId: randomUUID() } }],
+    }),
+  ).rejects.toThrow("Import asset");
+  expect(() =>
+    f.service.edit(f.scope, {
+      ...f.edit,
+      request_id: randomUUID(),
+      expected_version: result.version,
+      operations: [
+        {
+          kind: "update",
+          node_ids: ["label"],
+          changes: { style: { arbitraryCss: "url(file:///secret)" } },
+        },
+      ],
+    }),
+  ).toThrow();
+});
+
+test("asset imports require attached writable scope and bounded project paths without following symlinks", async () => {
+  const f = await fixture();
+  const { writeFile, symlink, link } = await import("node:fs/promises");
+  const root = f.store.project(f.project.id).path;
+  await writeFile(
+    join(root, "mark.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10Z"/></svg>',
+  );
+  await symlink(root, join(root, "linked"));
+  const service = new CanvasService({
+    store: f.store,
+    receipts: f.store.processState,
+    authorize: async () => {},
+    onChange: async () => {},
+    inspectAsset: async () => ({ width: 10, height: 10 }),
+  });
+  cleanups.push(() => service.close());
+  const request = {
+    design_id: f.file.id,
+    expected_version: f.file.version,
+    source: { kind: "project_relative_path", path: "mark.svg" },
+  };
+  await expect(service.importAsset({ ...f.scope, writable: false }, request)).rejects.toThrow(
+    "read-only",
+  );
+  await expect(service.importAsset({ ...f.scope, designIds: [] }, request)).rejects.toThrow(
+    "attached",
+  );
+  for (const path of [
+    "../mark.svg",
+    "/mark.svg",
+    ".env.svg",
+    "linked/mark.svg",
+    "mark.txt",
+    "C:\\mark.svg",
+  ])
+    await expect(
+      service.importAsset(f.scope, { ...request, source: { ...request.source, path } }),
+    ).rejects.toThrow();
+  const available =
+    process.platform === "linux"
+      ? request
+      : {
+          ...request,
+          source: {
+            kind: "inline_svg",
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10Z"/></svg>',
+          },
+        };
+  const imported = await service.importAsset(f.scope, available);
+  const repeated = await service.importAsset(f.scope, available);
+  if (process.platform === "linux") {
+    await link(join(root, "mark.svg"), join(root, "hardlink.svg"));
+    await expect(service.importAsset(f.scope, request)).rejects.toThrow("without hard links");
+  }
+  const inline = await service.importAsset(f.scope, {
+    ...request,
+    source: { kind: "inline_image", data_url: "data:image/png;base64,iVBORw0KGgo=" },
+  });
+  expect(inline.node.type).toBe("image");
+  expect(repeated.asset_id).toBe(imported.asset_id);
+  expect(await f.store.readSyncAsset(f.project.id, imported.asset_id)).toStartWith(
+    "data:image/svg+xml;base64,",
+  );
+  expect((await f.store.readDesign(f.project.id, f.file.id)).version).toBe(f.file.version);
+  await expect(
+    service.importAsset(f.scope, { ...request, expected_version: "stale" }),
+  ).rejects.toThrow("changed");
+});
+
+test("revocation during queued asset persistence prevents the asset write", async () => {
+  const f = await fixture();
+  let revoked = false;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let assetId = "";
+  const cache = f.store.cacheSyncAsset.bind(f.store);
+  const held = spyOn(f.store, "cacheSyncAsset").mockImplementation(async (...args) => {
+    assetId = args[1];
+    entered.resolve();
+    await release.promise;
+    return cache(...args);
+  });
+  const service = new CanvasService({
+    store: f.store,
+    receipts: f.store.processState,
+    authorize: async () => {
+      if (revoked) throw new Error("Access revoked");
+    },
+    onChange: async () => {},
+    inspectAsset: async () => ({ width: 10, height: 10 }),
+  });
+  cleanups.push(() => service.close());
+  try {
+    const pending = service.importAsset(f.scope, {
+      design_id: f.file.id,
+      expected_version: f.file.version,
+      source: {
+        kind: "inline_svg",
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>',
+      },
+    });
+    await entered.promise;
+    revoked = true;
+    release.resolve();
+    await expect(pending).rejects.toThrow("Access revoked");
+    expect(await f.store.readSyncAsset(f.project.id, assetId)).toBeUndefined();
+  } finally {
+    held.mockRestore();
+  }
+});
+
+test("render viewport follows resolved component variant dimensions", async () => {
+  const f = await fixture();
+  const node = f.file.document.nodes[0];
+  const file = await f.store.createDesign(f.project.id, {
+    name: "Sized variant",
+    document: {
+      ...f.file.document,
+      nodes: [
+        {
+          ...node,
+          isComponent: true,
+          variants: {
+            default: "compact",
+            options: { compact: {}, expanded: { root: { box: { width: 500, height: 300 } } } },
+          },
+          variant: "expanded",
+        },
+      ],
+    },
+  });
+  let width = 0,
+    height = 0;
+  const service = new CanvasService({
+    store: f.store,
+    receipts: f.store.processState,
+    authorize: async () => {},
+    onChange: async () => {},
+    renderSnapshot: async (snapshot) => {
+      width = snapshot.width;
+      height = snapshot.document.nodes.find((item) => item.id === node.id)!.box.height;
+      return { kind: "rendered", mime_type: "image/png", data: "", width, height, limitations: [] };
+    },
+  });
+  cleanups.push(() => service.close());
+  await service.render(
+    { ...f.scope, designIds: [file.id] },
+    { design_id: file.id, expected_version: file.version, node_id: node.id },
+  );
+  expect({ width, height }).toEqual({ width: 500, height: 300 });
+});

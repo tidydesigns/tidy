@@ -1,3 +1,4 @@
+import { canvasImportAssetSchema } from "./canvas-assets";
 import { effectivePermissionMode } from "../../shared/contracts/permissions";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -88,6 +89,7 @@ export function orchestrationTools(options: {
           design_ids: scope.designIds,
           writable: scope.writable,
           contract_version: 1,
+          canvas: canvas.capabilities,
           limits: TASK_LIMITS,
           retention: {
             rich_history_days: 30,
@@ -282,8 +284,15 @@ export function orchestrationTools(options: {
       (input) => canvas.edit(scope, input),
     ),
     make(
+      "canvas_import_asset",
+      "Import PNG/JPEG/WebP data or inline SVG into attached design assets. Linux hosts also accept attested project-relative image paths; inspect tidy_context canvas.asset_sources first. Returns node properties to place using canvas_edit. Supported SVGs become editable vectors; other safe SVGs retain their original artwork with warnings. Does not change the design.",
+      canvasImportAssetSchema,
+      false,
+      (input) => canvas.importAsset(scope, input),
+    ),
+    make(
       "canvas_render",
-      "Render an attached design frame at an exact version using an isolated renderer. Returns a PNG and explicit fidelity limitations without changing the user's canvas.",
+      "Render an attached design frame at an exact version using an isolated renderer. Waits for embedded fonts and images. strict_fidelity rejects missing resources and substitutions; a PNG alone never verifies visual parity. Returns resource diagnostics without changing the user's canvas.",
       canvasRenderSchema,
       true,
       (input) => canvas.render(scope, input),
