@@ -2,7 +2,8 @@ const controlCharacterPattern = /[\u0000-\u001f\u007f]/;
 const externalSchemePattern = /^(?:https?:|mailto:)/i;
 const fileSchemePattern = /^file:/i;
 const fileDrivePattern = /^\/[a-z]:\//i;
-const filePositionPattern = /(?::(?<colonLine>[1-9]\d*)(?::(?<colonColumn>[1-9]\d*))?(?:-(?<colonEnd>[1-9]\d*))?|#L(?<hashLine>[1-9]\d*)(?:C(?<hashColumn>[1-9]\d*))?(?:-L(?<hashEnd>[1-9]\d*))?)$/;
+const filePositionPattern =
+  /(?::(?<colonLine>[1-9]\d*)(?::(?<colonColumn>[1-9]\d*))?(?:-(?<colonEnd>[1-9]\d*))?|#L(?<hashLine>[1-9]\d*)(?:C(?<hashColumn>[1-9]\d*))?(?:-L(?<hashEnd>[1-9]\d*))?)$/;
 const schemePattern = /^[a-z][a-z\d+.-]*:/i;
 const windowsDrivePattern = /^[a-z]:[\\/]/i;
 const queryOrHashPattern = /[?#]/;
@@ -59,12 +60,11 @@ export function parseChatLink(href: string | undefined): ChatLink | null {
       return null;
     }
   }
-  const position = path.match(
-    filePositionPattern,
-  );
+  const position = path.match(filePositionPattern);
   if (position) path = path.slice(0, position.index);
   if (schemePattern.test(path) && !windowsDrivePattern.test(path)) return null;
-  if (queryOrHashPattern.test(path) || path.replace(windowsDrivePattern, "").includes(":")) return null;
+  if (queryOrHashPattern.test(path) || path.replace(windowsDrivePattern, "").includes(":"))
+    return null;
   try {
     path = decodeURIComponent(path).replaceAll("\\", "/");
   } catch {
