@@ -10,6 +10,8 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
+import { useVirtualWindow } from "../repository/virtual-window";
+import { createPortal } from "react-dom";
 import { PromptEditor, type PromptEditorHandle } from "./prompt-editor";
 import { Button } from "@tidy/ui/button";
 import { codeScrollbarClassName } from "../../styles/code-ui";
@@ -41,6 +43,8 @@ export function SkillPrompt({
   onRecall,
   ...props
 }: Props) {
+  const container = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const input = useRef<PromptEditorHandle>(null);
   const assignInput = useCallback(
     (value: PromptEditorHandle | null) => {
@@ -64,17 +68,33 @@ export function SkillPrompt({
   const [active, setActive] = useState(0);
   const query = skillQuery(value, cursor);
   const matches = useMemo(() => matchingSkills(skills, query ?? ""), [skills, query]);
+  const [rowHeight, setRowHeight] = useState(34);
+  const virtualized = matches.length > 100;
+  const virtual = useVirtualWindow(virtualized ? matches.length : 0, rowHeight);
+  const attachMenu = useCallback(
+    (node: HTMLDivElement | null) => {
+      menu.current = node;
+      virtual.attach(node);
+    },
+    [virtual.attach],
+  );
   const visible = focused && !props.disabled && !dismissed && query !== null;
   const selected = matches[active] ?? matches[0];
   const selectedIndex = selected ? matches.indexOf(selected) : -1;
+  const renderedIndices = virtualized
+    ? Array.from({ length: virtual.end - virtual.start }, (_, offset) => virtual.start + offset)
+    : matches.map((_, index) => index);
+  if (virtualized && selectedIndex >= 0 && !renderedIndices.includes(selectedIndex))
+    renderedIndices.push(selectedIndex);
 
   useEffect(() => {
     setActive(0);
   }, [query, skills]);
   useLayoutEffect(() => {
+    if (visible && virtualized) virtual.reveal(selectedIndex);
     if (visible)
       menu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
-  }, [visible, selectedIndex]);
+  }, [visible, selectedIndex, virtualized]);
 
   useLayoutEffect(() => {
     const current = browsing.current;
@@ -87,16 +107,51 @@ export function SkillPrompt({
     }
   }, [value]);
 
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const owner = container.current?.closest<HTMLElement>(".composer") ?? container.current;
+    if (!owner) return;
+    setAnchor(owner);
+    const update = () => {
+      const picker = menu.current;
+      if (!picker) return;
+      const bounds = owner.getBoundingClientRect();
+      setRowHeight(bounds.width <= 600 ? 52 : 34);
+      const lip = owner.querySelector<HTMLElement>(".composer-lip:not([inert])");
+      const top = Math.min(bounds.top, lip?.getBoundingClientRect().top ?? bounds.top);
+      picker.style.bottom = `calc(100% + ${bounds.top - top - 1}px)`;
+      picker.style.maxHeight = `${Math.max(0, Math.min(284, top - 12))}px`;
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(owner);
+    const lip = owner.querySelector(".composer-lip");
+    if (lip) observer.observe(lip);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [visible, anchor]);
+
   function choose(skill: Skill) {
+    if (query === null) return;
+    const start = cursor - query.length - 1;
+    const prefix = value.slice(0, start);
+    const trigger = value[start];
     const rest = value.slice(cursor);
-    const next = `${value[0]}${skill.name}${rest.startsWith(" ") ? rest : ` ${rest}`}`;
-    selection.current = { text: next, cursor: skill.name.length + 2 };
+    const token = `${trigger}${skill.name}`;
+    const next = `${prefix}${token}${rest.startsWith(" ") ? rest : ` ${rest}`}`;
+    selection.current = { text: next, cursor: prefix.length + token.length + 1 };
     onChange(next);
     setDismissed(true);
   }
 
   return (
     <div
+      ref={container}
       className="skill-prompt"
       onFocusCapture={() => setFocused(true)}
       onBlurCapture={(event) => {
@@ -107,61 +162,91 @@ export function SkillPrompt({
           setFocused(false);
       }}
     >
-      {visible && (
-        <div className={`skill-picker ${codeScrollbarClassName}`} ref={menu}>
-          <div id={id} role="listbox" aria-label="Skills">
-            {matches.map((skill, index) => (
-              <div
-                key={skill.id}
-                id={`${id}-${index}`}
-                role="option"
-                aria-selected={index === selectedIndex}
-                className="skill-option"
-                title={skill.description ? `${skill.name} — ${skill.description}` : skill.name}
-                onPointerMove={() => setActive(index)}
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => choose(skill)}
-              >
-                <span className="skill-option-content">
-                  <span className="skill-option-name">
-                    <span className="skill-option-slash" aria-hidden="true">
-                      {value[0]}
+      {visible &&
+        createPortal(
+          <div
+            className={`skill-picker ${codeScrollbarClassName}`}
+            ref={attachMenu}
+            data-virtual={virtualized || undefined}
+          >
+            <div
+              id={id}
+              role="listbox"
+              aria-label="Skills"
+              style={
+                virtualized
+                  ? { position: "relative", height: matches.length * rowHeight }
+                  : undefined
+              }
+            >
+              {renderedIndices.map((index) => {
+                const skill = matches[index];
+                return (
+                  <div
+                    key={skill.id}
+                    id={`${id}-${index}`}
+                    role="option"
+                    aria-posinset={index + 1}
+                    aria-setsize={matches.length}
+                    style={
+                      virtualized
+                        ? {
+                            position: "absolute",
+                            insetInline: 0,
+                            top: index * rowHeight,
+                            height: rowHeight,
+                          }
+                        : undefined
+                    }
+                    aria-selected={index === selectedIndex}
+                    className="skill-option"
+                    title={skill.description ? `${skill.name} — ${skill.description}` : skill.name}
+                    onPointerMove={() => setActive(index)}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => choose(skill)}
+                  >
+                    <span className="skill-option-content">
+                      <span className="skill-option-name">
+                        <span className="skill-option-slash" aria-hidden="true">
+                          {value[cursor - (query?.length ?? 0) - 1]}
+                        </span>
+                        {skill.name}
+                      </span>
+                      {skill.description && (
+                        <span className="skill-option-description">{skill.description}</span>
+                      )}
                     </span>
-                    {skill.name}
-                  </span>
-                  {skill.description && (
-                    <span className="skill-option-description">{skill.description}</span>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-          {!matches.length && (
-            <div className="skill-picker-status" role="status">
-              {status === "loading"
-                ? "Loading skills…"
-                : status === "error"
-                  ? "Could not load skills."
-                  : skills.length
-                    ? "No matching skills"
-                    : "No skills available"}
-              {(status === "error" || (status === "ready" && !skills.length)) && (
-                <Button
-                  type="button"
-                  className="quiet-button"
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    input.current?.focus();
-                    retry();
-                  }}
-                >
-                  Retry
-                </Button>
-              )}
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
-      )}
+            {!matches.length && (
+              <div className="skill-picker-status" role="status">
+                {status === "loading"
+                  ? "Loading skills…"
+                  : status === "error"
+                    ? "Could not load skills."
+                    : skills.length
+                      ? "No matching skills"
+                      : "No skills available"}
+                {(status === "error" || (status === "ready" && !skills.length)) && (
+                  <Button
+                    type="button"
+                    className="quiet-button"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      input.current?.focus();
+                      retry();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>,
+          anchor ?? container.current ?? document.body,
+        )}
       <PromptEditor
         {...props}
         ref={assignInput}

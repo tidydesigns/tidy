@@ -1,3 +1,4 @@
+import { skillInvocationPrompt } from "../../shared/contracts/skills";
 import { codexFailure, HarnessFailureError } from "./provider-failure";
 import { version } from "../../../package.json";
 import { z } from "zod";
@@ -52,7 +53,7 @@ function codexInput(message: Pick<TurnInput, "prompt" | "skill" | "images">) {
     {
       type: "text",
       text: message.skill
-        ? `${message.skill.context}\n\nUser request:\n\n$${message.skill.prompt.slice(1)}`
+        ? `${message.skill.context}\n\nUser request:\n\n${skillInvocationPrompt(message.skill.prompt, "$")}`
         : message.prompt,
       text_elements: [],
     },

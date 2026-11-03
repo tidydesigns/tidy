@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import type { ApprovalDecision } from "../../shared/contracts/permissions";
-import { skillCommand } from "../../shared/contracts/skills";
+import { skillInvocationPrompt } from "../../shared/contracts/skills";
 import type { AdapterContext, HarnessAdapter } from "./session-types";
 import { object } from "./harness-transport";
 import { plainToolText } from "./tool-events";
@@ -174,7 +174,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
       messageId = crypto.randomUUID();
       const prompt =
         message.skill?.invocation.kind === "command"
-          ? `/${message.skill.invocation.name}${message.skill.prompt.slice(skillCommand(message.skill.prompt)?.end ?? 0)}\n\n${message.skill.context}`
+          ? `${skillInvocationPrompt(message.skill.prompt, "/")}\n\n${message.skill.context}`
           : message.prompt;
       context.submitting();
       const completion = transport.request(

@@ -1,5 +1,5 @@
 import { claudeAccountUsage } from "./usage-state";
-import { skillCommand } from "../../shared/contracts/skills";
+import { skillInvocationPrompt } from "../../shared/contracts/skills";
 import { z } from "zod";
 import { claudePermissionMode } from "../../shared/contracts/permissions";
 import { createClaudeParser } from "./harnesses";
@@ -94,7 +94,7 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
                     { type: "text", text: message.skill.context },
                     {
                       type: "text",
-                      text: `/${message.skill.invocation.name}${message.skill.prompt.slice(skillCommand(message.skill.prompt)?.end ?? 0)}`,
+                      text: skillInvocationPrompt(message.skill.prompt, "/"),
                     },
                   ]
                 : [{ type: "text", text: message.prompt }]),

@@ -9,33 +9,18 @@
     border-color: light-dark(#c9c9c9, #424242);
   }
 }
-.composer:has(.skill-picker) {
-  position: relative;
-  isolation: isolate;
-}
-.composer:has(.skill-picker)::before {
-  content: none;
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border: 1px solid var(--color-muted-ink);
-  border-radius: inherit;
-  background: var(--desktop-composer-surface);
-  pointer-events: none;
-}
 .skill-picker {
   position: absolute;
-  bottom: calc(100% - 6px);
-  inset-inline-start: 10px;
-  z-index: -2;
-  width: calc(100% - 20px);
-  max-height: min(267px, 40dvh);
-  scroll-padding-bottom: 22px;
+  bottom: calc(100% - 1px);
+  inset-inline: 12px;
+  z-index: 3;
+  max-height: min(284px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 5px 5px 22px;
+  scroll-padding-block: 5px;
+  padding: 5px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: 12px 12px 0 0;
   background: var(--desktop-surface);
   box-shadow: 0 -8px 24px light-dark(#00000006, #0000001a);
 }
@@ -58,7 +43,8 @@
   min-width: 0;
 }
 .skill-option-name {
-  flex: 0 0 36%;
+  flex: 0 1 40%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,4 +77,26 @@
   padding: 8px 10px;
   color: var(--color-muted-ink);
   font-size: 13px;
+}
+
+@container composer (max-width: 600px) {
+  .skill-option-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .skill-option-name {
+    flex: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.composer:has(.skill-picker) :is(.composer-lip, .message-queue) {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+.skill-picker[data-virtual] .skill-option-name {
+  white-space: nowrap;
 }

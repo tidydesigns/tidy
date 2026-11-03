@@ -12,14 +12,24 @@ export type Skill = z.infer<typeof skillSchema>;
 export type SkillCatalog = z.infer<typeof skillCatalogSchema>;
 
 export function skillCommand(text: string) {
-  const match = /^[/$]([a-zA-Z0-9][a-zA-Z0-9:_-]{0,199})(?=\s|$)/.exec(text);
-  return match ? { name: match[1], end: match[0].length } : null;
+  const match = /(?:^|\s)[/$]([a-zA-Z0-9][a-zA-Z0-9:_-]{0,199})(?=\s|$)/.exec(text);
+  if (!match) return null;
+  const start = match.index + match[0].length - match[1].length - 1;
+  return { name: match[1], start, end: match.index + match[0].length };
+}
+
+export function skillInvocationPrompt(text: string, prefix: "/" | "$") {
+  const command = skillCommand(text);
+  if (!command) return text;
+  const before = text.slice(0, command.start).trimEnd();
+  return `${prefix}${command.name}${before ? ` ${before}` : ""}${text.slice(command.end)}`;
 }
 
 export function skillQuery(text: string, cursor: number) {
   if (cursor !== text.length && !/\s/.test(text[cursor] ?? "")) return null;
   const before = text.slice(0, cursor);
-  return /^[/$][a-zA-Z0-9:_-]*$/.test(before) ? before.slice(1).toLowerCase() : null;
+  const match = /(?:^|\s)[/$]([a-zA-Z0-9:_-]*)$/.exec(before);
+  return match ? match[1].toLowerCase() : null;
 }
 
 export function matchingSkills(skills: Skill[], query: string) {
