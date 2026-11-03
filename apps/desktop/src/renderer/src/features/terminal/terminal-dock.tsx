@@ -57,6 +57,34 @@ function Glyph({ kind }: { kind: "terminal" | "plus" | "maximize" | "restore" | 
   );
 }
 
+function terminalHeightBounds(element: HTMLDivElement) {
+  let maximum = window.innerHeight * 0.65;
+  const thread = element.closest<HTMLElement>(".thread-workspace");
+  if (thread) {
+    const style = getComputedStyle(thread);
+    let available =
+      thread.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    for (const child of thread.children) {
+      if (!(child instanceof HTMLElement) || child.contains(element)) continue;
+      const style = getComputedStyle(child);
+      if (
+        style.display === "none" ||
+        style.display === "contents" ||
+        style.position === "absolute" ||
+        style.position === "fixed" ||
+        Number(style.flexGrow) > 0
+      )
+        continue;
+      available -=
+        child.getBoundingClientRect().height +
+        parseFloat(style.marginTop) +
+        parseFloat(style.marginBottom);
+    }
+    maximum = Math.min(maximum, Math.max(0, available));
+  }
+  return { minimum: Math.min(140, maximum), maximum };
+}
+
 export function TerminalDock({
   api,
   projects,
@@ -118,19 +146,25 @@ export function TerminalDock({
       const separator = element.querySelector('[role="separator"]');
       const actualHeight = Math.round(element.getBoundingClientRect().height);
       if (!separator || !actualHeight) return;
+      const { minimum, maximum } = terminalHeightBounds(element);
       separator.setAttribute("aria-valuenow", String(actualHeight));
-      separator.setAttribute("aria-valuemin", String(Math.min(140, actualHeight)));
-      separator.setAttribute("aria-valuemax", String(Math.floor(window.innerHeight * 0.65)));
+      separator.setAttribute("aria-valuemin", String(Math.min(actualHeight, Math.round(minimum))));
+      separator.setAttribute("aria-valuemax", String(Math.round(maximum)));
     };
     const observer = new ResizeObserver(update);
     observer.observe(element);
+    const thread = element.closest(".thread-workspace");
+    if (thread) {
+      observer.observe(thread);
+      for (const child of thread.children) observer.observe(child);
+    }
     window.addEventListener("resize", update);
     update();
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [fullscreen]);
+  }, [fullscreen, dockHome]);
   const focusReported = useRef(false);
   const valid = Boolean(project && !project.cloud && available && api.terminal);
   const current = project ? (state[project.id] ?? emptyTerminals) : emptyTerminals;
@@ -342,12 +376,15 @@ export function TerminalDock({
             onKeyDown={(event) => {
               if (event.key === "ArrowUp" || event.key === "ArrowDown") {
                 event.preventDefault();
-                setHeight((value) =>
+                const element = dock.current;
+                if (!element) return;
+                const { minimum, maximum } = terminalHeightBounds(element);
+                setHeight(
                   Math.max(
-                    140,
+                    minimum,
                     Math.min(
-                      window.innerHeight * 0.65,
-                      value + (event.key === "ArrowUp" ? 24 : -24),
+                      maximum,
+                      element.getBoundingClientRect().height + (event.key === "ArrowUp" ? 24 : -24),
                     ),
                   ),
                 );
@@ -357,15 +394,16 @@ export function TerminalDock({
               if (event.button !== 0) return;
               const target = event.currentTarget;
               const startY = event.clientY;
-              const startHeight = target.parentElement!.getBoundingClientRect().height;
+              const element = dock.current;
+              if (!element) return;
+              const startHeight = element.getBoundingClientRect().height;
               target.setPointerCapture(event.pointerId);
-              const move = (next: PointerEvent) =>
+              const move = (next: PointerEvent) => {
+                const { minimum, maximum } = terminalHeightBounds(element);
                 setHeight(
-                  Math.max(
-                    140,
-                    Math.min(window.innerHeight * 0.65, startHeight + startY - next.clientY),
-                  ),
+                  Math.max(minimum, Math.min(maximum, startHeight + startY - next.clientY)),
                 );
+              };
               const end = () => {
                 target.removeEventListener("pointermove", move);
                 target.removeEventListener("pointerup", end);
