@@ -103,7 +103,8 @@ export class BrowserService {
   }
 
   videoForScope(scope: BrowserScope) {
-    return this.workspaces.get(scopeKey(scope))?.runtime.video ?? this.streaming.enabled;
+    const workspace = this.workspaces.get(scopeKey(scope));
+    return workspace ? workspace.stream instanceof BrowserVideoStream : this.streaming.enabled;
   }
 
   private cleanup(action: Promise<unknown>) {
@@ -276,9 +277,11 @@ export class BrowserService {
 
   private async context(workspace: Workspace) {
     if (
-      workspace.runtime.video &&
+      workspace.stream instanceof BrowserVideoStream &&
       !workspace.context &&
-      [...this.workspaces.values()].filter((item) => item.context).length >= 4
+      [...this.workspaces.values()].filter(
+        (item) => item.stream instanceof BrowserVideoStream && item.context,
+      ).length >= 4
     )
       throw new Error(
         "Close an unused browser workspace first. Video streaming supports four active workspaces per host.",
@@ -906,7 +909,13 @@ export class BrowserService {
       input: ({ input, tabId, viewId }) => {
         if (viewer.closed) return;
         if (input.kind === "video-disabled") {
-          if (workspace.stream instanceof BrowserVideoStream) workspace.stream.disable(viewer);
+          if (workspace.stream instanceof BrowserVideoStream)
+            workspace.stream.disable(viewer, input.reason);
+          return;
+        }
+        if (input.kind === "video-pong") {
+          if (workspace.stream instanceof BrowserVideoStream)
+            workspace.stream.pong(viewer, input.nonce);
           return;
         }
         if (input.kind === "video-keyframe") {
@@ -1090,9 +1099,18 @@ export class BrowserService {
               : input.action === "up"
                 ? "mouseReleased"
                 : "mouseMoved",
-          x: input.x,
-          y: input.y,
-          button: input.button,
+          x: input.action === "leave" ? -1 : input.x,
+          y: input.action === "leave" ? -1 : input.y,
+          button:
+            input.action === "move"
+              ? input.buttons & 1
+                ? "left"
+                : input.buttons & 2
+                  ? "right"
+                  : input.buttons & 4
+                    ? "middle"
+                    : "none"
+              : input.button,
           buttons: input.buttons,
           modifiers,
           clickCount: input.clickCount,
@@ -1169,6 +1187,7 @@ export class BrowserService {
         }
         break;
       case "video-disabled":
+      case "video-pong":
       case "video-keyframe":
       case "ack":
       case "take-control":

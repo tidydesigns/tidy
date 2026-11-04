@@ -83,8 +83,8 @@ function StreamingChoice({ machine, active }: { machine: string; active: boolean
         Open the browser in a new thread to test the change.
       </p>
       <p className="thread-naming-note">
-        Requires a Linux host with Voxl, Xvfb, xrandr, Openbox and full Chrome installed. Unexpected
-        JPEG fallback remains under investigation.
+        Requires a Linux host with Voxl, Xvfb, xrandr, Openbox and full Chrome installed. If video
+        is interrupted, JPEG keeps the browser usable while video reconnects.
       </p>
       {state && !state.supported && (
         <p className="thread-naming-note">
@@ -95,7 +95,7 @@ function StreamingChoice({ machine, active }: { machine: string; active: boolean
         <p className="thread-naming-note">Browser streaming settings require the desktop app.</p>
       )}
       {error && (
-        <p className="settings-account-error" role="alert">
+        <p className="settings-browser-error" role="alert">
           {error}
         </p>
       )}
@@ -138,7 +138,7 @@ export function BrowserSettings({ active }: { active: boolean }) {
   );
   const selected = machine === "local" || connected.some((item) => item.id === machine);
   return (
-    <section aria-label="Browser streaming settings">
+    <section className="settings-browser" aria-label="Browser streaming settings">
       {(connected.length > 0 || machine !== "local") && (
         <div className="settings-appearance-row">
           <span>Machine</span>
@@ -146,7 +146,10 @@ export function BrowserSettings({ active }: { active: boolean }) {
             value={machine}
             label="Browser host machine"
             size="sm"
-            className="w-52 shrink-0"
+            className="settings-browser-machine"
+            renderOptionLabel={(option) => (
+              <span className="settings-browser-machine-label">{option.label}</span>
+            )}
             options={[
               { value: "local", label: "This machine" },
               ...connected.map((item) => ({ value: item.id, label: item.label })),
@@ -162,7 +165,7 @@ export function BrowserSettings({ active }: { active: boolean }) {
         <p className="thread-naming-note">Reconnect this machine to change its browser settings.</p>
       )}
       {error && (
-        <p className="settings-account-error" role="alert">
+        <p className="settings-browser-error" role="alert">
           {error}
         </p>
       )}

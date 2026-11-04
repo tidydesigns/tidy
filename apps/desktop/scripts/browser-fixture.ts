@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import {
+  createServer as createSocketServer,
+  connect as connectSocket,
+  type Socket,
+  type Server as SocketServer,
+} from "node:net";
 import { mkdtemp, mkdir, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,6 +23,7 @@ import { RemoteFailure } from "../src/main/remote/errors";
 import { createRemoteHost } from "../src/main/remote/host";
 import { RequestReceipts } from "../src/main/remote/receipts";
 import { SessionStore } from "../src/main/remote/session-store";
+import { checkBrowserVideo } from "./browser-video-checks";
 
 protocol.registerSchemesAsPrivileged([
   { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -33,6 +40,7 @@ async function run() {
   );
   const projectId = randomUUID(),
     threadId = randomUUID();
+  const videoFrames = new Map<WorkspaceService, number>();
   const viewerIds = new Map<WorkspaceService, string>();
   const viewerScopes = new Map<WorkspaceService, { projectId: string; threadId: string }>();
   const makeService = async (label: string) => {
@@ -67,7 +75,11 @@ async function run() {
     service.browser.watch = async (scope, id, send) => {
       viewerIds.set(service, id);
       viewerScopes.set(service, scope);
-      return watch(scope, id, send);
+      return watch(scope, id, (event) => {
+        if (event.kind === "frame" && event.codec === "h264")
+          videoFrames.set(service, (videoFrames.get(service) ?? 0) + 1);
+        send(event);
+      });
     };
     return { service, scope: { projectId: project.id, threadId } };
   };
@@ -82,6 +94,51 @@ async function run() {
     receipts: new RequestReceipts(join(root, "receipts")),
   });
   const port = await host.listen();
+  let transportPort = port;
+  const networkServers: SocketServer[] = [];
+  const networkSockets = new Set<Socket>();
+  const networkDirectory = process.env.TIDY_TEST_BROWSER_BRIDGE_DIRECTORY;
+  if (networkDirectory) {
+    await rm(join(networkDirectory, "back"), { force: true });
+    const forward = (socket: Socket, peer: Socket) => {
+      socket.setNoDelay(true);
+      peer.setNoDelay(true);
+      networkSockets.add(socket);
+      networkSockets.add(peer);
+      socket.on("error", () => peer.destroy());
+      peer.on("error", () => socket.destroy());
+      socket.once("close", () => {
+        networkSockets.delete(socket);
+        peer.destroy();
+      });
+      peer.once("close", () => {
+        networkSockets.delete(peer);
+        socket.destroy();
+      });
+      socket.pipe(peer);
+      peer.pipe(socket);
+    };
+    const backend = createSocketServer((socket) =>
+      forward(socket, connectSocket(port, "127.0.0.1")),
+    );
+    await new Promise<void>((resolve, reject) => {
+      backend.once("error", reject);
+      backend.listen(join(networkDirectory, "back"), resolve);
+    });
+    networkServers.push(backend);
+    const frontend = createSocketServer((socket) =>
+      forward(socket, connectSocket(join(networkDirectory, "in"))),
+    );
+    await new Promise<void>((resolve, reject) => {
+      frontend.once("error", reject);
+      frontend.listen(0, "127.0.0.1", resolve);
+    });
+    networkServers.push(frontend);
+    const address = frontend.address();
+    if (!address || typeof address === "string")
+      throw new Error("Test network bridge unavailable.");
+    transportPort = address.port;
+  }
   const machine = {
     id: randomUUID(),
     target: "test@browser-host",
@@ -95,7 +152,6 @@ async function run() {
     height: 960,
     show: false,
     webPreferences: {
-      offscreen: true,
       preload: join(desktop, "out/preload/index.cjs"),
       contextIsolation: true,
       sandbox: true,
@@ -132,7 +188,7 @@ async function run() {
           clientId: machine.id,
           token: await sessions.issue(machine.id),
         },
-        origin: `http://127.0.0.1:${port}`,
+        origin: `http://127.0.0.1:${transportPort}`,
         close() {},
         onClose(listener) {
           drop = listener;
@@ -155,7 +211,7 @@ async function run() {
   const fixture = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html");
     response.end(
-      `<!doctype html><title>Project preview</title><style>body{font:16px system-ui;background:#fafafa;color:#27272a;margin:0}main{max-width:580px;margin:48px auto;padding:24px}h1{font-size:34px;letter-spacing:-1px}label{display:block;margin-top:24px}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #d4d4d8;border-radius:7px;margin:8px 0 16px}button{background:#27272a;color:white;border:0;border-radius:7px;padding:12px 20px}small{color:#71717a}#result{margin-top:20px}</style><main><small>PROJECT PREVIEW</small><h1>Make something useful.</h1><p>Test your app in the same browser as your agent.</p><label>Your name<input id="name" placeholder="Enter your name"></label><button onclick="document.querySelector('#result').textContent='Hello, '+document.querySelector('#name').value">Continue</button><button id="rename" onclick="document.querySelector('#prompt-result').textContent='Prompt: '+JSON.stringify(prompt('Project name','Default name'))">Rename</button><p id="result"></p><p id="prompt-result"></p></main>`,
+      `<!doctype html><title>Project preview</title><style>body{font:16px system-ui;background:#fafafa;color:#27272a;margin:0}main{max-width:580px;margin:48px auto;padding:24px}h1{font-size:34px;letter-spacing:-1px}label{display:block;margin-top:24px}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #d4d4d8;border-radius:7px;margin:8px 0 16px}button:hover{background:rgb(30,80,220)}button{background:#27272a;color:white;border:0;border-radius:7px;padding:12px 20px}small{color:#71717a}#result{margin-top:20px}</style><main><small>PROJECT PREVIEW</small><h1>Make something useful.</h1><p>Test your app in the same browser as your agent.</p><label>Your name<input id="name" placeholder="Enter your name"></label><button onclick="document.querySelector('#result').textContent='Hello, '+document.querySelector('#name').value">Continue</button><button id="rename" onclick="document.querySelector('#prompt-result').textContent='Prompt: '+JSON.stringify(prompt('Project name','Default name'))">Rename</button><p id="result"></p><p id="prompt-result"></p></main><canvas id="stream-marker" width="256" height="16" style="position:fixed;left:0;top:0;z-index:100"></canvas><script>let counter=0;const context=document.querySelector('#stream-marker').getContext('2d');function mark(){const n=counter++%256;for(let i=0;i<16;i++){const bits=i<8?n:~n;context.fillStyle=(bits>>>(i%8))&1?'white':'black';context.fillRect(i*16,0,16,16)}requestAnimationFrame(mark)}mark()</script>`,
     );
   });
   await new Promise<void>((resolve) => fixture.listen(0, "127.0.0.1", resolve));
@@ -199,7 +255,7 @@ async function run() {
     while (!(await check())) {
       if (Date.now() > end)
         throw new Error(
-          `Timed out: ${name}. Renderer errors: ${errors.join("\n")}. UI: ${await evaluate("document.body.innerText.slice(0,1600)")}`,
+          `Timed out: ${name}. Renderer errors: ${errors.join("\n")}. UI: ${window.webContents.getURL() ? await evaluate("document.body.innerText.slice(0,1600)") : "Not loaded"}`,
         );
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
@@ -216,6 +272,30 @@ async function run() {
   }
   client.start();
   try {
+    if (process.env.TIDY_TEST_BROWSER_VIDEO === "1") {
+      await until(() => client.status.kind === "connected", "remote video connection");
+      await remote.service.browser.chooseStreaming(false);
+      await checkBrowserVideo({
+        window,
+        service: remote.service,
+        scope: remote.scope,
+        machineId: machine.id,
+        viewerId: () => viewerIds.get(remote.service),
+        h264Frames: () => videoFrames.get(remote.service) ?? 0,
+        evaluate,
+        until,
+        offline: () => {
+          online = false;
+          drop();
+          client.wake("network", false);
+        },
+        online: () => {
+          online = true;
+          client.wake("network", true);
+        },
+      });
+      return;
+    }
     for (const [label, value, machineId] of [
       ["local", local, "local"],
       ["remote", remote, machine.id],
@@ -1083,6 +1163,10 @@ async function run() {
   } finally {
     client.close();
     await host.close();
+    for (const socket of networkSockets) socket.destroy();
+    await Promise.all(
+      networkServers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    );
     await remote.service.close();
     await local.service.close();
     fixture.closeAllConnections();

@@ -8,34 +8,53 @@ export function createBrowserFramePainter(options: {
   acknowledge(frameId: number): void;
   painted(view: string): void;
   resyncVideo(): void;
-  disableVideo(): void;
+  disableVideo(reason?: "unsupported" | "decoder"): void;
 }) {
   let stopped = false;
   let video: Worker | undefined;
   let lastResync = -Infinity;
   let failures = 0;
+  let stableSince = performance.now();
+  let epoch = 0;
+  let codec: Frame["codec"];
   const resync = () => {
     if (performance.now() - lastResync > 1000) {
       lastResync = performance.now();
-      if (++failures >= 3) options.disableVideo();
-      else options.resyncVideo();
+      stableSince = lastResync;
+      if (++failures >= 3) {
+        failures = 0;
+        options.disableVideo("decoder");
+      } else options.resyncVideo();
     }
   };
   const videoFrame = (frame: Frame) => {
     if (!video) {
-      video = new Worker(new URL("./browser-video-worker.ts", import.meta.url), { type: "module" });
+      const worker = new Worker(new URL("./browser-video-worker.ts", import.meta.url), {
+        type: "module",
+      });
+      const version = epoch;
+      video = worker;
       video.onerror = () => {
+        if (video !== worker) return;
         video?.terminate();
         video = undefined;
         resync();
       };
       video.onmessage = ({ data }: MessageEvent<VideoWorkerOutput>) => {
+        if (stopped || video !== worker || version !== epoch) {
+          if (data.kind === "decoded") data.frame.close();
+          return;
+        }
         if (data.kind === "ack") {
           options.acknowledge(data.frameId);
           return;
         }
         if (data.kind === "error") {
           resync();
+          return;
+        }
+        if (data.kind === "unsupported") {
+          options.disableVideo("unsupported");
           return;
         }
         const { frame, source } = data;
@@ -45,6 +64,7 @@ export function createBrowserFramePainter(options: {
           const element = options.canvas();
           if (
             stopped ||
+            version !== epoch ||
             !options.visible() ||
             !element ||
             state.activeTabId !== source.tabId ||
@@ -59,6 +79,7 @@ export function createBrowserFramePainter(options: {
             .getContext("2d", { alpha: false })
             ?.drawImage(frame, 0, 0, tab.width, tab.height, 0, 0, tab.width, tab.height);
           options.painted(`${source.viewId}:${tab.width}:${tab.height}`);
+          if (performance.now() - stableSince > 10000) failures = 0;
         } finally {
           frame.close();
           if (!stopped) options.acknowledge(source.frameId);
@@ -82,10 +103,18 @@ export function createBrowserFramePainter(options: {
       options.acknowledge(frameId);
       return;
     }
+    if (frame.codec !== codec) {
+      epoch++;
+      codec = frame.codec;
+      video?.terminate();
+      video = undefined;
+      if (pending) options.acknowledge(pending.frameId);
+      pending = undefined;
+    }
     if (frame.codec === "h264") {
       if (typeof VideoDecoder === "undefined") {
         options.acknowledge(frameId);
-        options.disableVideo();
+        options.disableVideo("unsupported");
         return;
       }
       videoFrame(frame);
@@ -99,6 +128,7 @@ export function createBrowserFramePainter(options: {
       return;
     }
     decoding = true;
+    const version = epoch;
     void createImageBitmap(new Blob([new Uint8Array(data).buffer], { type: "image/jpeg" }))
       .then((bitmap) => {
         try {
@@ -108,6 +138,7 @@ export function createBrowserFramePainter(options: {
           const tab = state.tabs.find((tab) => tab.id === tabId);
           if (
             !stopped &&
+            version === epoch &&
             options.visible() &&
             element &&
             context &&
@@ -138,6 +169,7 @@ export function createBrowserFramePainter(options: {
     draw,
     close: () => {
       stopped = true;
+      epoch++;
       video?.terminate();
       pending = undefined;
     },

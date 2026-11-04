@@ -24,12 +24,18 @@ export class BrowserRuntime {
   private readonly lifetime = new AbortController();
   private readonly scratch = new PrivateScratch();
   private readonly processes = new Set<ChildProcess>();
+  private videoEnabled: boolean;
+  get video() {
+    return this.videoEnabled;
+  }
 
   constructor(
     private readonly progress: (fraction: number | null) => void,
     private readonly disconnected: () => void,
-    readonly video = process.env.TIDY_BROWSER_STREAMING === "voxl",
-  ) {}
+    video = process.env.TIDY_BROWSER_STREAMING === "voxl",
+  ) {
+    this.videoEnabled = video;
+  }
 
   get() {
     if (this.closing) return Promise.reject(new Error("The browser is closing."));
@@ -115,9 +121,17 @@ export class BrowserRuntime {
       directory = await this.scratch.create("tidy-browser-runtime-");
       if (this.video) {
         this.videoHost = new BrowserVideoHost();
-        await this.videoHost.start(directory);
+        try {
+          await this.videoHost.start(directory);
+        } catch {
+          await this.videoHost.close();
+          this.videoHost = undefined;
+          this.videoEnabled = false;
+        }
       }
-      socketDirectory = await mkdtemp(join(homedir(), ".tidy-browser-"));
+      const socketRoot =
+        process.platform === "win32" || Buffer.byteLength(homedir()) <= 48 ? homedir() : "/tmp";
+      socketDirectory = await mkdtemp(join(socketRoot, ".tidy-browser-"));
       const browser = await launch({
         executablePath,
         userDataDir: join(directory, "profile"),

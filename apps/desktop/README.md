@@ -144,8 +144,9 @@ These optional environment variables select installed executables:
 
 Up to four active video workspaces per host each own a private display and browser
 process. Chrome's sandbox stays enabled. X11 TCP listening is disabled and display
-access requires a private Xauthority cookie. Voxl listens on loopback with a
-generated private password.
+access requires a private Xauthority cookie. Voxl chooses an ephemeral loopback
+port and receives a fresh private password on every start. Before authentication,
+the backend verifies that the accepted socket belongs to its managed child process.
 Tidy forwards only video and viewing acknowledgements; mouse, keyboard, text,
 agent tools, uploads, and downloads continue through the existing browser service.
 The host alone controls display resizing. Clipboard sharing, microphone, audio,
@@ -156,18 +157,22 @@ backend before it starts, using a separate test backend/state directory. Setting
 them only on the viewing computer does not enable remote video. The existing SSH
 connection carries the authenticated stream without exposing Voxl, Chrome's
 DevTools connection, or the development server publicly. Both host and viewer
-must use this implementation. Remote bootstrap does not install the native video
+must support the current streaming protocol; older streaming backends show an
+explicit update notice. Older JPEG-only backends remain usable. Remote bootstrap does not install the native video
 dependencies or configure a running service's environment.
 
 The decoder runs in a worker. Unsupported decoders, repeated decode failures, and
-viewers that stop acknowledging frames fall back to JPEG for that viewer. Other
-viewers retain their video connection. Reconnecting retries video. A streaming
+viewers that stop acknowledging frames fall back to JPEG for that viewer. Each
+workspace shares one encoder connection, so a healthy viewer can continue while
+another viewer falls behind. Temporary decoder or congestion failures retry video
+automatically with bounded backoff; unsupported decoders stay on JPEG. A streaming
 process failure is retried against the running browser; browser or host failure
 still loses the live session. Slow connections can still stall because the
 transport uses TCP. Independent video workspaces use more memory than the default
 shared headless browser. Native OS dialogs and browser chrome are not interactive
 through page-scoped CDP input; existing Tidy dialog and file-picker controls remain
-the supported path.
+the supported path. If virtual-display dependencies fail to start, the session
+opens in headless Chrome with interactive JPEG instead.
 
 Run the optional native integration checks from the repository root after
 configuring the executable paths:
@@ -178,11 +183,21 @@ TIDY_TEST_BROWSER_VIDEO=1 node --import ./apps/desktop/node_modules/tsx/dist/loa
 ```
 
 The test covers live video, repeated streaming-process failure, session reuse,
-workspace isolation, viewport resizing, a stalled second viewer, and JPEG fallback.
+workspace isolation, viewport resizing, long-hidden viewers, a slow second viewer,
+mixed JPEG/video capture, missing dependencies, and JPEG fallback.
 It requires a working Linux graphical/browser sandbox environment. It is skipped
 in ordinary unit runs. Real cross-machine and lossy
 network validation remain separate acceptance checks; simulated loopback traffic
 is not evidence that every remote environment is supported.
+
+After building the desktop app, `TIDY_TEST_BROWSER_VIDEO=1 bun scripts/test-browser.ts`
+from `apps/desktop` exercises the production renderer and authenticated remote
+transport, including painted pixels and native interaction. Optional
+`TIDY_TEST_BROWSER_SOAK_SECONDS=300` extends that fixture with a five-minute
+rendered-frame check. Tests use disposable browser profiles and require the same
+native executable configuration as the host. The paint budget defaults to 20 fps;
+`TIDY_TEST_BROWSER_MIN_FPS` can select a different explicit budget for deliberately
+degraded-network checks. Report that budget alongside those results.
 
 ## iOS and Android previews
 

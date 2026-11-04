@@ -8,6 +8,7 @@ export type VideoWorkerOutput =
       source: Pick<BrowserFrame, "tabId" | "viewId" | "frameId">;
     }
   | { kind: "ack"; frameId: number }
+  | { kind: "unsupported" }
   | { kind: "error"; message: string };
 
 export function browserVideoPacket(data: Uint8Array) {

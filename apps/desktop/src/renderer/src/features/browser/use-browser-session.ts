@@ -25,6 +25,13 @@ export function useBrowserSession({
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [disconnected, setDisconnected] = useState(false);
   const [painted, setPainted] = useState<string | null>(null);
+  const [streamStatus, setStreamStatus] =
+    useState<
+      Extract<
+        import("../../../../shared/contracts/browser").BrowserOutput,
+        { kind: "stream-status" }
+      >
+    >();
   const authoritativeState = useRef<BrowserState>(emptyBrowserState);
   const pendingChanges = useRef<BrowserPending>({
     closed: new Set(),
@@ -61,11 +68,17 @@ export function useBrowserSession({
       acknowledge: (frameId) => send({ kind: "ack", frameId }),
       painted: setPainted,
       resyncVideo: () => send({ kind: "video-keyframe" }),
-      disableVideo: () => send({ kind: "video-disabled" }),
+      disableVideo: (reason) => send({ kind: "video-disabled", reason }),
     });
     const unwatch = api.watch(scope, (event) => {
       if (stopped) return;
       switch (event.kind) {
+        case "video-ping":
+          send({ kind: "video-pong", nonce: event.nonce });
+          break;
+        case "stream-status":
+          setStreamStatus(event);
+          break;
         case "frame":
           painter.draw(event);
           break;
@@ -162,6 +175,7 @@ export function useBrowserSession({
     stateRef,
     visibleRef,
     painted,
+    streamStatus,
     error,
     setError,
     dismissedError,

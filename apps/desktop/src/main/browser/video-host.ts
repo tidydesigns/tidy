@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import type { Page } from "puppeteer-core";
+import { OwnedLoopback } from "./owned-loopback";
 
 const geometrySchema = z.object({
   t: z.literal("hello"),
@@ -28,9 +28,9 @@ async function stop(child: ChildProcess) {
 
 export class BrowserVideoHost {
   display = "";
-  private readonly password = randomBytes(32).toString("hex");
   private readonly children = new Set<ChildProcess>();
-  private starting?: Promise<number>;
+  private starting?: Promise<{ port: number; password: string; owner: OwnedLoopback }>;
+  private owner?: OwnedLoopback;
   private closed = false;
   private control?: WebSocket;
   private width = 0;
@@ -111,6 +111,7 @@ export class BrowserVideoHost {
   }
 
   private spawn(executable: string, args: string[], env: NodeJS.ProcessEnv = {}, output = false) {
+    if (this.closed) throw new Error("Browser video host is closed.");
     const child = spawn(executable, args, {
       env: { ...process.env, ...this.environment, ...env },
       stdio: ["ignore", output ? "pipe" : "ignore", "pipe", "pipe"],
@@ -150,10 +151,13 @@ export class BrowserVideoHost {
 
   private ensure() {
     if (this.closed) return Promise.reject(new Error("Browser video host is closed."));
-    this.starting ??= this.startServer().catch((error: unknown) => {
-      this.starting = undefined;
-      throw error;
-    });
+    if (!this.starting) {
+      const starting = this.startServer().catch((error: unknown) => {
+        if (this.starting === starting) this.starting = undefined;
+        throw error;
+      });
+      this.starting = starting;
+    }
     return this.starting;
   }
 
@@ -164,20 +168,13 @@ export class BrowserVideoHost {
       await this.displayCommand(["--delmode", "screen", match[1]]);
       await this.displayCommand(["--rmmode", match[1]]);
     }
-    const reservation = createServer();
-    await new Promise<void>((resolve, reject) => {
-      reservation.once("error", reject);
-      reservation.listen(0, "127.0.0.1", resolve);
-    });
-    const address = reservation.address();
-    await new Promise<void>((resolve) => reservation.close(() => resolve()));
-    if (!address || typeof address === "string") throw new Error("Could not allocate video port.");
     if (this.closed) throw new Error("Browser video host is closed.");
+    const password = randomBytes(32).toString("hex");
     const child = this.spawn(
       process.env.TIDY_VOXL_EXECUTABLE ?? "voxl",
       [
         "--addr=127.0.0.1",
-        `--port=${address.port}`,
+        "--port=0",
         "--audio-enabled=false",
         "--microphone-enabled=false",
         "--enable-clipboard=false",
@@ -188,38 +185,41 @@ export class BrowserVideoHost {
         "--framerate=60",
         "--max-kbps=12000",
       ],
-      { VOXL_PASSWORD: this.password },
+      { VOXL_PASSWORD: password },
     );
-    let failed = false;
-    child.once("error", () => {
-      failed = true;
-    });
-    child.once("exit", () => {
-      failed = true;
-      this.starting = undefined;
-      this.control?.terminate();
-      this.control = undefined;
-    });
-    const deadline = Date.now() + 10000;
-    while (!this.closed && !failed && Date.now() < deadline) {
-      try {
-        const response = await fetch(`http://127.0.0.1:${address.port}/healthz`, {
-          signal: AbortSignal.timeout(500),
-          redirect: "error",
-        });
-        if (response.ok) return address.port;
-      } catch {}
-      await wait(50);
+    let owner: OwnedLoopback | undefined;
+    try {
+      owner = new OwnedLoopback(child);
+      this.owner = owner;
+      child.once("exit", () => {
+        if (this.owner !== owner) return;
+        this.starting = undefined;
+        this.owner = undefined;
+        this.control?.terminate();
+        this.control = undefined;
+      });
+      const port = await owner.port();
+      if (this.closed) throw new Error("Browser video host is closed.");
+      return { port, password, owner };
+    } catch (error) {
+      owner?.close();
+      await stop(child);
+      throw error;
     }
-    await stop(child);
-    throw new Error("Voxl could not start. Check TIDY_VOXL_EXECUTABLE and the host libraries.");
   }
 
   async connect() {
-    const port = await this.ensure();
+    const server = await this.ensure();
     if (this.closed) throw new Error("Browser video host is closed.");
-    return new WebSocket(`ws://127.0.0.1:${port}/ws`, {
-      headers: { Authorization: `Bearer ${this.password}` },
+    const socket = await server.owner.connect(server.port);
+    if (this.closed || this.owner !== server.owner) {
+      socket.destroy();
+      throw new Error("The video process disconnected.");
+    }
+    return new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      headers: { Authorization: `Bearer ${server.password}` },
+      createConnection: () => socket,
+      followRedirects: false,
       maxPayload: 8 * 1024 * 1024,
       perMessageDeflate: false,
       handshakeTimeout: 5000,
@@ -298,6 +298,7 @@ export class BrowserVideoHost {
   async close() {
     this.closed = true;
     this.control?.terminate();
+    this.owner?.close();
     await Promise.all([...this.children].map(stop));
     await this.starting?.catch(() => {});
   }

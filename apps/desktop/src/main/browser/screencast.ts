@@ -14,6 +14,7 @@ export type BrowserViewer = {
   view: FrameView | null;
 };
 type Capture = FrameView & {
+  generation: number;
   session: CDPSession;
   width: number;
   height: number;
@@ -31,6 +32,7 @@ export class BrowserScreencast {
   private pauses = 0;
   private task?: Promise<void>;
   private capture?: Capture;
+  private stopped = false;
 
   constructor(
     private readonly options: {
@@ -45,6 +47,7 @@ export class BrowserScreencast {
 
   reset() {
     this.invalidate();
+    void this.capture?.session.detach().catch(ignored);
     this.capture = undefined;
     for (const viewer of this.viewers) {
       viewer.pending = undefined;
@@ -72,17 +75,19 @@ export class BrowserScreencast {
   }
 
   async close() {
+    this.stopped = true;
     this.invalidate();
+    await this.task;
     await this.capture?.session.detach().catch(ignored);
     this.capture = undefined;
   }
 
   refresh() {
-    if (this.options.closed()) return;
+    if (this.stopped || this.options.closed()) return;
     this.dirty = true;
     if (this.task) return;
     this.task = (async () => {
-      while (this.dirty && !this.options.closed()) {
+      while (this.dirty && !this.stopped && !this.options.closed()) {
         this.dirty = false;
         await this.stream().catch((error: unknown) => {
           for (const viewer of this.viewers)
@@ -96,7 +101,7 @@ export class BrowserScreencast {
       }
     })().finally(() => {
       this.task = undefined;
-      if (this.dirty && !this.options.closed()) this.refresh();
+      if (this.dirty && !this.stopped && !this.options.closed()) this.refresh();
     });
   }
 
@@ -145,6 +150,7 @@ export class BrowserScreencast {
       tab &&
       viewers.length &&
       current?.tabId === tab.state.id &&
+      current.generation === this.generation &&
       current.viewId === tab.state.viewId &&
       current.width === tab.state.width &&
       current.height === tab.state.height
@@ -178,7 +184,7 @@ export class BrowserScreencast {
       await current.session.send("Page.stopScreencast").catch(ignored);
       await current.session.detach().catch(ignored);
     }
-    if (!tab || !viewers.length || this.options.closed()) return;
+    if (!tab || !viewers.length || this.stopped || this.options.closed()) return;
     await tab.page.bringToFront();
     if (generation !== this.generation || this.options.closed()) return;
     const session = await tab.page.createCDPSession();
@@ -187,6 +193,7 @@ export class BrowserScreencast {
       return;
     }
     const capture: Capture = {
+      generation,
       session,
       tabId: tab.state.id,
       viewId: tab.state.viewId,
@@ -198,7 +205,8 @@ export class BrowserScreencast {
     this.capture = capture;
     const view: FrameView = { tabId: capture.tabId, viewId: capture.viewId };
     const publish = (data: string) => {
-      if (generation !== this.generation || this.options.closed() || capture.paused) return;
+      if (generation !== this.generation || this.stopped || this.options.closed() || capture.paused)
+        return;
       capture.lastFrame = Buffer.from(data, "base64");
       for (const viewer of this.viewers) {
         if (!viewer.visible || viewer.closed) continue;

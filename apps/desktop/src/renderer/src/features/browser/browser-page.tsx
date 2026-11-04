@@ -136,7 +136,7 @@ export function BrowserPage({
   );
   const pointer = (
     event: PointerEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>,
-    action: "move" | "down" | "up",
+    action: "move" | "down" | "up" | "leave",
   ) => {
     if (!interactive || ("isPrimary" in event && !event.isPrimary) || !tab) return;
     const position = point(event.clientX, event.clientY);
@@ -148,7 +148,7 @@ export function BrowserPage({
       x: position.x,
       y: position.y,
       button:
-        action === "move"
+        action === "move" || action === "leave"
           ? "none"
           : event.button === 2
             ? "right"
@@ -156,7 +156,10 @@ export function BrowserPage({
               ? "middle"
               : "left",
       buttons: event.buttons,
-      clickCount: Math.min(3, action === "move" ? 0 : Math.max(1, event.detail)),
+      clickCount: Math.min(
+        3,
+        action === "move" || action === "leave" ? 0 : Math.max(1, event.detail),
+      ),
       modifiers: modifierBits(event),
     };
     if (action === "move") {
@@ -358,6 +361,9 @@ export function BrowserPage({
         onPointerMove={(event) => {
           if (event.pointerType === "touch") touchPointer(event, "move");
           else pointer(event, "move");
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== "touch" && !event.buttons) pointer(event, "leave");
         }}
         onPointerUp={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId))

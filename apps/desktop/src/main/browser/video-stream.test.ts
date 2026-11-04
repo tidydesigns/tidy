@@ -63,7 +63,7 @@ test(
       await waitFor(() =>
         outputs.some((event) => event.kind === "frame" && event.codec === "h264"),
       );
-      const first = outputs.find((event) => event.kind === "frame");
+      const first = outputs.find((event) => event.kind === "frame" && event.codec === "h264");
       assert.ok(first?.kind === "frame");
       assert.ok(browserVideoPacket(first.data).key);
       await service.command(scope, {
@@ -105,6 +105,29 @@ test(
       await waitFor(() =>
         reconnected.some((event) => event.kind === "frame" && event.codec === "h264"),
       );
+      second.input({
+        tabId: tab.id,
+        viewId: tab.viewId,
+        input: { kind: "visibility", visible: false },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10500));
+      const shownAt = reconnected.length;
+      second.input({
+        tabId: tab.id,
+        viewId: tab.viewId,
+        input: { kind: "visibility", visible: true },
+      });
+      await waitFor(() =>
+        reconnected
+          .slice(shownAt)
+          .some((event) => event.kind === "frame" && event.codec === "h264"),
+      );
+      assert.ok(
+        !reconnected
+          .slice(shownAt)
+          .some((event) => event.kind === "stream-status" && event.reason === "unavailable"),
+        "A long-hidden viewer must receive a fresh keyframe without an expired waiting timeout.",
+      );
       const snapshot = await service.command(scope, { kind: "snapshot", tabId: tab.id });
       assert.ok(snapshot.output?.includes("Session survives reconnect"));
       const other: BrowserOutput[] = [];
@@ -123,7 +146,7 @@ test(
         },
         false,
       );
-      await waitFor(() => slowFrames >= 3);
+      await waitFor(() => slowFrames >= 1);
       const before = reconnected.filter((event) => event.kind === "frame").length;
       await new Promise((resolve) => setTimeout(resolve, 2000));
       assert.ok(reconnected.filter((event) => event.kind === "frame").length > before + 10);
@@ -176,6 +199,127 @@ test(
       assert.ok(jpeg?.kind === "frame");
       assert.equal(jpeg.data[0], 255);
       assert.equal(jpeg.data[1], 216);
+      const beforeScreenshot = reconnected.filter(
+        (event) => event.kind === "frame" && !event.codec,
+      ).length;
+      await service.command(scope, { kind: "screenshot", tabId: tab.id });
+      const joined: BrowserOutput[] = [];
+      await attach(scope, (event) => joined.push(event));
+      await waitFor(() => joined.some((event) => event.kind === "frame" && event.codec === "h264"));
+      await waitFor(
+        () =>
+          reconnected.filter((event) => event.kind === "frame" && !event.codec).length >
+          beforeScreenshot + 10,
+      );
+      const delayed: { watch?: BrowserWatch } = {};
+      const timers = new Set<ReturnType<typeof setTimeout>>();
+      delayed.watch = await attach(
+        scope,
+        (event) => {
+          if (event.kind !== "frame") return;
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            delayed.watch?.input({
+              tabId: event.tabId,
+              viewId: event.viewId,
+              input: { kind: "ack", frameId: event.frameId },
+            });
+          }, 350);
+          timers.add(timer);
+        },
+        false,
+      );
+      const fastBefore = joined.filter(
+        (event) => event.kind === "frame" && event.codec === "h264",
+      ).length;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      for (const timer of timers) clearTimeout(timer);
+      delayed.watch.close();
+      assert.ok(
+        joined.filter((event) => event.kind === "frame" && event.codec === "h264").length >
+          fastBefore + 35,
+        "A continuously slow acknowledging viewer must not gate the healthy viewer.",
+      );
+      const cold: BrowserOutput[] = [];
+      let coldWatch: BrowserWatch | undefined;
+      let firstAck: ReturnType<typeof setTimeout> | undefined;
+      let primed = false;
+      let primingFrames = 0;
+      try {
+        coldWatch = await attach(
+          scope,
+          (event) => {
+            cold.push(event);
+            if (event.kind !== "frame") return;
+            const acknowledge = () =>
+              coldWatch?.input({
+                tabId: event.tabId,
+                viewId: event.viewId,
+                input: { kind: "ack", frameId: event.frameId },
+              });
+            if (event.codec === "h264" && !primed) {
+              if (firstAck === undefined)
+                firstAck = setTimeout(() => {
+                  primingFrames = cold.filter(
+                    (event) => event.kind === "frame" && event.codec === "h264",
+                  ).length;
+                  primed = true;
+                  acknowledge();
+                }, 2000);
+            } else acknowledge();
+          },
+          false,
+        );
+        await waitFor(() => firstAck !== undefined);
+        const healthyBefore = joined.filter(
+          (event) => event.kind === "frame" && event.codec === "h264",
+        ).length;
+        await new Promise((resolve) => setTimeout(resolve, 1800));
+        assert.ok(
+          cold.filter((event) => event.kind === "frame" && event.codec === "h264").length <= 48,
+        );
+        assert.ok(
+          joined.filter((event) => event.kind === "frame" && event.codec === "h264").length >
+            healthyBefore + 30,
+          "A cold decoder must not gate an already healthy viewer.",
+        );
+        await waitFor(
+          () =>
+            primed &&
+            cold.filter((event) => event.kind === "frame" && event.codec === "h264").length >
+              primingFrames + 2,
+        );
+        const resumed = cold.filter(
+          (event): event is Extract<BrowserOutput, { kind: "frame" }> =>
+            event.kind === "frame" && event.codec === "h264",
+        );
+        const initial = resumed[0];
+        assert.equal(
+          primingFrames,
+          48,
+          "The cold decoder must exercise the bounded priming pause.",
+        );
+        const next = resumed[primingFrames];
+        assert.ok(initial && next);
+        assert.ok(
+          browserVideoPacket(next.data).key,
+          "Skipped deltas require a fresh keyframe after priming.",
+        );
+        const primingIndex = cold.indexOf(initial);
+        assert.ok(
+          !cold
+            .slice(primingIndex)
+            .some(
+              (event) =>
+                (event.kind === "frame" && !event.codec) ||
+                (event.kind === "stream-status" && event.mode === "jpeg"),
+            ),
+          "A two-second decoder startup must not trigger JPEG fallback.",
+        );
+      } finally {
+        if (firstAck !== undefined) clearTimeout(firstAck);
+        coldWatch?.close();
+      }
     } finally {
       for (const watch of watches) watch.close();
       await service.close();
@@ -183,6 +327,102 @@ test(
       await new Promise<void>((resolve) => app.close(() => resolve()));
       if (previous === undefined) delete process.env.TIDY_BROWSER_STREAMING;
       else process.env.TIDY_BROWSER_STREAMING = previous;
+    }
+  },
+);
+
+test(
+  "missing native video dependencies preserve a usable JPEG browser",
+  { skip: !enabled, timeout: 60000 },
+  async () => {
+    const server = createServer((_request, response) =>
+      response.end(
+        '<!doctype html><input id="name"><script>setInterval(()=>document.body.style.background=Date.now()%2?"white":"#eee",30)</script>',
+      ),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      for (const key of [
+        "TIDY_VOXL_EXECUTABLE",
+        "TIDY_XVFB_EXECUTABLE",
+        "TIDY_XRANDR_EXECUTABLE",
+        "TIDY_BROWSER_WINDOW_MANAGER_EXECUTABLE",
+      ]) {
+        const previous = process.env[key];
+        process.env[key] = "/missing-native-video-fixture";
+        const service = new BrowserService(async () => {});
+        await service.chooseStreaming(true);
+        const scope = { projectId: randomUUID(), threadId: randomUUID() };
+        let jpeg = 0;
+        let reason = "";
+        const watched = await service.watch(scope, randomUUID(), (event) => {
+          if (event.kind === "frame" && !event.codec) jpeg++;
+          if (event.kind === "stream-status") reason = event.reason;
+        });
+        try {
+          const opened = await service.command(scope, {
+            kind: "open",
+            url: `http://127.0.0.1:${address.port}`,
+          });
+          const tab = opened.state.tabs[0];
+          assert.ok(tab);
+          const deadline = Date.now() + 10000;
+          while ((!jpeg || reason !== "unavailable") && Date.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          assert.ok(jpeg > 0, `${key}: JPEG must still render`);
+          assert.equal(reason, "unavailable");
+          await service.command(scope, {
+            kind: "fill",
+            tabId: tab.id,
+            selector: "#name",
+            text: "Fallback stays interactive",
+          });
+          const snapshot = await service.command(scope, { kind: "snapshot", tabId: tab.id });
+          assert.ok(snapshot.output?.includes("Fallback stays interactive"));
+        } finally {
+          watched.close();
+          await service.close();
+          if (previous === undefined) delete process.env[key];
+          else process.env[key] = previous;
+        }
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  },
+);
+
+test(
+  "existing JPEG workspaces do not consume the video workspace allowance",
+  { skip: !enabled, timeout: 30000 },
+  async () => {
+    const server = createServer((_request, response) =>
+      response.end("<!doctype html><title>Workspace limit</title>"),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const service = new BrowserService(async () => {});
+    try {
+      await service.chooseStreaming(false);
+      for (let index = 0; index < 4; index++)
+        await service.command(
+          { projectId: randomUUID(), threadId: randomUUID() },
+          { kind: "open", url: `http://127.0.0.1:${address.port}` },
+        );
+      await service.chooseStreaming(true);
+      const opened = await service.command(
+        { projectId: randomUUID(), threadId: randomUUID() },
+        { kind: "open", url: `http://127.0.0.1:${address.port}` },
+      );
+      assert.equal(opened.state.tabs.length, 1);
+    } finally {
+      await service.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   },
 );

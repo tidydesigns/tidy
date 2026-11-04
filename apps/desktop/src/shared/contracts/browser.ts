@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BrowserStreamingAPI } from "./browser-streaming";
+import { browserStreamReasonSchema } from "./browser-streaming";
 export const BROWSER_CLIPBOARD_LIMIT = 512000;
 
 export const browserScopeSchema = z.object({ projectId: z.uuid(), threadId: z.uuid() }).strict();
@@ -142,7 +143,15 @@ export const browserInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("ack"), frameId: z.number().int().positive().safe() }).strict(),
   z.object({ kind: z.literal("take-control") }).strict(),
   z.object({ kind: z.literal("video-keyframe") }).strict(),
-  z.object({ kind: z.literal("video-disabled") }).strict(),
+  z
+    .object({
+      kind: z.literal("video-disabled"),
+      reason: z.enum(["unsupported", "decoder"]).optional(),
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal("video-pong"), nonce: z.number().int().nonnegative().safe() })
+    .strict(),
   z.object({ kind: z.literal("release-control") }).strict(),
   z.object({ kind: z.literal("visibility"), visible: z.boolean() }).strict(),
   z
@@ -155,7 +164,7 @@ export const browserInputSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("mouse"),
-      action: z.enum(["move", "down", "up"]),
+      action: z.enum(["move", "down", "up", "leave"]),
       ...point,
       button: z.enum(["none", "left", "middle", "right"]),
       buttons: z.number().int().min(0).max(7),
@@ -228,6 +237,12 @@ export const browserInputEnvelopeSchema = z
   .strict();
 export type BrowserInputEnvelope = z.infer<typeof browserInputEnvelopeSchema>;
 export const browserEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("video-ping"), nonce: z.number().int().nonnegative().safe() }),
+  z.object({
+    kind: z.literal("stream-status"),
+    mode: z.enum(["video", "jpeg"]),
+    reason: browserStreamReasonSchema,
+  }),
   z.object({ kind: z.literal("state"), state: browserStateSchema }),
   z.object({ kind: z.literal("error"), message: z.string() }),
   z.object({ kind: z.literal("disconnected"), message: z.string() }),
