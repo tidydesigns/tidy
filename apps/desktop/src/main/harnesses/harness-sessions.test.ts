@@ -1875,3 +1875,114 @@ test("scoped agent tools are retained for one thread and never transferred from 
     await sessions.clear();
   }
 });
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  for (const prefix of ["/", "$"] as const) {
+    for (const [label, request, normalized] of [
+      ["start", `${prefix}review changes`, "review changes"],
+      [
+        "middle",
+        `Use $HOME then ${prefix}review arguments\nsecond line`,
+        "review Use $HOME then arguments\nsecond line",
+      ],
+      ["end", `Check these changes using ${prefix}review`, "review Check these changes using"],
+      ["tabs", `Before\t${prefix}review\tafter`, "review Before\tafter"],
+      ["unicode", `👩🏽‍💻 检查\n${prefix}review\r\nSeán O'Brien`, "review 👩🏽‍💻 检查\r\nSeán O'Brien"],
+      [
+        "repeated",
+        `${prefix}review first ${prefix}review second`,
+        `review first ${prefix}review second`,
+      ],
+    ]) {
+      test(`${harness} transports ${prefix} skills at ${label} and clears skill state on the next turn`, async () => {
+        const cwd = await mkdtemp(join(directory, "inline-skill-"));
+        const session = new HarnessSession({ harness, executable, cwd });
+        const image = {
+          path: join(cwd, "reference with spaces.png"),
+          mimeType: "image/png",
+          data: "aW1hZ2U=",
+        };
+        const invocation =
+          harness === "codex"
+            ? {
+                kind: "file" as const,
+                name: "review",
+                description: "Review",
+                path: join(cwd, "技能", "SKILL.md"),
+              }
+            : { kind: "command" as const, name: "review", description: "Review" };
+        const context = "Project instructions — preserve this context";
+        const canonical = `${harness === "codex" ? "$" : "/"}${normalized}`;
+        const updates: HarnessUpdate[] = [];
+        try {
+          await session.start({
+            prompt: `Application context\n${request}`,
+            skill: { invocation, context, prompt: request },
+            images: [image],
+            onUpdate: (update) => updates.push(update),
+          }).done;
+          await session.start({
+            prompt: "Plain next request",
+            onUpdate: (update) => updates.push(update),
+          }).done;
+          const recorded = await events(cwd);
+          const turns = recorded.filter((event) =>
+            harness === "claude"
+              ? event.type === "user"
+              : event.method === (harness === "codex" ? "turn/start" : "session/prompt"),
+          );
+          expect(turns).toHaveLength(2);
+          const first = turns[0].value;
+          const second = turns[1].value;
+          if (harness === "claude") {
+            const message = z.object({ content: z.array(z.unknown()) }).parse(first.message);
+            expect(message.content).toEqual([
+              { type: "text", text: context },
+              { type: "text", text: canonical },
+              {
+                type: "image",
+                source: { type: "base64", media_type: image.mimeType, data: image.data },
+              },
+            ]);
+            expect(
+              z.object({ content: z.array(z.unknown()) }).parse(second.message).content,
+            ).toEqual([{ type: "text", text: "Plain next request" }]);
+          } else if (harness === "codex") {
+            expect(z.object({ input: z.array(z.unknown()) }).parse(first.params).input).toEqual([
+              {
+                type: "text",
+                text: `${context}\n\nUser request:\n\n${canonical}`,
+                text_elements: [],
+              },
+              {
+                type: "skill",
+                name: "review",
+                path: invocation.kind === "file" ? invocation.path : "",
+              },
+              { type: "localImage", path: image.path },
+            ]);
+            expect(z.object({ input: z.array(z.unknown()) }).parse(second.params).input).toEqual([
+              { type: "text", text: "Plain next request", text_elements: [] },
+            ]);
+          } else {
+            expect(z.object({ prompt: z.array(z.unknown()) }).parse(first.params).prompt).toEqual([
+              { type: "text", text: `${canonical}\n\n${context}` },
+              { type: "image", mimeType: image.mimeType, data: image.data },
+            ]);
+            expect(z.object({ prompt: z.array(z.unknown()) }).parse(second.params).prompt).toEqual([
+              { type: "text", text: "Plain next request" },
+            ]);
+          }
+          expect(new Set(turns.map((event) => event.pid)).size).toBe(1);
+          expect(
+            updates.filter((update) => update.type === "message").length,
+          ).toBeGreaterThanOrEqual(2);
+          expect(session.available).toBe(true);
+        } finally {
+          session.close();
+          await session.done;
+        }
+      });
+    }
+  }
+}
