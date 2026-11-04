@@ -104,9 +104,9 @@ export default function CommunityDialog({ onDismiss }: { onDismiss(): void }) {
           href="https://github.com/tidydesigns/tidy"
           target="_blank"
           rel="noopener noreferrer"
-          onClick={() => {
-            dialog.current?.close();
-            onDismiss();
+          onClick={() => dialog.current?.close()}
+          onAuxClick={(event) => {
+            if (event.button === 1) dialog.current?.close();
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">

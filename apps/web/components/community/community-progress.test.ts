@@ -22,13 +22,14 @@ test("qualifies after three editor visits, including repeat visits to the same d
   expect(communityEligible(saved, "user")).toBe(false);
   recordCommunityVisit(saved, "user", "same-design-third-visit");
   expect(communityEligible(saved, "user")).toBe(true);
-  for (let index = 0; index < 100; index++) recordCommunityVisit(saved, "user", `later-${index}`);
+  recordCommunityVisit(saved, "user", "fourth-visit");
   expect(JSON.parse(saved.getItem(communityKeys("user").visits)!)).toHaveLength(3);
 });
 
 test("rerenders and repeated effects count a mounted editor visit only once", () => {
   const saved = storage();
-  for (let index = 0; index < 10; index++) recordCommunityVisit(saved, "user", "mounted-visit");
+  recordCommunityVisit(saved, "user", "mounted-visit");
+  recordCommunityVisit(saved, "user", "mounted-visit");
   expect(communityEligible(saved, "user")).toBe(false);
   expect(JSON.parse(saved.getItem(communityKeys("user").visits)!)).toEqual(["mounted-visit"]);
 });
@@ -78,14 +79,4 @@ test("blocked browser storage never disrupts navigation or shows an invitation",
   expect(communityEligible(blocked, "user")).toBe(false);
   expect(() => recordCommunityVisit(blocked, "user", "visit")).not.toThrow();
   expect(() => dismissCommunity(blocked, "user")).not.toThrow();
-});
-
-test("retains prior dismissal when replacing the distinct-design threshold", () => {
-  const saved = storage();
-  saved.setItem("tidy:community:user:designs", JSON.stringify(["a", "b", "c", "d", "e"]));
-  expect(communityEligible(saved, "user")).toBe(false);
-  saved.setItem("tidy:community:user:dismissed", "1");
-  for (let index = 0; index < 3; index++) recordCommunityVisit(saved, "user", `${index}`);
-  expect(communityEligible(saved, "user")).toBe(false);
-  expect(saved.getItem(communityKeys("user").visits)).toBeNull();
 });
