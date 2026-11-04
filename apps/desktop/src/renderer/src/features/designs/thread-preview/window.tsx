@@ -36,6 +36,7 @@ import type { CanvasViewportMemory } from "@tidy/editor";
 import type { CanvasGeometry } from "./dock-state";
 import { documentPage } from "@tidy/editor/design/pages";
 import type { DesignDocument } from "@tidy/design/document";
+import { equalJsonValues } from "@tidy/editor/design/json-value";
 import { compactViewportTransform } from "./transition-geometry";
 
 type Phase = "closed" | "opening" | "open" | "closing";
@@ -195,14 +196,26 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const [phase, setPhase] = useState<Phase>("closed");
   const [visited, setVisited] = useState(false);
   const editorMounted = visited && warm && active;
-  const displayedPreview = useRef<LocalDesign | undefined>(undefined);
+  const displayedPreview = useRef<{ source: LocalDesign; value: LocalDesign } | undefined>(
+    undefined,
+  );
   const previewValue = useMemo(() => {
-    if (phase === "open" || phase === "opening") return displayedPreview.current ?? value;
-    return value && editorMounted && liveDocument ? { ...value, ...liveDocument } : value;
+    if (phase === "open" || phase === "opening") {
+      const displayed = displayedPreview.current;
+      return displayed && displayed.source === value ? displayed.value : value;
+    }
+    if (!value || !editorMounted || !liveDocument) return value;
+    if (
+      equalJsonValues(value.document, liveDocument.document) &&
+      equalJsonValues(value.assets, liveDocument.assets)
+    )
+      return value;
+    return { ...value, ...liveDocument };
   }, [value, editorMounted, liveDocument, phase]);
   useLayoutEffect(() => {
-    displayedPreview.current = previewValue;
-  }, [previewValue]);
+    displayedPreview.current =
+      value && previewValue ? { source: value, value: previewValue } : undefined;
+  }, [value, previewValue]);
   const [selectedPage, setSelectedPage] = useState<{ id: string; background?: string }>();
   const page =
     previewValue &&

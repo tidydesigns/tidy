@@ -37,7 +37,13 @@ export const PreviewCamera = memo(function PreviewCamera({
   enabled: boolean;
   pageId: string;
 }) {
-  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1, width: 1, height: 1 });
+  const [viewport, setViewport] = useState(() => ({
+    x: 0,
+    y: 0,
+    zoom: 1,
+    width: surface.current?.clientWidth || 1,
+    height: surface.current?.clientHeight || 1,
+  }));
   const bounds = useRef<{ pageId: string; box: PreviewBounds } | undefined>(undefined);
   const size = useRef({ width: 0, height: 0 });
   const pending = useRef(0);
