@@ -1,4 +1,8 @@
-import type { ComponentPropsWithoutRef } from "react";
+"use client";
+
+import type { ComponentPropsWithoutRef, MouseEvent } from "react";
+import posthog from "@/lib/posthog-client";
+import { browserConsent } from "@/lib/privacy/consent";
 import styles from "./mac-download-button.module.css";
 
 export type MacDownloadVariant = "cloud-light" | "spectrum-glint" | "prism-edge";
@@ -10,20 +14,46 @@ const macDownloadUrl = new URL(
 
 type MacDownloadButtonProps = Omit<ComponentPropsWithoutRef<"a">, "children"> & {
   variant?: MacDownloadVariant;
+  /** Only the authenticated sidebar opts in; studies and loading copies stay untracked. */
+  analyticsSource?: "web_sidebar";
 };
 
-/** A plain download link: CSS handles the interaction without client JS or prefetching. */
+/** Native navigation stays immediate; hover effects remain CSS-only. */
 export function MacDownloadButton({
   variant = "cloud-light",
   href = macDownloadUrl,
   className = "",
+  analyticsSource,
+  onClick,
+  onAuxClick,
   ...props
 }: MacDownloadButtonProps) {
+  function captureDownload(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.defaultPrevented || !analyticsSource || !browserConsent()?.analytics) return;
+    try {
+      posthog.capture(
+        "desktop_download_clicked",
+        { source: analyticsSource, variant, platform: "macos", channel: "beta" },
+        { send_instantly: true },
+      );
+    } catch {
+      // Optional analytics must never interrupt the native download link.
+    }
+  }
+
   return (
     <a
       data-ph-public
       {...props}
       href={href}
+      onClick={(event) => {
+        onClick?.(event);
+        captureDownload(event);
+      }}
+      onAuxClick={(event) => {
+        onAuxClick?.(event);
+        if (event.button === 1) captureDownload(event);
+      }}
       data-download-variant={variant}
       className={`${styles.button} ${className}`}
     >

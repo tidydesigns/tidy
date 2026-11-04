@@ -15,7 +15,7 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
       register() {}
       identify(id, properties) { const previous=this.id;this.id=id; this.emit("$identify", {distinct_id:id,$anon_distinct_id:previous,$set:properties}); }
       emit(event, properties={}) { const data=this.config.before_send({event,properties:{distinct_id:this.id,...properties}});if(data)sent.push(data); }
-      capture(event, properties) { this.emit(event,properties); }
+      capture(event, properties, options) { this.lastOptions=options;this.emit(event,properties); }
       captureException(error, properties) { this.emit("$exception", {app_error_operation:"page_render",...properties}); }
       set_config() { if(this.throwsOnStop)throw new Error("Synthetic SDK shutdown failure"); }
       opt_out_capturing() { this.stopped=true; }
@@ -87,15 +87,24 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     assert.equal(sent.at(-1).properties.distinct_id,"account-d");
     assert.deepEqual(sent.at(-1).properties.$set,{email:"d@example.test"});
     chooseConsent({analytics:true,replay:true,diagnostics:true});await settle();
+    const download={source:"web_sidebar",variant:"cloud-light",platform:"macos",channel:"beta"};
+    const instant={send_instantly:true};
+    captureForCurrentSession()("desktop_download_clicked",download,instant);
+    assert.equal(sent.at(-1).event,"desktop_download_clicked");
+    assert.equal(sent.at(-1).properties.distinct_id,"account-d");
+    assert.equal(sent.at(-1).properties.source,"web_sidebar");
+    assert.deepEqual(instances.at(-1).lastOptions,instant);
     globalThis.fetch=()=>new Promise(resolve=>{resolveSession=resolve});
     window.dispatchEvent(new Event("focus"));
     const beforeDeferred=sent.length;
     posthog.capture("survey shown",{$survey_id:"synthetic-survey"});
     posthog.captureException(new Error("private error"));
+    posthog.capture("desktop_download_clicked",download,instant);
     assert.equal(sent.length,beforeDeferred);await settle();
     globalThis.fetch=backend;
     resolveSession(Response.json({id:crypto.randomUUID(),browserId:crypto.randomUUID(),user:session.user}));await settle();
-    assert.deepEqual(sent.slice(-2).map(event=>event.event),["survey shown","$exception"]);
+    assert.deepEqual(sent.slice(-3).map(event=>event.event),["survey shown","$exception","desktop_download_clicked"]);
+    assert.deepEqual(instances.at(-1).lastOptions,instant);
     const exceptionCount=()=>sent.filter(event=>event.event==="$exception").length;
     const operation=appErrorReporter("file_save");
     const beforeOperation=exceptionCount();
@@ -129,10 +138,14 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     beforeSurvey=surveyCount();
     feedback=beginFeedback();
     const oldAccountOperation=appErrorReporter("file_save");
+    const oldAccountDownload=captureForCurrentSession();
+    const beforeSwitchDownloads=sent.filter(event=>event.event==="desktop_download_clicked").length;
     const beforeSwitchErrors=exceptionCount();
     session={user:{id:"account-e",email:"e@example.test"}};
     posthog.identify("account-e",{email:"e@example.test"});await settle();
     oldAccountOperation(new Error("failure from old account"));
+    oldAccountDownload("desktop_download_clicked",download,instant);
+    assert.equal(sent.filter(event=>event.event==="desktop_download_clicked").length,beforeSwitchDownloads);
     assert.equal(exceptionCount(),beforeSwitchErrors);
     completeSupport({ok:true});await feedback;
     assert.equal(surveyCount(),beforeSurvey);

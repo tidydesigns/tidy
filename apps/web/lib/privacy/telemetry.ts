@@ -18,6 +18,7 @@ const customEvents = new Set([
   "organization_switched",
   "organization_created",
   "design_file_created",
+  "desktop_download_clicked",
 ]);
 const booleans = new Set([
   "in_folder",
@@ -118,6 +119,8 @@ export function redactTelemetry(
   account?: TelemetryAccount,
 ): CaptureResult | null {
   const identified = Boolean(account && event.properties.distinct_id === account.id);
+  // Download conversion belongs to the authenticated web account, never an anonymous browser.
+  if (event.event === "desktop_download_clicked" && !identified) return null;
   const identityEvent = event.event === "$identify" || event.event === "$set";
   const purpose = telemetryPurpose(event.event);
   // Identification supports each selected purpose, including replay-only users.
@@ -153,6 +156,17 @@ export function redactTelemetry(
       properties[name] = value;
   }
   if (identified) properties.$is_identified = true;
+  if (event.event === "desktop_download_clicked") {
+    // Event-scoped literal allowlist: URLs, release IDs and arbitrary labels stay private.
+    if (source.source === "web_sidebar") properties.source = source.source;
+    if (
+      typeof source.variant === "string" &&
+      ["cloud-light", "spectrum-glint", "prism-edge"].includes(source.variant)
+    )
+      properties.variant = source.variant;
+    if (source.platform === "macos") properties.platform = source.platform;
+    if (source.channel === "beta") properties.channel = source.channel;
+  }
   if (identityEvent && account) {
     // Email comes from the authenticated account, not arbitrary event properties.
     properties.$set = { email: account.email };

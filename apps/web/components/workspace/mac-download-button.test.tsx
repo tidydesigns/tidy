@@ -31,3 +31,59 @@ test("the loading shell can remove the duplicate visual link from keyboard navig
   const html = renderToStaticMarkup(<MacDownloadButton tabIndex={-1} />);
   expect(html).toContain('tabindex="-1"');
 });
+
+test("sidebar activations track once without delaying navigation or counting previews", () => {
+  // Keep module mocks and browser state out of other tests.
+  const result = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `
+      import { mock } from "bun:test";
+      import assert from "node:assert/strict";
+      let analytics = true, fail = false;
+      const calls = [];
+      mock.module("./lib/privacy/consent", () => ({browserConsent: () => ({analytics})}));
+      mock.module("./lib/posthog-client", () => ({default: {capture(...args) {
+        if (fail) throw new Error("synthetic failure");
+        calls.push(args);
+      }}}));
+      const { MacDownloadButton } = await import("./components/workspace/mac-download-button");
+      const event = (button = 0) => ({button, defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; }});
+      for (const variant of ["cloud-light", "spectrum-glint", "prism-edge"]) {
+        const link = MacDownloadButton({variant, analyticsSource: "web_sidebar"});
+        const click = event();
+        const before = calls.length;
+        link.props.onClick(click);
+        assert.equal(click.defaultPrevented, false);
+        assert.equal(calls.length, before + 1);
+        assert.deepEqual(calls.at(-1), ["desktop_download_clicked",
+          {source: "web_sidebar", variant, platform: "macos", channel: "beta"},
+          {send_instantly: true}]);
+      }
+      const link = MacDownloadButton({analyticsSource: "web_sidebar"});
+      let count = calls.length;
+      link.props.onAuxClick(event(1));
+      assert.equal(calls.length, ++count);
+      link.props.onAuxClick(event(2));
+      assert.equal(calls.length, count);
+      MacDownloadButton({}).props.onClick(event());
+      MacDownloadButton({tabIndex: -1}).props.onClick(event());
+      MacDownloadButton({analyticsSource: "web_sidebar", onClick: e => e.preventDefault()})
+        .props.onClick(event());
+      assert.equal(calls.length, count);
+      analytics = false;
+      link.props.onClick(event());
+      assert.equal(calls.length, count);
+      analytics = true; fail = true;
+      const click = event();
+      assert.doesNotThrow(() => link.props.onClick(click));
+      assert.equal(click.defaultPrevented, false);
+      `,
+    ],
+    { cwd: import.meta.dir + "/../..", stdout: "pipe", stderr: "pipe" },
+  );
+  expect(new TextDecoder().decode(result.stderr)).toBe("");
+  expect(result.exitCode).toBe(0);
+});

@@ -68,7 +68,7 @@ export async function WorkspaceShell({
                   />
                 )}
                 <div className="px-3 pt-2">
-                  <MacDownloadButton />
+                  <MacDownloadButton analyticsSource="web_sidebar" />
                 </div>
               </div>
               <OrganizationSwitcher

@@ -290,23 +290,23 @@ export function captureForCurrentSession(): PostHog["capture"] {
   const generation = revision;
   const identity = account?.id;
   const choice = JSON.stringify(browserConsent());
-  return (event, properties) => {
+  return (event, properties, options) => {
     if (
       generation !== revision ||
       identity !== account?.id ||
       choice !== JSON.stringify(browserConsent())
     )
       return;
-    return posthog.capture(event, properties);
+    return posthog.capture(event, properties, options);
   };
 }
 
 const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "reset"> = {
-  capture: (event, properties) => {
+  capture: (event, properties, options) => {
     if (!hasOptionalConsent(browserConsent())) return;
     if (current("analytics")) captureWebProduct(event);
-    if (client) return client.capture(event, properties);
-    afterInitialization((sdk) => sdk.capture(event, properties));
+    if (client) return client.capture(event, properties, options);
+    afterInitialization((sdk) => sdk.capture(event, properties, options));
   },
   captureException: (error, properties) => {
     if (!current("diagnostics")) return;
