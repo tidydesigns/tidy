@@ -70,7 +70,7 @@ export function promptSkill(
     (remembered ? skillCommand(text, [remembered.name]) : null) ??
     skillCommand(text);
   const skill =
-    skills.find((skill) => skill.name === command?.name) ??
-    (remembered?.name === command?.name ? remembered : undefined);
+    (remembered?.name === command?.name ? remembered : undefined) ??
+    skills.find((skill) => skill.name === command?.name);
   return { command, skill };
 }

@@ -12,8 +12,8 @@ describe("prompt skill selection", () => {
       `Use $HOME then ${prefix}review changes`,
       `👩🏽‍💻 检查\n${prefix}review\r\nSeán O'Brien`,
       `Before\t${prefix}review\tafter`,
-    ])("prefers the current catalog id for %s", (text) => {
-      expect(promptSkill(text, [review], remembered).skill).toBe(review);
+    ])("preserves the remembered selection for %s", (text) => {
+      expect(promptSkill(text, [review], remembered).skill).toBe(remembered);
       expect(promptSkill(text, [], remembered).skill).toBe(remembered);
       expect(promptSkill(text, [review]).skill).toBe(review);
       expect(promptSkill(text, [], undefined).skill).toBeUndefined();

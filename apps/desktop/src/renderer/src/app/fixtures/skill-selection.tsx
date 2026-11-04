@@ -33,6 +33,7 @@ export async function runSkillSelectionTests(root: Root) {
           const before = "👩🏽‍💻 Please use ";
           const after = " and keep 王秀英";
           let value = `${before}${prefix}rev${after}`;
+          let remembered: Pick<Skill, "id" | "name"> | undefined;
           let submitted: ReturnType<typeof promptSkill> | undefined;
           let forwarded = 0;
           function Composer() {
@@ -52,13 +53,14 @@ export async function runSkillSelectionTests(root: Root) {
                 }}
                 onSubmit={(event) => {
                   event.preventDefault();
-                  submitted = promptSkill(text, skills, { id: "outdated", name: skills[0].name });
+                  submitted = promptSkill(text, skills, remembered);
                 }}
               >
                 <SkillPrompt
                   value={text}
                   onChange={(next) => {
                     value = next;
+                    remembered = promptSkill(next, skills).skill;
                     setText(next);
                   }}
                   skills={skills}

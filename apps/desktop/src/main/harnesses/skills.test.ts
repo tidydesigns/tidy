@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { HarnessSkills, type SkillAdapter } from "./harness-skills";
-import { matchingSkills, skillCommand, skillQuery } from "../../shared/contracts/skills";
+import {
+  matchingSkills,
+  promptSkill,
+  skillCommand,
+  skillQuery,
+} from "../../shared/contracts/skills";
 
 const provider: SkillAdapter = {
   async discover() {
@@ -267,3 +272,39 @@ test("persisted selections from earlier versions remain bound to the exact nativ
     catalog.resolve({ ...input, harness: "codex", id, prompt: "$review" }),
   ).rejects.toThrow("no longer available");
 });
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test.each(["/", "$"])(
+    `${harness} requires reselection when a same-name file skill moves (%s)`,
+    async (prefix) => {
+      const cwd = "/project";
+      let path = "/project/.agents/skills/review/SKILL.md";
+      const adapter: SkillAdapter = {
+        async discover() {
+          return [{ kind: "file", name: "review", description: "Review changes", path }];
+        },
+      };
+      const catalog = new HarnessSkills(async () => "/fixture", {
+        codex: adapter,
+        claude: adapter,
+        opencode: adapter,
+      });
+      const input = { harness, cwd };
+      const initial = await catalog.list(input);
+      const remembered = initial.skills[0];
+      path = "/project/.agents/skills/replacement/SKILL.md";
+      const refreshed = await catalog.list({ ...input, refresh: true });
+      const prompt = `Please use ${prefix}review on these changes`;
+      const selection = promptSkill(prompt, refreshed.skills, remembered);
+      expect(selection.skill?.id).toBe(remembered.id);
+      await expect(
+        catalog.resolve({ ...input, prompt, id: selection.skill?.id ?? "" }),
+      ).rejects.toThrow("no longer available");
+      const reselected = promptSkill(prompt, refreshed.skills);
+      expect(reselected.skill?.id).not.toBe(remembered.id);
+      expect(
+        await catalog.resolve({ ...input, prompt, id: reselected.skill?.id ?? "" }),
+      ).toMatchObject({ path });
+    },
+  );
+}
