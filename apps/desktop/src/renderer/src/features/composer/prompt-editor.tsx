@@ -21,6 +21,7 @@ import {
   remapAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 import { attachmentReferenceClassName, attachmentSize } from "./message-attachments";
+import "./prompt-editor.css";
 
 export type PromptEditorHandle = {
   focus(): void;
@@ -100,6 +101,92 @@ function select(root: HTMLElement, start: number, end: number) {
   range.setEnd(...point(root, end));
   window.getSelection()?.removeAllRanges();
   window.getSelection()?.addRange(range);
+}
+
+// Paint Markdown dividers without changing editable nodes or native undo history.
+const dividerRanges = new Map<HTMLElement, Range[]>();
+function updateDividerHighlights() {
+  if (typeof Highlight !== "undefined")
+    CSS.highlights.set(
+      "tidy-prompt-divider",
+      new Highlight(...Array.from(dividerRanges.values()).flat()),
+    );
+}
+function dividers(root: HTMLElement) {
+  if (typeof Highlight === "undefined") return;
+  const matches = Array.from(read(root).matchAll(/^---$/gm));
+  if (!matches.length && !dividerRanges.get(root)?.length) return;
+  // Walk text nodes once, even for drafts containing thousands of dividers.
+  const segments: { node: Node; start: number; end: number }[] = [];
+  let position = 0;
+  function visit(node: Node) {
+    if (node instanceof HTMLElement && node.dataset.attachmentId) {
+      position += read(node).length;
+    } else if (node.nodeName === "BR") {
+      if (node.nextSibling) position++;
+    } else if (node.nodeType === Node.TEXT_NODE) {
+      const end = position + (node.textContent?.length ?? 0);
+      if (end > position) segments.push({ node, start: position, end });
+      position = end;
+    } else {
+      Array.from(node.childNodes).forEach((child, index) => {
+        if (index && (child.nodeName === "DIV" || child.nodeName === "P")) position++;
+        visit(child);
+      });
+    }
+  }
+  if (matches.length) visit(root);
+  let segment = 0;
+  function textPoint(index: number): [Node, number] {
+    while (segments[segment]!.end < index) segment++;
+    const part = segments[segment]!;
+    return [part.node, index - part.start];
+  }
+  const ranges = matches.map((match) => {
+    const range = document.createRange();
+    range.setStart(...textPoint(match.index));
+    range.setEnd(...textPoint(match.index + 3));
+    return range;
+  });
+  dividerRanges.set(root, ranges);
+  updateDividerHighlights();
+  root.style.removeProperty("--prompt-divider-lines");
+  root.style.removeProperty("--prompt-divider-positions");
+  if (!ranges.length) return;
+  const bounds = root.getBoundingClientRect();
+  const padding = parseFloat(getComputedStyle(root).paddingTop) || 0;
+  root.style.setProperty(
+    "--prompt-divider-lines",
+    ranges.map(() => "linear-gradient(var(--color-border), var(--color-border))").join(","),
+  );
+  root.style.setProperty(
+    "--prompt-divider-positions",
+    ranges
+      .map((range) => {
+        const rect = range.getBoundingClientRect();
+        return `center ${rect.top - bounds.top - root.clientTop + root.scrollTop - padding + rect.height / 2}px`;
+      })
+      .join(","),
+  );
+}
+
+function revealCaret(root: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection?.isCollapsed || !selection.rangeCount || !root.contains(selection.focusNode))
+    return;
+  const range = selection.getRangeAt(0);
+  let caret = range.getBoundingClientRect();
+  if (!caret.height) {
+    const node = range.startContainer.childNodes[range.startOffset];
+    if (node instanceof HTMLElement) caret = node.getBoundingClientRect();
+  }
+  if (!caret.height) return;
+  const bounds = root.getBoundingClientRect();
+  const padding = parseFloat(getComputedStyle(root).paddingBlockEnd) || 0;
+  const bottom = bounds.top + root.clientTop + root.clientHeight - padding;
+  if (caret.bottom > bottom) root.scrollTop += caret.bottom - bottom;
+  else if (caret.top < bounds.top + root.clientTop + padding)
+    root.scrollTop -= bounds.top + root.clientTop + padding - caret.top;
 }
 
 function fragment(text: string, files: AttachedFile[]) {
@@ -199,9 +286,21 @@ export function PromptEditor({
       if (value.endsWith("\n")) root.append(document.createElement("br"));
       if (focused) select(root, Math.min(cursor, value.length), Math.min(cursor, value.length));
     }
+    dividers(root);
     root.dataset.empty = String(!value);
     lastValue.current = value;
   }, [value, files]);
+  useLayoutEffect(() => {
+    const root = input.current;
+    if (!root) return;
+    const observer = new ResizeObserver(() => dividers(root));
+    observer.observe(root);
+    return () => {
+      observer.disconnect();
+      dividerRanges.delete(root);
+      updateDividerHighlights();
+    };
+  }, []);
   useLayoutEffect(() => {
     if (autoFocus) input.current?.focus();
   }, [autoFocus]);
@@ -228,6 +327,7 @@ export function PromptEditor({
       selection.addRange(range);
     }
     lastValue.current = next;
+    dividers(root);
     root.dataset.empty = String(!next);
     onChange(next);
     lastCursor.current = offset(root);
@@ -264,6 +364,7 @@ export function PromptEditor({
     );
     select(root, start + text.length, start + text.length);
     change();
+    revealCaret(root);
   }
   function copy(event: ClipboardEvent<HTMLDivElement>) {
     const selection = window.getSelection();

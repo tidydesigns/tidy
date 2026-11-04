@@ -1,0 +1,14 @@
+.prompt-editor {
+  background-image: var(--prompt-divider-lines, none);
+  background-position: var(--prompt-divider-positions, center);
+  background-size: 100% 1px;
+  background-repeat: no-repeat;
+  background-origin: content-box;
+  background-clip: content-box;
+  background-attachment: local;
+}
+@media (forced-colors: none) {
+  ::highlight(tidy-prompt-divider) {
+    color: transparent;
+  }
+}
