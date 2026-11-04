@@ -1,5 +1,12 @@
 import worker from "../worker/index.ts";
 
+const localOrigin = `http://localhost:${process.env.PORT || "3001"}`;
+const site = new URL(process.env.NEXT_PUBLIC_SITE_URL || localOrigin);
+if (site.origin !== localOrigin)
+  console.warn(
+    `Website consent requests require the browser origin to match NEXT_PUBLIC_SITE_URL (${site.origin}). The default local server origin is ${localOrigin}; align these values when testing analytics.`,
+  );
+
 // Next's exported pages stay static. Serve the same Worker handler behind a
 // development-only rewrite, on an ephemeral loopback port for parallel worktrees.
 const downloads = Bun.serve({
@@ -7,9 +14,6 @@ const downloads = Bun.serve({
   port: 0,
   fetch: (request) => {
     const url = new URL(request.url);
-    const site = new URL(
-      process.env.NEXT_PUBLIC_SITE_URL || `http://localhost:${process.env.PORT || "3001"}`,
-    );
     url.host = site.host;
     url.protocol = site.protocol;
     return worker.fetch(new Request(url, request), {

@@ -3,7 +3,7 @@ type Dashboard = {
   id: number;
   name?: string;
   deleted?: boolean;
-  tiles?: { insight?: { name?: string } }[];
+  tiles?: { insight?: { name?: string }; error?: unknown }[];
 };
 
 // Preview is the default. Applying requires an explicit project and API origin;
@@ -58,6 +58,10 @@ if (!args.includes("--apply")) {
       });
   if (!Number.isSafeInteger(dashboard.id) || dashboard.id < 1)
     throw new Error("Invalid dashboard response.");
+  if ((dashboard.tiles ?? []).some((tile) => tile.error && !tile.insight))
+    throw new Error(
+      "A dashboard tile failed to serialize; resolve its error in PostHog before adding insights.",
+    );
   const present = new Set(
     (dashboard.tiles ?? []).map((tile: { insight?: { name?: string } }) => tile.insight?.name),
   );

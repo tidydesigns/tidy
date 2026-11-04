@@ -96,7 +96,7 @@ export function PrivacyChoices() {
   }, []);
 
   useEffect(() => {
-    if (visible && trigger.current) panel.current?.focus({ preventScroll: true });
+    if (visible) panel.current?.focus({ preventScroll: true });
   }, [visible]);
 
   useEffect(() => {

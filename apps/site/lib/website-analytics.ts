@@ -118,10 +118,12 @@ async function initialize() {
   clearTimeout(expiry);
   clearTimeout(retry);
   stop();
-  if (!consent?.analytics)
+  if (!consent?.analytics) {
+    lastPageview = "";
     try {
       sessionStorage.removeItem(acquisitionKey);
     } catch {}
+  }
   if (!consent || !websiteCollectionEnabled()) {
     setStatus("ready");
     return;

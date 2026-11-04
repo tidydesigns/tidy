@@ -46,6 +46,8 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
     assert.equal(first.config.internal_or_test_user_hostname,null);assert.equal(first.config.opt_out_useragent_filter,false);
     assert.equal(first.config.logs.captureConsoleLogs,false);
     assert.equal(first.config.api_host,"https://site.example/api/t");
+    assert.match(first.config.request_headers["x-tidy-receipt"],/^[a-f0-9-]{36}$/);
+    assert.match(first.config.request_headers["x-tidy-consent"],/^8:[0-9]+:100$/);
     const beforeFocus=requests.length;
     window.dispatchEvent(new Event("focus"));await settle();
     assert.equal(instances.length,1);assert.equal(requests.length,beforeFocus);
@@ -77,9 +79,13 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
     chooseConsent(ESSENTIAL_ONLY);
     instances.at(-1).capture("$web_vitals");assert.equal(events.length,beforeWithdrawal);
     await settle();assert.equal(instances.length,4);
+    const beforeRegrant=events.filter(event=>event.event==="$pageview").length;
+    chooseConsent({analytics:true,replay:false,diagnostics:false});await settle();
+    assert.equal(events.filter(event=>event.event==="$pageview").length,beforeRegrant+1);
+    chooseConsent(ESSENTIAL_ONLY);await settle();
     globalThis.fetch=async()=>new Response(null,{status:503});
     chooseConsent({analytics:true,replay:true,diagnostics:true});await settle();
-    assert.equal(instances.length,4);assert.equal(analytics.websiteAnalyticsStatus(),"failed");
+    assert.equal(instances.length,5);assert.equal(analytics.websiteAnalyticsStatus(),"failed");
     let revoked=false;
     Object.defineProperty(document,"cookie",{get(){return ""},set(){throw new Error("blocked")},configurable:true});
     assert.equal(chooseConsent(ESSENTIAL_ONLY),false);

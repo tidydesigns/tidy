@@ -105,7 +105,12 @@ test("replay-only and diagnostics-only never include campaign or website attribu
     const result = redactWebsiteEvent(
       event(name, {
         website_visitor_id: "00000000-0000-4000-8000-000000000001",
-        $snapshot_data: [{ type: 4, data: { href: page, width: 100, height: 100 } }],
+        $snapshot_data: [
+          { type: 4, data: { href: page, width: 100, height: 100 } },
+          { type: 3, data: { source: 3, id: 1, x: 0, y: 20 } },
+        ],
+        $snapshot_bytes: 128,
+        $snapshot_encoded: true,
       }),
       { ...all, analytics: false },
       page,
@@ -114,10 +119,14 @@ test("replay-only and diagnostics-only never include campaign or website attribu
     expect(result.properties.utm_source).toBeUndefined();
     expect(result.properties.website_visitor_id).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("secret");
-    if (name === "$snapshot")
+    if (name === "$snapshot") {
       expect(result.properties.$snapshot_data).toEqual([
         { type: 4, data: { href: "https://site.example/", width: 100, height: 100 } },
+        { type: 3, data: { source: 3, id: 1, x: 0, y: 20 } },
       ]);
+      expect(result.properties.$snapshot_bytes).toBe(128);
+      expect(result.properties.$snapshot_encoded).toBe(true);
+    }
   }
 });
 
