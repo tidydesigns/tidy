@@ -4,6 +4,7 @@ import {
 } from "../../../shared/contracts/repository-context";
 import { UserFacingError, errorMessage } from "@tidy/ui/errors";
 import { sessionConflictMessages } from "../../../shared/contracts/session-conflicts";
+import { skillMessages } from "../../../shared/contracts/skills";
 
 export type WorkspaceError = {
   original?: unknown;
@@ -12,7 +13,7 @@ export type WorkspaceError = {
 };
 
 export const errorText = (error: unknown) =>
-  Object.values(sessionConflictMessages).find(
+  [...Object.values(sessionConflictMessages), ...Object.values(skillMessages)].find(
     (message) => error instanceof Error && error.message === message,
   ) ?? errorMessage(error, "The operation could not be completed. Please try again.");
 

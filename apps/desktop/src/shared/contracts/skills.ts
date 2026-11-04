@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const skillMessages = {
+  unavailable: "This skill is no longer available. Select it again before sending.",
+  notInstalled: "Install and sign in to this harness to load skills.",
+  discoveryFailed: "The harness could not load its skills. Check the skill definitions and retry.",
+} as const;
+
 export const skillNameSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,199}$/);
 export const skillIdSchema = z.string().min(1).max(128);
 export const skillSchema = z.object({
@@ -49,4 +55,22 @@ export function matchingSkills(skills: Skill[], query: string) {
         Number(b.name.toLowerCase().startsWith(query)) -
           Number(a.name.toLowerCase().startsWith(query)) || a.name.localeCompare(b.name),
     );
+}
+
+export function promptSkill(
+  text: string,
+  skills: readonly Skill[],
+  remembered?: Pick<Skill, "id" | "name">,
+) {
+  const command =
+    skillCommand(
+      text,
+      skills.map((skill) => skill.name),
+    ) ??
+    (remembered ? skillCommand(text, [remembered.name]) : null) ??
+    skillCommand(text);
+  const skill =
+    (remembered?.name === command?.name ? remembered : undefined) ??
+    skills.find((skill) => skill.name === command?.name);
+  return { command, skill };
 }

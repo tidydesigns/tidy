@@ -1,3 +1,4 @@
+import { runSkillSelectionTests } from "./skill-selection";
 import { runPaletteNavigationTests } from "./palette-navigation";
 import { runCommandPaletteTests } from "./command-palette";
 import { runFileLocationTests } from "./file-location";
@@ -6262,6 +6263,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         }
       }
     },
+  );
+  await run(
+    "inline skill selection survives worst-case data and catalog refresh",
+    runSkillSelectionTests,
   );
   await runDraftNavigationTests(run, { host, nativeAPI });
   await run(

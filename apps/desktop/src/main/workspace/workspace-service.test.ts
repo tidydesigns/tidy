@@ -1759,50 +1759,53 @@ test("streaming transmits changed rows without replaying earlier conversation co
   );
 });
 
-test("skill selection resolves in the main process, preserves the transcript and rejects foreign IDs before launch", async () => {
-  const adapter: SkillAdapter = {
-    async discover() {
-      return [{ kind: "command", name: "review", description: "Review changes" }];
-    },
-  };
-  const skills = new HarnessSkills(async () => "/fixture", {
-    codex: adapter,
-    claude: adapter,
-    opencode: adapter,
-  });
-  const { service, store, project, runs } = await fixture(undefined, false, skills);
-  const catalog = await skills.list({ harness: "claude", cwd: project.path });
-  const input = {
-    projectId: project.id,
-    harness: "claude" as const,
-    prompt: "/review current changes",
-    designIds: [],
-    skillId: catalog.skills[0].id,
-  };
-  await expect(service.startThread({ ...input, skillId: "/etc/passwd" })).rejects.toThrow(
-    "no longer available",
-  );
-  expect(runs).toHaveLength(0);
-  expect((await store.snapshot(project.id)).threads).toHaveLength(0);
-  const thread = await service.startThread(input);
-  expect(thread.messages[0].text).toBe(input.prompt);
-  expect(runs[0].input.skill).toMatchObject({
-    invocation: { kind: "command", name: "review" },
-    prompt: input.prompt,
-  });
-  expect(runs[0].input.skill?.context).toContain("local Tidy project");
-  expect(thread.settings?.permissionMode).not.toBe("auto");
-  const done = finished(service, thread.id);
-  runs[0].complete();
-  await done;
-  await service.sendMessage({
-    projectId: project.id,
-    threadId: thread.id,
-    text: "/review again",
-    skillId: input.skillId,
-  });
-  expect(runs[1].input.skill?.prompt).toBe("/review again");
-});
+test.each(["/", "$"])(
+  "inline %s skill selection preserves the transcript and rejects foreign IDs before launch",
+  async (prefix) => {
+    const adapter: SkillAdapter = {
+      async discover() {
+        return [{ kind: "command", name: "review", description: "Review changes" }];
+      },
+    };
+    const skills = new HarnessSkills(async () => "/fixture", {
+      codex: adapter,
+      claude: adapter,
+      opencode: adapter,
+    });
+    const { service, store, project, runs } = await fixture(undefined, false, skills);
+    const catalog = await skills.list({ harness: "claude", cwd: project.path });
+    const input = {
+      projectId: project.id,
+      harness: "claude" as const,
+      prompt: `Please use ${prefix}review current changes`,
+      designIds: [],
+      skillId: catalog.skills[0].id,
+    };
+    await expect(service.startThread({ ...input, skillId: "/etc/passwd" })).rejects.toThrow(
+      "no longer available",
+    );
+    expect(runs).toHaveLength(0);
+    expect((await store.snapshot(project.id)).threads).toHaveLength(0);
+    const thread = await service.startThread(input);
+    expect(thread.messages[0].text).toBe(input.prompt);
+    expect(runs[0].input.skill).toMatchObject({
+      invocation: { kind: "command", name: "review" },
+      prompt: input.prompt,
+    });
+    expect(runs[0].input.skill?.context).toContain("local Tidy project");
+    expect(thread.settings?.permissionMode).not.toBe("auto");
+    const done = finished(service, thread.id);
+    runs[0].complete();
+    await done;
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: `Please use ${prefix}review again`,
+      skillId: input.skillId,
+    });
+    expect(runs[1].input.skill?.prompt).toBe(`Please use ${prefix}review again`);
+  },
+);
 
 test("workspace threads keep shared designs and attachments separate from each local execution project", async () => {
   const { directory, store, service, project, runs } = await fixture();

@@ -17,3 +17,13 @@ test("session conflict feedback never exposes arbitrary native error text", () =
       "The operation could not be completed. Please try again.",
     );
 });
+
+test("skill validation feedback survives IPC without exposing diagnostics", async () => {
+  const { skillMessages } = await import("../../../shared/contracts/skills");
+  for (const message of Object.values(skillMessages)) {
+    expect(errorText(new WorkspaceRequestError(message))).toBe(message);
+    expect(errorText(new WorkspaceRequestError(`${message}\n/private/secret`))).toBe(
+      "The operation could not be completed. Please try again.",
+    );
+  }
+});

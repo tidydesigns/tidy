@@ -68,7 +68,7 @@ import type {
 import { useRepositoryContext } from "../features/repository/use-repository-context";
 import { RepositoryIcon } from "../features/repository/repository-icons";
 import { SkillPrompt } from "../features/composer/skill-prompt";
-import { skillCommand, type Skill } from "../../../shared/contracts/skills";
+import { promptSkill, skillCommand, type Skill } from "../../../shared/contracts/skills";
 import { UserFacingError } from "@tidy/ui/errors";
 import { errorText, type WorkspaceError } from "./workspace-error";
 import { useWorkspaceState } from "./use-workspace-state";
@@ -1605,21 +1605,11 @@ export function App({
     )
       return;
     const submitted = resolveAttachmentReferences(draft.text, draft.attachments ?? []);
-    const command =
-      skillCommand(
-        submitted,
-        availableSkills.map((skill) => skill.name),
-      ) ??
-      (draft.skill?.harness === selectedHarness
-        ? skillCommand(submitted, [draft.skill.name])
-        : null) ??
-      skillCommand(submitted);
-    const rememberedSkill =
-      draft.skill?.harness === selectedHarness && draft.skill.name === command?.name
-        ? draft.skill
-        : undefined;
-    const selectedSkill =
-      rememberedSkill ?? availableSkills.find((skill) => skill.name === command?.name);
+    const { command, skill: selectedSkill } = promptSkill(
+      submitted,
+      availableSkills,
+      draft.skill?.harness === selectedHarness ? draft.skill : undefined,
+    );
     if (
       command &&
       !selectedSkill &&
