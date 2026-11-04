@@ -69,6 +69,10 @@ function browserApi(machineId?: string): BrowserAPI {
   const keyFor = (scope: { projectId: string; threadId: string }) =>
     `${scope.projectId}:${scope.threadId}`;
   return {
+    streaming: {
+      state: () => request("browser-streaming-state", undefined, machineId),
+      choose: (input) => request("browser-streaming-choice", input, machineId),
+    },
     discardDraft: (input) =>
       request("browser-discard-draft", browserDiscardDraftSchema.parse(input), machineId),
     download: async (name, data) => {

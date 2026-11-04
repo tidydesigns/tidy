@@ -177,11 +177,14 @@ export class WorkspaceService {
     if (project.cloud) throw new Error("Choose a local code project for the terminal.");
     return project.path;
   });
-  readonly browser = new BrowserService(async ({ projectId }) => {
-    await this.assertProjectAccess(projectId);
-    if (this.store.project(projectId).cloud)
-      throw new Error("Choose a connected code project for the browser.");
-  });
+  readonly browser = new BrowserService(
+    async ({ projectId }) => {
+      await this.assertProjectAccess(projectId);
+      if (this.store.project(projectId).cloud)
+        throw new Error("Choose a connected code project for the browser.");
+    },
+    () => this.store.processState,
+  );
   readonly browserAgent = new BrowserAgentBridge(this.browser);
   private readonly ports: ThreadPorts;
   readonly tasks: TaskService;

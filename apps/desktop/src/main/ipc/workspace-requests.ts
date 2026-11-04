@@ -10,6 +10,7 @@ import {
   mobileInputSchema,
 } from "../../shared/contracts/mobile";
 import { repositorySearchQuerySchema } from "../../shared/contracts/repository-search";
+import { browserStreamingChoiceSchema } from "../../shared/contracts/browser-streaming";
 import { threadCompletionSchema } from "../../shared/contracts/thread-completion";
 import { readHarnessUsage } from "../harnesses/harness-usage";
 import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
@@ -127,6 +128,10 @@ export function createWorkspaceRequests<Context>(
   handle("mobile-frame", mobileFrameRequestSchema, (input) => service.mobile.frame(input));
   handle("mobile-input", mobileInputSchema, (input) => service.mobile.input(input));
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
+  handle("browser-streaming-state", z.undefined(), () => service.browser.streamingState());
+  handle("browser-streaming-choice", browserStreamingChoiceSchema, ({ enabled }) =>
+    service.browser.chooseStreaming(enabled),
+  );
   handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId, terminalId }) =>
     service.terminal.end(projectId, sessionId, terminalId),
   );

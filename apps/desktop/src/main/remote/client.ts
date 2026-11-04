@@ -527,6 +527,11 @@ export class RemoteClient {
           ),
         );
     }
+    if (
+      ["browser-streaming-state", "browser-streaming-choice"].includes(name) &&
+      !this.capabilities.includes("browser-streaming-settings-v1")
+    )
+      return Promise.reject(new Error("Browser streaming settings need a backend update."));
     if (!this.capabilities.includes("thread-worktrees")) {
       if (name === "project-thread-mode")
         return Promise.reject(new Error("Thread workspaces need a backend update."));

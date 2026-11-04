@@ -7,6 +7,7 @@ import { videoChunkSchema } from "./video-preview";
 import { chatImageSchema } from "./chat-images";
 import { threadTasksSchema } from "./thread-tasks";
 import { browserStateSchema, browserResultSchema } from "./browser";
+import { browserStreamingStateSchema } from "./browser-streaming";
 import { threadPortsSchema } from "./thread-ports";
 import {
   repositoryDirectorySchema,
@@ -50,6 +51,8 @@ export const projectSetupResultSchema = z.discriminatedUnion("kind", [
 export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 export const workspaceResponseSchemas = {
+  "browser-streaming-state": browserStreamingStateSchema,
+  "browser-streaming-choice": browserStreamingStateSchema,
   "mobile-state": mobileStateSchema,
   "mobile-command": mobileStateSchema,
   "mobile-frame": mobileFrameSchema.nullable(),

@@ -35,6 +35,7 @@ import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/de
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
 import type { BrowserOutput } from "../../shared/contracts/browser";
+import { browserStreamingStateSchema } from "../../shared/contracts/browser-streaming";
 import { MAX_CHAT_IMAGE_BYTES } from "../../shared/contracts/chat-images";
 import { readChatImageSource } from "../../renderer/src/components/load-chat-image";
 import type { TerminalInput, TerminalOutput } from "../../shared/contracts/terminal";
@@ -1987,4 +1988,21 @@ test("authenticated browser streams preserve H.264 metadata and binary payloads"
     watch.close();
     observe.mockRestore();
   }
+});
+
+test("browser streaming choices use authenticated host settings and reject invalid input", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const initial = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-state"),
+  );
+  expect(initial.supported).toBe(process.platform === "linux");
+  const chosen = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-choice", { enabled: false }),
+  );
+  expect(chosen.enabled).toBe(false);
+  expect(await f.service.store.processState.read("browser-streaming")).toEqual({ enabled: false });
+  await expect(client.operation("browser-streaming-choice", { enabled: "true" })).rejects.toThrow();
+  expect((await f.service.browser.streamingState()).enabled).toBe(false);
 });

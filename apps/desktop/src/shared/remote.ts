@@ -136,6 +136,7 @@ export type RemoteBridge = {
 };
 
 const remoteReadOperations = new Set([
+  "browser-streaming-state",
   "mobile-state",
   "mobile-frame",
   "browser-state",

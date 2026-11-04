@@ -15,6 +15,9 @@ import {
 } from "../../shared/contracts/browser";
 import { BrowserScreencast, type BrowserViewer } from "./screencast";
 import { BrowserVideoStream } from "./video-stream";
+import { BrowserStreamingPreferences } from "./streaming-preferences";
+import type { PrivateState } from "../platform/private-state";
+import type { BrowserStreamingState } from "../../shared/contracts/browser-streaming";
 import { BrowserRuntime } from "./runtime";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
@@ -64,6 +67,7 @@ export class BrowserService {
   private closing = false;
   private readonly scratch = new PrivateScratch();
   private cleanupPromises = new Set<Promise<unknown>>();
+  private readonly streaming: BrowserStreamingPreferences;
   private readonly runtime = new BrowserRuntime(
     (progress) => {
       for (const workspace of this.workspaces.values()) {
@@ -75,9 +79,32 @@ export class BrowserService {
       }
     },
     () => this.disconnected(),
+    false,
   );
 
-  constructor(private readonly authorize: (scope: BrowserScope) => Promise<void>) {}
+  constructor(
+    private readonly authorize: (scope: BrowserScope) => Promise<void>,
+    storage?: () => PrivateState,
+  ) {
+    this.streaming = new BrowserStreamingPreferences(storage);
+  }
+
+  async streamingState(): Promise<BrowserStreamingState> {
+    await this.streaming.initialize();
+    return {
+      enabled: this.streaming.enabled,
+      supported: process.platform === "linux",
+    };
+  }
+
+  async chooseStreaming(enabled: boolean) {
+    await this.streaming.choose(enabled);
+    return this.streamingState();
+  }
+
+  videoForScope(scope: BrowserScope) {
+    return this.workspaces.get(scopeKey(scope))?.runtime.video ?? this.streaming.enabled;
+  }
 
   private cleanup(action: Promise<unknown>) {
     this.cleanupPromises.add(action);
@@ -120,7 +147,7 @@ export class BrowserService {
       if (this.workspaces.size >= 64) throw new Error("Close an unused browser workspace first.");
       const created: Workspace = {
         scope,
-        runtime: this.runtime.video
+        runtime: this.streaming.enabled
           ? new BrowserRuntime(
               (progress) => {
                 created.phase =
@@ -128,6 +155,7 @@ export class BrowserService {
                 this.broadcast(created);
               },
               () => this.disconnected(created),
+              true,
             )
           : this.runtime,
         lifetime: new AbortController(),
@@ -137,7 +165,7 @@ export class BrowserService {
         controller: null,
         controlGeneration: 0,
         renderTask: Promise.resolve(),
-        stream: this.runtime.video
+        stream: this.streaming.enabled
           ? new BrowserVideoStream({
               currentTab: () =>
                 created.activeTabId ? created.tabs.get(created.activeTabId) : undefined,
@@ -160,6 +188,7 @@ export class BrowserService {
 
   async state(scope: BrowserScope, viewerId?: string): Promise<BrowserState> {
     await this.authorize(scope);
+    await this.streaming.initialize();
     const workspace = this.workspace(scope);
     const state = this.snapshot(workspace, viewerId);
     this.discardEmpty(workspace);
@@ -575,6 +604,7 @@ export class BrowserService {
   ): Promise<BrowserResult> {
     requestSignal?.throwIfAborted();
     await this.authorize(scope);
+    await this.streaming.initialize();
     requestSignal?.throwIfAborted();
     const workspace = this.workspace(scope);
     const readOnly = isBrowserQuery(action);
@@ -855,6 +885,7 @@ export class BrowserService {
 
   async watch(scope: BrowserScope, id: string, send: BrowserViewer["send"]): Promise<BrowserWatch> {
     await this.authorize(scope);
+    await this.streaming.initialize();
     const workspace = this.workspace(scope);
     if (workspace.stream.viewers.size >= 8) throw new Error("Too many viewers for this browser.");
     const viewer: BrowserViewer = {

@@ -20,7 +20,6 @@ import { PrivateScratch, scratchStorageError } from "../platform/private-scratch
 export class BrowserRuntime {
   private pending?: Promise<Browser>;
   videoHost?: BrowserVideoHost;
-  readonly video = process.env.TIDY_BROWSER_STREAMING === "voxl";
   private closing = false;
   private readonly lifetime = new AbortController();
   private readonly scratch = new PrivateScratch();
@@ -29,6 +28,7 @@ export class BrowserRuntime {
   constructor(
     private readonly progress: (fraction: number | null) => void,
     private readonly disconnected: () => void,
+    readonly video = process.env.TIDY_BROWSER_STREAMING === "voxl",
   ) {}
 
   get() {

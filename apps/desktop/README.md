@@ -112,9 +112,16 @@ The regular Bun suite skips the Node browser integration cases.
 
 ### Experimental video streaming
 
+In **Settings → Browser**, enable **Voxl streaming** for this machine or a connected
+remote machine. The choice is stored on that host and applies to new browser
+sessions. Existing sessions keep their current mode. Open the browser in a new
+thread to test the change without restarting the app.
+
 Set `TIDY_BROWSER_STREAMING=voxl` on the **browser host process** to try H.264
-streaming. The default remains the existing JPEG backend. The experimental host
-requires Linux, full Chrome/Chromium, Xvfb, xrandr, Openbox, and Voxl 0.3.2. The viewer
+streaming without a saved setting. A saved Settings choice takes precedence over
+this environment default. The default remains the existing JPEG backend. The
+experimental host requires Linux, full Chrome/Chromium, Xvfb, xrandr, Openbox, and
+Voxl 0.3.2. The viewer
 can run on a different operating system. Voxl is an external executable; it is
 not bundled or installed automatically. Build it using its upstream instructions
 and review its native dependencies and x264 distribution requirements before
