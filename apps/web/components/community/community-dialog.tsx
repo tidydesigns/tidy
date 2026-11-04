@@ -29,6 +29,9 @@ export default function CommunityDialog({ onDismiss }: { onDismiss(): void }) {
   useLayoutEffect(() => {
     const element = dialog.current;
     let shown = false;
+    const observer = new MutationObserver((records) => {
+      if (records.some((record) => record.removedNodes.length > 0)) show();
+    });
     const show = () => {
       if (
         shown ||
@@ -38,6 +41,7 @@ export default function CommunityDialog({ onDismiss }: { onDismiss(): void }) {
       )
         return;
       shown = true;
+      observer.disconnect();
       element.showModal();
       dismiss.current?.focus({ preventScroll: true });
     };
@@ -45,10 +49,12 @@ export default function CommunityDialog({ onDismiss }: { onDismiss(): void }) {
     const onClose = (event: Event) => {
       if (event.target !== element) show();
     };
+    observer.observe(document.body, { childList: true, subtree: true });
     show();
     document.addEventListener("close", onClose, true);
     document.addEventListener("visibilitychange", show);
     return () => {
+      observer.disconnect();
       document.removeEventListener("close", onClose, true);
       document.removeEventListener("visibilitychange", show);
       element?.close();
