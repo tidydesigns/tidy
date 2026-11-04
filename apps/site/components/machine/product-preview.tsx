@@ -68,8 +68,10 @@ function InteractiveDesktopPreview({ onReady }: { onReady(): void }) {
     };
   }, [onReady]);
 
+  // Block the ancestor: rrweb can attach same-origin iframe documents even
+  // when the iframe element itself matches the recorder's blockSelector.
   return (
-    <div className={styles.desktopLive}>
+    <div className={`${styles.desktopLive} ph-no-capture`}>
       <div className={styles.windowControls} aria-hidden="true">
         <i />
         <i />
