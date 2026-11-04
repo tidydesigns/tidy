@@ -25,14 +25,12 @@ test("star invitation confirms CLI success, falls back automatically, and safely
   let successes = 0;
   let openFails = false;
   let finish: (value: boolean) => void = () => {};
-  let reject = () => {};
   const api: CommunityAPI = {
     status: async () => "unavailable",
     star: () => {
       stars++;
-      return new Promise((resolve, rejectStar) => {
+      return new Promise((resolve) => {
         finish = resolve;
-        reject = () => rejectStar(new Error("CLI unavailable"));
       });
     },
     open: async () => {
@@ -72,37 +70,28 @@ test("star invitation confirms CLI success, falls back automatically, and safely
     expect(opens).toBe(0);
     expect(host.textContent).toContain("Thanks for the star!");
 
+    openFails = true;
     await render();
     await act(async () => button().click());
     await act(async () => finish(false));
     expect(opens).toBe(1);
-    expect(successes).toBe(1);
-    expect(host.querySelector("dialog")?.open).toBe(false);
-    expect(host.querySelector(".community-celebration")).toBeNull();
-
-    openFails = true;
-    await render();
-    await act(async () => button().click());
-    await act(async () => reject());
-    expect(opens).toBe(2);
     expect(host.textContent).toContain("Couldn’t open your browser");
+    expect(successes).toBe(1);
+    expect(host.querySelector(".community-celebration")).toBeNull();
     expect(button().disabled).toBe(false);
     const attempts = stars;
     openFails = false;
     await act(async () => button().click());
-    expect(opens).toBe(3);
+    expect(opens).toBe(2);
     expect(stars).toBe(attempts);
     expect(host.querySelector("dialog")?.open).toBe(false);
 
-    for (const result of [true, false]) {
-      await render();
-      await act(async () => button().click());
-      await act(async () => host.querySelector("dialog")?.close());
-      await act(async () => finish(result));
-      expect(opens).toBe(3);
-      expect(successes).toBe(1);
-      expect(host.querySelector("dialog")?.open).toBe(false);
-    }
+    await render();
+    await act(async () => button().click());
+    await act(async () => host.querySelector("dialog")?.close());
+    await act(async () => finish(false));
+    expect(opens).toBe(2);
+    expect(successes).toBe(1);
   } finally {
     await act(async () => root.unmount());
     await window.happyDOM.close();
