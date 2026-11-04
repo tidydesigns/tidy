@@ -55,9 +55,10 @@ test("fallback thumbnail renderer includes shapes drawn outside frames", () => {
       snapshot: { document: { content: document }, frames: [], rectangles: [] },
     }),
   );
-  expect(html).toContain('viewBox="');
+  expect(html).toContain('viewBox="1776 76 168 128"');
   expect(html).toContain("background:#dedede");
-  expect(html).toContain("left:24px;top:24px");
+  expect(html).toContain("left:1800px;top:100px");
+  expect(html).toContain("left:-1776px;top:-76px");
 });
 
 test("an empty editable file uses the neutral placeholder", () => {

@@ -11,7 +11,13 @@ import { initializeTheme } from "./theme";
 
 initializeTheme();
 
-if (import.meta.env.DEV && !window.tidy) await import("./platform/browser-api");
+const DesignPreviewFixture =
+  import.meta.env.DEV && new URLSearchParams(location.search).get("fixture") === "design-preview"
+    ? (await import("./app/fixtures/design-preview")).DesignPreviewFixture
+    : null;
+
+if (import.meta.env.DEV && !DesignPreviewFixture && !window.tidy)
+  await import("./platform/browser-api");
 
 // Apply the native controls' inset before the first render to avoid a layout shift.
 if (window.tidy?.customTitlebar) document.documentElement.dataset.titlebar = "hidden";
@@ -21,10 +27,16 @@ window.tidy?.onWindowFullscreen?.((fullscreen) => {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <MachineWorkspace />
-    <CommunityPrompt api={window.tidy?.community} />
-    <ToastViewport>
-      <HarnessUpdateNotices api={window.tidy} />
-    </ToastViewport>
+    {DesignPreviewFixture ? (
+      <DesignPreviewFixture />
+    ) : (
+      <>
+        <MachineWorkspace />
+        <CommunityPrompt api={window.tidy?.community} />
+        <ToastViewport>
+          <HarnessUpdateNotices api={window.tidy} />
+        </ToastViewport>
+      </>
+    )}
   </StrictMode>,
 );

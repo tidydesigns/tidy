@@ -60,6 +60,8 @@ export const LocalCanvas = memo(function LocalCanvas({
   active,
   onBack,
   onUpdate,
+  onDocumentChange,
+  preserveOnBack = false,
   status,
   backLabel = "Back to designs",
   backIcon,
@@ -74,6 +76,8 @@ export const LocalCanvas = memo(function LocalCanvas({
   active: boolean;
   onBack(): void;
   onUpdate(design: LocalDesign): void;
+  onDocumentChange?: (document: DesignDocument, assets: Record<string, string>) => void;
+  preserveOnBack?: boolean;
   status?: ReactNode;
   backLabel?: string;
   backIcon?: ReactNode;
@@ -191,11 +195,12 @@ export const LocalCanvas = memo(function LocalCanvas({
             data-canvas-back
             onClick={() => {
               let blocked = false;
-              onNavigate?.({
-                preventDefault() {
-                  blocked = true;
-                },
-              });
+              if (!preserveOnBack)
+                onNavigate?.({
+                  preventDefault() {
+                    blocked = true;
+                  },
+                });
               if (!blocked) back.current();
             }}
           >
@@ -204,7 +209,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         );
       },
     }),
-    [backLabel, backIcon],
+    [backLabel, backIcon, preserveOnBack],
   );
 
   return (
@@ -225,6 +230,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         active={active}
         previewAssetUrls={assetUrls}
         externalDocument={external}
+        onLocalDocumentChange={onDocumentChange}
         localPersistence={{
           async loadLibrary(source) {
             const id =

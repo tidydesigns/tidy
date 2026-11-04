@@ -1,4 +1,7 @@
 import { runSkillSelectionTests } from "./skill-selection";
+import { runDesignPreviewTests, runPreviewBoundsTests } from "./design-preview";
+import { runLocalCanvasPreviewTests } from "./local-canvas-preview";
+import { runPreviewNavigationTests } from "./preview-navigation";
 import { runPaletteNavigationTests } from "./palette-navigation";
 import { runCommandPaletteTests } from "./command-palette";
 import { runFileLocationTests } from "./file-location";
@@ -415,6 +418,24 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run("design preview matches canvas layout and typography", async (root) => {
+    await runDesignPreviewTests(root, host);
+  });
+  await run("design preview follows live edits and pending saves", async (root) => {
+    await runLocalCanvasPreviewTests(root, host, nativeAPI);
+  });
+
+  await run("design preview restores automatic and manual cameras across pages", async (root) => {
+    await runPreviewNavigationTests(root, host);
+  });
+
+  await run(
+    "design preview bounds retain effects and skip clipped descendants during navigation",
+    async (root) => {
+      await runPreviewBoundsTests(root);
+    },
+  );
 
   await run("command palette searches and navigates with the keyboard", runCommandPaletteTests);
 

@@ -38,7 +38,7 @@ export const PreviewCamera = memo(function PreviewCamera({
   pageId: string;
 }) {
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1, width: 1, height: 1 });
-  const bounds = useRef<PreviewBounds | undefined>(undefined);
+  const bounds = useRef<{ pageId: string; box: PreviewBounds } | undefined>(undefined);
   const size = useRef({ width: 0, height: 0 });
   const pending = useRef(0);
   const initialized = useRef(false);
@@ -51,9 +51,11 @@ export const PreviewCamera = memo(function PreviewCamera({
   }, [memory]);
   const initialize = useCallback(() => {
     if (size.current.width <= 0 || size.current.height <= 0) return;
-    if (!memory.current) {
-      if (!bounds.current) return;
-      memory.current = fitPreview(bounds.current, size.current);
+    if (!memory.current || memory.autoFitted?.has(memory.current)) {
+      if (bounds.current?.pageId !== pageId) return;
+      memory.current = fitPreview(bounds.current.box, size.current);
+      memory.autoFitted ??= new WeakSet();
+      memory.autoFitted.add(memory.current);
     }
     if (!initialized.current) {
       initialized.current = true;
@@ -61,13 +63,13 @@ export const PreviewCamera = memo(function PreviewCamera({
       return;
     }
     schedule();
-  }, [memory, schedule]);
+  }, [memory, pageId, schedule]);
   const onBounds = useCallback(
     (next: PreviewBounds) => {
-      bounds.current = next;
+      bounds.current = { pageId, box: next };
       initialize();
     },
-    [initialize],
+    [initialize, pageId],
   );
   const assetURL = useCallback((id: string) => value.assets[id] ?? "", [value.assets]);
   useLayoutEffect(() => {
