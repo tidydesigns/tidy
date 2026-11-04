@@ -114,6 +114,8 @@ function current(purpose: "analytics" | "replay" | "diagnostics") {
 export function consentConfig(consent: Consent): Partial<PostHogConfig> {
   const host = new URL(process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://eu.i.posthog.com");
   return {
+    // Local QA uses tidy-dev; retain bot filtering in production builds.
+    opt_out_useragent_filter: process.env.NODE_ENV === "development",
     api_host: `${location.origin}/api/t`,
     ui_host:
       host.hostname === "us.i.posthog.com" ? "https://us.posthog.com" : "https://eu.posthog.com",
