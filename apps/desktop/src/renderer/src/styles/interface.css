@@ -10,13 +10,13 @@
 }
 
 .desktop-navigation .thread-item.selected {
-  border-color: light-dark(#d8d8d5, #424240);
-  background: light-dark(#ffffff, #30302e);
-  box-shadow: inset 3px 0 light-dark(#75756f, #a8a89d);
+  border-color: light-dark(#d8d8d1, #3b3b35);
+  background: light-dark(#ffffff, #2c2c27);
+  box-shadow: none;
 }
 
 .desktop-navigation .thread-select {
-  padding: 10px 12px;
+  padding: 7px 10px;
 }
 
 .thread-heading {
@@ -65,8 +65,8 @@
   border-radius: 14px;
   border-color: light-dark(#d4d4ce, #41413b);
   background: light-dark(#ffffff, #252522);
-  padding: 14px;
-  box-shadow: 0 4px 18px light-dark(#24241c0a, #00000024);
+  padding: 10px 12px;
+  box-shadow: 0 2px 8px light-dark(#24241c06, #00000012);
 }
 
 .thread-workspace .composer-body:focus-within {
@@ -126,14 +126,13 @@
   .thread-heading .thread-context {
     max-width: 100%;
     min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    width: 100%;
   }
 
   .thread-heading .composer-context {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     justify-content: flex-start;
-    gap: 8px;
+    gap: 2px 8px;
   }
 }
 
@@ -144,7 +143,7 @@
   }
 
   .thread-workspace .prompt-editor {
-    max-height: min(144px, 22dvh);
+    max-height: min(108px, 16dvh);
   }
 }
 
@@ -153,8 +152,8 @@
 }
 
 .desktop-navigation .workspace-header {
-  gap: 10px;
-  padding-bottom: 16px;
+  gap: 6px;
+  padding-bottom: 6px;
 }
 
 .desktop-navigation .workspace-tabs {
@@ -176,25 +175,24 @@
 }
 
 .thread-workspace .thread-heading {
-  min-height: 52px;
+  min-height: 44px;
   padding-inline: 24px;
   border-color: light-dark(#e6e6df, #33332e);
 }
 
 .thread-workspace .transcript {
-  padding-top: 40px;
+  padding-top: 24px;
 }
 
 .thread-workspace .composer-actions {
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid light-dark(#eaeae5, #373732);
+  margin-top: 2px;
+  padding-top: 4px;
 }
 
 .thread-workspace .tool-activity-group > summary {
-  padding: 6px 8px;
-  border: 1px solid light-dark(#e4e4de, #353530);
-  background: light-dark(#f5f5f1, #232320);
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
 }
 
 .thread-workspace .tool-activity-list {
@@ -204,5 +202,149 @@
 @container repository-conversation (max-width: 760px) {
   .thread-workspace .thread-heading {
     padding-inline: 16px;
+  }
+}
+
+.desktop-navigation .thread-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  line-height: 18px;
+}
+
+.thread-workspace .latest-message {
+  position: static;
+  flex-shrink: 0;
+  align-self: center;
+  transform: none;
+  margin: 4px auto 0;
+  padding: 4px 12px;
+  box-shadow: none;
+}
+
+.thread-workspace .composer-new {
+  margin-top: 24px;
+}
+
+.thread-workspace .composer-new .composer-lip {
+  position: relative;
+  inset: auto;
+  padding: 8px 12px;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: light-dark(#f1f1ec, #242420);
+}
+
+.thread-workspace .composer-new .composer-body {
+  border-radius: 0 0 14px 14px;
+}
+
+.workspace-side-panel {
+  --color-surface: light-dark(#fcfcfa, #1c1c19);
+  --color-panel: light-dark(#f5f5f1, #20201c);
+  --color-border: light-dark(#deded7, #353530);
+  --desktop-surface: var(--color-surface);
+}
+
+.workspace-side-panel .repository-navigation-header,
+.workspace-side-panel .repository-file-heading {
+  background: var(--color-panel);
+}
+
+.workspace-side-panel .repository-explorer-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 2px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--color-control-border);
+}
+
+.desktop-navigation .workspace-thread-search:focus-within,
+.model-picker-menu .model-search:focus-within {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.desktop-navigation .workspace-thread-search input:focus-visible,
+.model-picker-menu .model-search input:focus-visible {
+  outline: none;
+}
+
+.model-picker-menu .model-search input {
+  min-height: 28px;
+  padding: 0;
+}
+
+.thread-workspace .approval-request {
+  font-size: 13px;
+  border-color: light-dark(#d1c8ad, #5b5340);
+}
+
+.thread-workspace .approval-request strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.thread-workspace .approval-request pre {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-hover-surface);
+}
+
+@container repository-conversation (max-width: 560px) {
+  .thread-workspace .transcript {
+    padding-top: 16px;
+  }
+
+  .thread-workspace .composer-body {
+    padding: 8px;
+  }
+
+  .thread-workspace .thread-context .composer-context {
+    font-size: 11px;
+    gap: 2px 4px;
+  }
+
+  .thread-workspace .thread-context .context-trigger {
+    padding: 4px;
+  }
+
+  .thread-workspace .thread-context .context-machine > span,
+  .thread-workspace .thread-context .context-machine .context-trigger > span {
+    max-width: 72px;
+  }
+}
+
+.workspace-side-panel .workspace-surface-header {
+  height: 44px;
+  min-height: 44px;
+  padding-inline: 6px;
+}
+
+.workspace-side-panel .workspace-surface-tabs {
+  gap: 2px;
+}
+
+.workspace-side-panel .workspace-surface-tab [role="tab"] {
+  gap: 4px;
+  padding-inline: 6px;
+}
+
+@container repository-surface (max-width: 600px) {
+  .repository-panes {
+    --repository-number-width: 30px;
+    --repository-sign-width: 14px;
+  }
+}
+
+@media (max-height: 760px) {
+  .thread-workspace .prompt-editor {
+    max-height: 108px;
   }
 }
