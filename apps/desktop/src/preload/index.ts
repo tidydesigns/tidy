@@ -390,6 +390,11 @@ function workspaceApi(machineId?: string): DesktopAPI {
       scopedRequest("cancel-thread-task", { projectId, threadId, taskId }),
     readThreadTasks: (input) => scopedRequest("thread-tasks", input),
     warmThread: (input) => scopedRequest("warm-thread", input),
+    worktreePreferences: () => scopedRequest("worktree-preferences"),
+    worktreeStorage: () => scopedRequest("worktree-storage"),
+    setWorktreePreferences: (preferences) => scopedRequest("set-worktree-preferences", preferences),
+    removeWorktree: (projectId, threadId) =>
+      scopedRequest("remove-worktree", { projectId, threadId }),
     startThread: (input) => scopedRequest("start-thread", input),
     sendMessage: (input) => scopedRequest("send-message", input),
     updateMessageQueue: (input) => scopedRequest("message-queue", input),

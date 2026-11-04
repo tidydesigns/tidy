@@ -1,3 +1,4 @@
+import { worktreePreferencesSchema } from "../../shared/contracts/worktree-settings";
 import { repositoryReadError } from "../repository/repository-errors";
 import { resolveRepositoryReference } from "../repository/repository-link";
 import { threadModeSchema } from "../../shared/contracts/thread-workspace";
@@ -323,6 +324,14 @@ export function createWorkspaceRequests<Context>(
         value.executionProjectId,
         value.stopActive,
       ),
+  );
+  handle("worktree-preferences", z.undefined(), () => store.worktreePreferences.read());
+  handle("set-worktree-preferences", worktreePreferencesSchema, (value) =>
+    service.setWorktreePreferences(value),
+  );
+  handle("worktree-storage", z.undefined(), () => service.worktreeStorage());
+  handle("remove-worktree", z.object({ projectId, threadId: uuid }).strict(), (value) =>
+    service.removeWorktree(value.projectId, value.threadId),
   );
   const repositoryScope = { projectId, threadId: uuid.optional() };
   handle("project-thread-mode", z.object({ projectId, mode: threadModeSchema }).strict(), (value) =>

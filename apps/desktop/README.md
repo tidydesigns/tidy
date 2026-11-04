@@ -30,13 +30,43 @@ selected thread’s checkout; new terminal tabs opened from a worktree thread st
 there too. Existing terminal tabs retain their original directory.
 
 Follow-up messages and app restarts reuse the same worktree. Completing a thread
-or removing a project never deletes its worktree or branch. A missing or moved
+or removing a project never deletes its worktree or branch by default. A missing or moved
 worktree must be restored before continuing; Tidy never silently switches the
 thread back to the original checkout. Threads using **Current folder** cannot run
 simultaneously against the same Git checkout, including registered subdirectories.
 Separate worktrees can run concurrently, but shared databases and preview ports
 still need separate configuration. Design files, assets and folders stay in their
 original design project, shared across threads.
+
+### Naming and storage preferences
+
+**Settings → Threads → Worktree naming** keeps UUID folder names and
+`feat/tidy-<UUID>` branches by default. Choose **First message + short ID** for
+readable folder and branch names, and customize the branch prefix (for example
+`feat/`, `fix/`, or `feat/tidy-`). Names are sanitized, bounded, and reserved
+exclusively; collisions fail without touching existing branches or files. These
+preferences apply to new worktrees on this machine. Renaming a thread does not
+rename its checkout.
+
+**Settings → Storage** shows worktree checkout sizes, a collapsed list of managed
+worktrees, and removal controls. Sizes exclude the shared Git object database and
+do not follow symlinks. Naming and cleanup preferences live in private host state,
+not in project files or cloud sync.
+
+All cleanup rules start off. Opt in to cleanup after thread deletion, after
+7/14/30/90 inactive days, after merged PRs, or when there are no commits beyond
+the default branch. Background checks run every 15 minutes while the host is open.
+The two default-branch rules require the local `refs/remotes/origin/HEAD` reference
+and use its last fetched commit; they skip worktrees when that reference is absent.
+Merged cleanup additionally requires all linked PRs to be confirmed merged.
+
+Manual and automatic removal preserve branches and thread history. Running threads,
+queued messages, background agent work, open thread terminals, preview listeners,
+locked worktrees, detached checkouts, and worktrees with tracked, untracked, or
+ignored files are retained. Git removal never uses force. After removal the saved
+thread remains readable; restore its checkout at the displayed path to run it
+again, or start a new thread. Existing worktrees are adopted only through the
+host’s private thread authority; unavailable or removed projects are skipped.
 
 A worktree thread’s code project is fixed; start another thread to change it.
 The project branch picker selects the base for new threads. An existing worktree

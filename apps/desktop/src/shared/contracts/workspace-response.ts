@@ -1,3 +1,4 @@
+import { worktreePreferencesSchema, worktreeStorageSchema } from "./worktree-settings";
 import { repositorySearchSchema } from "./repository-search";
 import { mobileStateSchema, mobileFrameSchema } from "./mobile";
 import { harnessUsageSchema } from "./harness-usage";
@@ -75,6 +76,10 @@ export const workspaceResponseSchemas = {
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
   "project-thread-mode": projectSchema,
+  "worktree-storage": worktreeStorageSchema,
+  "worktree-preferences": worktreePreferencesSchema,
+  "set-worktree-preferences": worktreePreferencesSchema,
+  "remove-worktree": z.void(),
   "repository-context": repositoryContextSchema,
   "repository-directory": repositoryDirectorySchema,
   "repository-search": repositorySearchSchema,

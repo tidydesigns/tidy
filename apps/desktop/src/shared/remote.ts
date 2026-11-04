@@ -142,6 +142,8 @@ const remoteReadOperations = new Set([
   "browser-query",
   "project-directories",
   "project-checkouts",
+  "worktree-storage",
+  "worktree-preferences",
   "export-attachment",
   "export-design",
   "bootstrap",

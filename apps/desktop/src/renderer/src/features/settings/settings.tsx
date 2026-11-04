@@ -1,3 +1,4 @@
+import { WorktreeNamingSettings, WorktreeStorageSettings } from "./worktree-settings";
 import { ThreadCompletionSettings } from "./thread-completion-settings";
 import { AccessSettings } from "./access-settings";
 import { ThreadNamingSettings } from "./thread-naming-settings";
@@ -15,6 +16,7 @@ export const settingsPages = [
   "appearance",
   "threads",
   "terminal",
+  "storage",
   "privacy",
   "remote",
 ] as const;
@@ -25,6 +27,7 @@ export const settingsSections = {
   appearance: "Appearance",
   threads: "Threads",
   terminal: "Terminal",
+  storage: "Storage",
   privacy: "Privacy",
   remote: "Remote machines",
 } satisfies Record<SettingsPage, string>;
@@ -168,7 +171,11 @@ export function Settings({
           <div id="settings-threads-panel" hidden={page !== "threads"}>
             <AccessSettings />
             <ThreadNamingSettings />
+            <WorktreeNamingSettings active={active && page === "threads"} />
             <ThreadCompletionSettings />
+          </div>
+          <div id="settings-storage-panel" hidden={page !== "storage"}>
+            <WorktreeStorageSettings active={active && page === "storage"} />
           </div>
           <div id="settings-terminal-panel" hidden={page !== "terminal"}>
             <TerminalSettings />

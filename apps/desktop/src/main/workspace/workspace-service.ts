@@ -1,3 +1,9 @@
+import {
+  type WorktreePreferences,
+  type WorktreeStorage as WorktreeStorageResult,
+} from "../../shared/contracts/worktree-settings";
+import type { ManagedWorktree } from "./worktree-storage";
+import { git } from "../repository/repository-context";
 import { skillCommand } from "../../shared/contracts/skills";
 import {
   threadCompletionSchema,
@@ -389,9 +395,12 @@ export class WorkspaceService {
     if (project.cloud) throw new Error("Choose a local code project.");
     if (thread.worktree)
       await this.store.worktrees.validate(this.store.project(project.id).path, thread.worktree);
+    if (this.removingWorktrees.has(threadId))
+      throw new Error("This worktree is being removed. Wait for it to finish.");
     return project;
   }
 
+  private removingWorktrees = new Set<string>();
   private checkoutRuns = new Map<string, string>();
   private repositoryChanges = new Map<string, Promise<unknown>>();
   private commands = new Map<string, Promise<unknown>>();
@@ -425,6 +434,9 @@ export class WorkspaceService {
 
   private sessionGeneration = 0;
   private sessions = new HarnessSessions();
+  private worktreePreferenceRevision = 0;
+  private worktreeCleanup?: Promise<void>;
+  private worktreeCleanupTimer?: ReturnType<typeof setInterval>;
   superviseHarnessParent = false;
 
   constructor(
@@ -436,6 +448,10 @@ export class WorkspaceService {
     private nameThread: (input: NamingInput) => Promise<string> = generateThreadTitle,
   ) {
     this.ports = new ThreadPorts(store.processState);
+    this.worktreeCleanupTimer = setInterval(() => {
+      void this.cleanupWorktrees().catch(() => {});
+    }, 15 * 60_000);
+    this.worktreeCleanupTimer.unref();
     const host = {
       assertProjectAccess: (projectId: string) => this.assertProjectAccess(projectId),
       assertCanStartTask: async (projectId: string, threadId: string) => {
@@ -1099,6 +1115,234 @@ export class WorkspaceService {
     return (await this.completionPullRequests.read(href))?.state ?? null;
   }
 
+  async setWorktreePreferences(input: WorktreePreferences) {
+    this.worktreePreferenceRevision++;
+    const preferences = await this.store.worktreePreferences.write(input);
+    // Enabling a rule authorizes future background passes; never run disk cleanup in a control update.
+    return preferences;
+  }
+
+  private worktreeBusy(id: string) {
+    return Boolean(
+      this.closing ||
+      this.jobs.has(id) ||
+      this.starting.has(id) ||
+      this.checkoutRuns.has(id) ||
+      this.sessions.backgroundContexts.some((context) => context.threadId === id) ||
+      this.terminal.hasThread(id),
+    );
+  }
+
+  private async managedWorktrees() {
+    // Adopt existing worktrees only through private thread authority, never portable project JSON alone.
+    for (const project of this.store.projects) {
+      try {
+        await this.assertProjectAccess(project.id);
+        for (const summary of await this.store.threadSummaries(project.id)) {
+          if (!summary.worktree) continue;
+          try {
+            await this.store.assertThreadExecution(summary);
+            const execution = this.store.project(summary.executionProjectId ?? summary.projectId);
+            await this.assertProjectAccess(execution.id);
+            await this.store.worktrees.validate(execution.path, summary.worktree);
+            await this.store.worktreeStorage.remember(summary);
+          } catch {
+            /* Missing, moved or untrusted worktrees remain untouched. */
+          }
+        }
+      } catch {
+        /* An unavailable project is never treated as a deleted thread. */
+      }
+    }
+    const records: ManagedWorktree[] = [];
+    for (const record of await this.store.worktreeStorage.records()) {
+      try {
+        await this.assertProjectAccess(record.projectId);
+        await this.assertProjectAccess(record.executionProjectId);
+        if (this.store.project(record.executionProjectId).path !== record.projectPath) continue;
+        await this.store.worktrees.validate(record.projectPath, record.worktree);
+        records.push(record);
+      } catch {
+        /* Retain receipts until the project/worktree becomes available again. */
+      }
+    }
+    return records;
+  }
+
+  async worktreeStorage(): Promise<WorktreeStorageResult> {
+    const preferences = await this.store.worktreePreferences.read();
+    const entries: WorktreeStorageResult["entries"] = [];
+    const records = await this.managedWorktrees();
+    const executions = new Map(records.map((record) => [record.id, record.executionProjectId]));
+    for (const record of records) {
+      let summary: ThreadSummary | undefined;
+      if (await this.store.threadExists(record.projectId, record.id))
+        summary = await this.store.readThreadSummary(record.projectId, record.id);
+      const [bytes, hasChanges, ports] = await Promise.all([
+        this.store.worktrees.bytes(record.projectPath, record.worktree),
+        this.store.worktrees.hasChanges(record.projectPath, record.worktree),
+        this.ports.list({ projectId: record.projectId, threadId: record.id }),
+      ]);
+      entries.push({
+        id: record.id,
+        projectId: record.projectId,
+        projectName: this.store.project(record.executionProjectId).name,
+        title: summary?.title ?? record.title,
+        branch: record.worktree.branch,
+        path: record.worktree.root,
+        bytes,
+        hasChanges,
+        busy: this.worktreeBusy(record.id) || summary?.status === "running" || ports.length > 0,
+      });
+    }
+    return {
+      preferences,
+      entries: entries.filter(
+        (entry) =>
+          this.canAccessProject(entry.projectId) &&
+          this.canAccessProject(executions.get(entry.id)!),
+      ),
+    };
+  }
+
+  removeWorktree(projectId: string, threadId: string) {
+    const operation = this.serialize(threadId, async () => {
+      const record = (await this.managedWorktrees()).find(
+        (item) => item.projectId === projectId && item.id === threadId,
+      );
+      if (!record) throw new Error("This managed worktree is unavailable.");
+      await this.removeManagedWorktree(record, () => this.commands.get(threadId) === operation);
+    });
+    return operation;
+  }
+
+  private async removeManagedWorktree(
+    record: ManagedWorktree,
+    admitted: () => boolean = () => true,
+  ) {
+    await this.assertProjectAccess(record.projectId);
+    await this.assertProjectAccess(record.executionProjectId);
+    if (this.store.project(record.executionProjectId).path !== record.projectPath)
+      throw new Error("This worktree's project moved.");
+    const current = (await this.store.threadExists(record.projectId, record.id))
+      ? await this.store.readThread(record.projectId, record.id)
+      : undefined;
+    if (current) await this.store.assertThreadExecution(current);
+    if (
+      current?.status === "running" ||
+      current?.queuedMessages?.length ||
+      this.worktreeBusy(record.id) ||
+      !admitted() ||
+      (await this.ports.list({ projectId: record.projectId, threadId: record.id })).length
+    )
+      throw new Error("This worktree is in use. Wait for its work to finish.");
+    this.removingWorktrees.add(record.id);
+    try {
+      this.sessionGeneration++;
+      await this.sessions.clear({ threadId: record.id, idleOnly: true });
+      await this.store.worktrees.remove(
+        record.projectPath,
+        record.worktree,
+        () =>
+          !this.worktreeBusy(record.id) &&
+          admitted() &&
+          this.canAccessProject(record.projectId) &&
+          this.canAccessProject(record.executionProjectId),
+      );
+      await this.store.worktreeStorage.forget(record);
+    } finally {
+      this.removingWorktrees.delete(record.id);
+    }
+  }
+
+  cleanupWorktrees(
+    load: (url: string) => Promise<CompletionPullRequest | null> = (url) =>
+      this.completionPullRequests.read(url),
+  ): Promise<void> {
+    if (this.worktreeCleanup) return this.worktreeCleanup;
+    const pending = (async () => {
+      const preferences = await this.store.worktreePreferences.read();
+      if (
+        this.closing ||
+        !(
+          preferences.deleteWithThread ||
+          preferences.inactiveDays ||
+          preferences.deleteMerged ||
+          preferences.deleteUnchanged
+        )
+      )
+        return;
+      for (const record of await this.managedWorktrees()) {
+        if (this.closing) return;
+        try {
+          const operation = this.serialize(record.id, async () => {
+            if (this.worktreeBusy(record.id) || this.commands.get(record.id) !== operation) return;
+            const preferenceRevision = this.worktreePreferenceRevision;
+            const currentPreferences = await this.store.worktreePreferences.read();
+            const exists = await this.store.threadExists(record.projectId, record.id);
+            const thread = exists
+              ? await this.store.readThread(record.projectId, record.id)
+              : undefined;
+            let eligible = !exists && currentPreferences.deleteWithThread;
+            if (
+              thread &&
+              currentPreferences.inactiveDays &&
+              Date.now() - Date.parse(thread.updatedAt) >=
+                currentPreferences.inactiveDays * 86_400_000
+            )
+              eligible = true;
+            if (
+              !eligible &&
+              (currentPreferences.deleteUnchanged || currentPreferences.deleteMerged)
+            ) {
+              // A local origin/HEAD is explicit repository metadata. If unavailable, skip ancestry rules.
+              const target = await git(record.projectPath, [
+                "symbolic-ref",
+                "--quiet",
+                "refs/remotes/origin/HEAD",
+              ]).catch(() => null);
+              if (target) {
+                const head = await git(record.worktree.root, ["rev-parse", "HEAD"]);
+                const included = await git(record.projectPath, [
+                  "merge-base",
+                  "--is-ancestor",
+                  head,
+                  target,
+                ]).then(
+                  () => true,
+                  () => false,
+                );
+                if (included && currentPreferences.deleteUnchanged) eligible = true;
+                if (included && !eligible && currentPreferences.deleteMerged && thread) {
+                  const urls = threadPullRequests(thread);
+                  const requests = await Promise.all(urls.map(load));
+                  eligible = requests.length > 0 && requests.every((pr) => pr?.state === "merged");
+                }
+              }
+            }
+            if (eligible)
+              await this.removeManagedWorktree(
+                record,
+                () =>
+                  this.commands.get(record.id) === operation &&
+                  this.worktreePreferenceRevision === preferenceRevision,
+              );
+          });
+          await operation;
+        } catch {
+          /* Dirty, locked, running or unavailable worktrees are kept and retried. */
+        }
+      }
+    })();
+    this.worktreeCleanup = pending;
+    void pending
+      .finally(() => {
+        if (this.worktreeCleanup === pending) this.worktreeCleanup = undefined;
+      })
+      .catch(() => {});
+    return pending;
+  }
+
   /** Checks are advisory until revalidated inside the thread's mutation queue. */
   autoCompleteThreads(
     projectId: string,
@@ -1541,7 +1785,13 @@ export class WorkspaceService {
       if (!execution.cloud) {
         const repository = await readRepositoryContext(execution.path);
         if (requestedMode === "worktree" && repository.repository) {
-          thread.worktree = await this.store.worktrees.create(execution.path, thread.id);
+          thread.worktree = await this.store.worktrees.create(
+            execution.path,
+            thread.id,
+            await this.store.worktreePreferences.read(),
+            threadPromptText(input.prompt),
+          );
+          await this.store.worktreeStorage.remember(summarizeThread(thread));
         } else if (input.threadMode === "worktree") {
           throw new Error("Choose Current folder for a project without Git.");
         }
@@ -2810,6 +3060,8 @@ export class WorkspaceService {
 
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
+    clearInterval(this.worktreeCleanupTimer);
+    await this.worktreeCleanup?.catch(() => {});
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));
     await this.terminal.close();
     await this.mobile.close();

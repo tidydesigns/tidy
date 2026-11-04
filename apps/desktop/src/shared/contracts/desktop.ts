@@ -288,6 +288,12 @@ export type DesktopAPI = {
   readThreadTasks?(
     input: import("./thread-tasks").ThreadTasksRequest,
   ): Promise<import("./thread-tasks").ThreadTasks>;
+  worktreeStorage?(): Promise<import("./worktree-settings").WorktreeStorage>;
+  worktreePreferences?(): Promise<import("./worktree-settings").WorktreePreferences>;
+  setWorktreePreferences?(
+    preferences: import("./worktree-settings").WorktreePreferences,
+  ): Promise<import("./worktree-settings").WorktreePreferences>;
+  removeWorktree?(projectId: string, threadId: string): Promise<void>;
   startThread(input: {
     threadId?: string;
     messageId?: string;

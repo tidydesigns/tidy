@@ -1,3 +1,5 @@
+import { WorktreePreferencesStore } from "../repository/worktree-preferences";
+import { WorktreeStorage } from "./worktree-storage";
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 import { PrivateState } from "../platform/private-state";
@@ -118,6 +120,8 @@ export class ProjectStore {
   private authority: ThreadAuthority;
   readonly updateResumes: UpdateResumes;
   readonly worktrees: ThreadWorktrees;
+  readonly worktreePreferences: WorktreePreferencesStore;
+  readonly worktreeStorage: WorktreeStorage;
   private queueAuthority: QueueAuthority;
   private projectIdentity: ProjectIdentity;
   constructor(
@@ -131,6 +135,8 @@ export class ProjectStore {
     this.queueAuthority = new QueueAuthority(join(directory, "queue-authority"));
     this.projectIdentity = new ProjectIdentity(join(directory, "project-identities"));
     this.processState = new PrivateState(join(directory, "process-state"));
+    this.worktreePreferences = new WorktreePreferencesStore(this.processState);
+    this.worktreeStorage = new WorktreeStorage(this);
     this.orchestrationDirectory = join(directory, "orchestration");
   }
 

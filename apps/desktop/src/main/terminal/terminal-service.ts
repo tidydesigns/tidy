@@ -104,6 +104,16 @@ export class TerminalService {
     return [...this.sessions.values()].filter((s) => !s.exited).length + this.opening.size;
   }
 
+  hasThread(threadId: string) {
+    // An opening shell may not have its final scope registered yet.
+    return (
+      this.opening.size > 0 ||
+      [...this.sessions.values()].some(
+        (session) => session.threadId === threadId && !session.exited,
+      )
+    );
+  }
+
   private async open(scope: TerminalScope, admitted: () => boolean): Promise<Session> {
     if (this.closed || !admitted()) throw new Error("The terminal viewer closed.");
     const key = `${scope.projectId}:${scope.terminalId ?? "default"}`;

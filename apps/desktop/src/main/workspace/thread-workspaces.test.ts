@@ -431,3 +431,219 @@ test("Devices discovers apps from the authorized thread checkout and rejects a f
     }),
   ).rejects.toThrow("another project");
 });
+
+test("worktree preferences persist on the host and apply only to new threads", async () => {
+  const f = await fixture();
+  const first = await f.start();
+  await f.finish(first);
+  const initial = await f.store.worktreePreferences.read();
+  expect(initial.naming).toBe("uuid");
+  expect(initial.inactiveDays).toBe(0);
+  expect(initial.deleteWithThread || initial.deleteMerged || initial.deleteUnchanged).toBe(false);
+  await f.handlers.invoke(
+    "set-worktree-preferences",
+    { ...initial, naming: "prompt", branchPrefix: "fix/" },
+    undefined,
+  );
+  const next = await f.start();
+  expect(next.worktree?.branch).toBe(`fix/implement-a-change-${next.id.slice(0, 8)}`);
+  expect((await f.service.readThread(f.project.id, first.id)).worktree).toEqual(first.worktree);
+  const reloaded = new ProjectStore(f.state);
+  await reloaded.initialize();
+  expect((await reloaded.worktreePreferences.read()).branchPrefix).toBe("fix/");
+  await expect(
+    f.handlers.invoke("set-worktree-preferences", { ...initial, branchPrefix: "../" }, undefined),
+  ).rejects.toThrow("Invalid desktop request");
+});
+
+test("inventory adopts trusted legacy worktrees and manual removal retains thread and branch", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  let inventory = await f.service.worktreeStorage();
+  expect(inventory.entries.find((entry) => entry.id === thread.id)?.busy).toBe(true);
+  await expect(f.service.removeWorktree(f.project.id, thread.id)).rejects.toThrow("in use");
+  await f.finish(thread);
+  await f.store.processState.remove("managed-worktrees");
+  inventory = await f.service.worktreeStorage();
+  const entry = inventory.entries.find((entry) => entry.id === thread.id)!;
+  expect(entry.bytes).toBeGreaterThan(0);
+  expect(entry.busy || entry.hasChanges).toBe(false);
+  await f.handlers.invoke(
+    "remove-worktree",
+    { projectId: f.project.id, threadId: thread.id },
+    undefined,
+  );
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(false);
+  expect(await git(f.root, ["rev-parse", thread.worktree!.branch])).toBe(
+    thread.worktree!.baseCommit,
+  );
+  expect((await f.service.readThread(f.project.id, thread.id)).messages.length).toBeGreaterThan(0);
+  expect((await f.service.worktreeStorage()).entries).toHaveLength(0);
+});
+
+test("default cleanup retains everything; deleted-thread cleanup requires a private receipt", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  await f.finish(thread);
+  await f.service.cleanupWorktrees();
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+  await rm(await f.store.storagePath(f.project.id, "threads", thread.id));
+  await f.service.setWorktreePreferences({
+    ...(await f.store.worktreePreferences.read()),
+    deleteWithThread: true,
+  });
+  await f.service.cleanupWorktrees();
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(false);
+  expect(await git(f.root, ["rev-parse", thread.worktree!.branch])).toBe(
+    thread.worktree!.baseCommit,
+  );
+});
+
+test("inactive cleanup skips running, recent and dirty worktrees", async () => {
+  const f = await fixture();
+  const old = await f.start();
+  await f.finish(old);
+  const dirty = await f.start();
+  await f.finish(dirty);
+  await writeFile(join(dirty.worktree!.root, "app/file.txt"), "keep me");
+  const recent = await f.start();
+  await f.finish(recent);
+  const running = await f.start();
+  for (const id of [old.id, dirty.id, running.id]) {
+    const thread = await f.store.readThread(f.project.id, id);
+    thread.updatedAt = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    await f.store.writeThread(thread);
+  }
+  await f.service.setWorktreePreferences({
+    ...(await f.store.worktreePreferences.read()),
+    inactiveDays: 30,
+  });
+  await f.service.cleanupWorktrees();
+  expect(await Bun.file(join(old.worktree!.root, "app/file.txt")).exists()).toBe(false);
+  for (const thread of [dirty, recent, running])
+    expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+});
+
+test("merged cleanup needs both merged PR evidence and ancestry; absent default metadata skips unchanged cleanup", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  await f.finish(thread);
+  const current = await f.store.readThread(f.project.id, thread.id);
+  current.pullRequests = ["https://github.com/example/project/pull/1"];
+  await f.store.writeThread(current);
+  await f.service.setWorktreePreferences({
+    ...(await f.store.worktreePreferences.read()),
+    deleteUnchanged: true,
+  });
+  await f.service.cleanupWorktrees();
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+  await git(f.root, ["update-ref", "refs/remotes/origin/main", "main"]);
+  await git(f.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  await f.service.setWorktreePreferences({
+    ...(await f.store.worktreePreferences.read()),
+    deleteUnchanged: false,
+    deleteMerged: true,
+  });
+  const pr = { state: "open" as const, baseBranch: "main", defaultBranch: "main", endedAt: null };
+  await f.service.cleanupWorktrees(async () => pr);
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+  await writeFile(join(thread.worktree!.root, "app/file.txt"), "committed work");
+  await git(thread.worktree!.root, ["add", "."]);
+  await git(thread.worktree!.root, [
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "-m",
+    "Change",
+  ]);
+  await f.service.cleanupWorktrees(async () => ({ ...pr, state: "merged" }));
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+  await git(f.root, [
+    "update-ref",
+    "refs/remotes/origin/main",
+    await git(thread.worktree!.root, ["rev-parse", "HEAD"]),
+  ]);
+  await f.service.cleanupWorktrees(async () => ({ ...pr, state: "merged" }));
+  expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(false);
+});
+
+for (const action of ["send", "disable-cleanup"] as const) {
+  test(`an in-flight cleanup yields to a newer ${action} action`, async () => {
+    const f = await fixture();
+    const thread = await f.start();
+    await f.finish(thread);
+    const persisted = await f.store.readThread(f.project.id, thread.id);
+    persisted.updatedAt = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    await f.store.writeThread(persisted);
+    const preferences = {
+      ...(await f.store.worktreePreferences.read()),
+      inactiveDays: 30 as const,
+    };
+    await f.service.setWorktreePreferences(preferences);
+    const checked = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    const original = f.store.worktrees.hasChanges.bind(f.store.worktrees);
+    f.store.worktrees.hasChanges = async (...args) => {
+      checked.resolve();
+      await proceed.promise;
+      return original(...args);
+    };
+    const cleaning = f.service.cleanupWorktrees();
+    await checked.promise;
+    const next =
+      action === "send"
+        ? f.service.sendMessage({
+            projectId: f.project.id,
+            threadId: thread.id,
+            text: "Continue here",
+          })
+        : f.service.setWorktreePreferences({ ...preferences, inactiveDays: 0 });
+    proceed.resolve();
+    await cleaning;
+    await next;
+    expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+    if (action === "send") expect(f.runs).toHaveLength(2);
+  });
+}
+
+for (const action of ["inventory", "removal"] as const) {
+  test(`cloud access revoked during worktree ${action} does not disclose or remove the checkout`, async () => {
+    const f = await fixture();
+    const cloudPath = join(f.directory, "cloud");
+    await mkdir(cloudPath);
+    const cloud = (await f.store.open(cloudPath, "Cloud workspace")).project;
+    let allowed = true;
+    f.service.authorizeCloudProject = async () => {
+      if (!allowed) throw new Error("Access revoked");
+    };
+    f.service.canAccessCloudProject = () => allowed;
+    const thread = await f.service.startThread({
+      projectId: cloud.id,
+      executionProjectId: f.project.id,
+      harness: "codex",
+      prompt: "Private task",
+      designIds: [],
+    });
+    await f.finish(thread);
+    if (action === "inventory") {
+      const bytes = f.store.worktrees.bytes.bind(f.store.worktrees);
+      f.store.worktrees.bytes = async (...args) => {
+        const result = await bytes(...args);
+        allowed = false;
+        return result;
+      };
+      expect((await f.service.worktreeStorage()).entries).toHaveLength(0);
+    } else {
+      const changes = f.store.worktrees.hasChanges.bind(f.store.worktrees);
+      f.store.worktrees.hasChanges = async (...args) => {
+        const result = await changes(...args);
+        allowed = false;
+        return result;
+      };
+      await expect(f.service.removeWorktree(cloud.id, thread.id)).rejects.toThrow();
+    }
+    expect(await Bun.file(join(thread.worktree!.root, "app/file.txt")).exists()).toBe(true);
+  });
+}
