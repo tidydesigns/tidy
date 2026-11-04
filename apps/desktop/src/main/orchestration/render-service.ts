@@ -71,14 +71,16 @@ export async function canvasResourceReadiness({
         await image.decode();
       }),
     ),
-    ...[...document.images].map((image, index) =>
-      load(
-        `image:${index}`,
-        image.getAttribute("data-asset-id") ?? (image.alt || `image:${index}`),
-        "asset_decode_error",
-        () => image.decode(),
+    ...[...document.images]
+      .filter((image) => image.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }))
+      .map((image, index) =>
+        load(
+          `image:${index}`,
+          image.getAttribute("data-asset-id") ?? (image.alt || `image:${index}`),
+          "asset_decode_error",
+          () => image.decode(),
+        ),
       ),
-    ),
   ]);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

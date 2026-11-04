@@ -835,6 +835,35 @@ browserTest(
     const assetId = randomUUID();
     document.nodes.push(
       designNodeSchema.parse({
+        id: "transparent-parent",
+        name: "Transparent parent",
+        parentId: "frame",
+        type: "container",
+        box: { x: 0, y: 20, width: 20, height: 20 },
+        style: { opacity: 0 },
+      }),
+      designNodeSchema.parse({
+        id: "transparent-image",
+        name: "Transparent image",
+        parentId: "transparent-parent",
+        type: "image",
+        assetId,
+        box: { x: 0, y: 0, width: 20, height: 20 },
+      }),
+      designNodeSchema.parse({
+        id: "transparent-fill",
+        name: "Transparent fill",
+        parentId: "frame",
+        type: "container",
+        box: { x: 20, y: 20, width: 20, height: 20 },
+        style: { paints: [{ id: "image-fill", type: "image", assetId, opacity: 0 }] },
+      }),
+    );
+    const transparent = await renderer.render({ ...snapshot, strictFidelity: true });
+    expect(transparent.resources_complete).toBe(true);
+    expect(transparent.diagnostics).toEqual([]);
+    document.nodes.push(
+      designNodeSchema.parse({
         id: "broken",
         name: "Broken",
         parentId: "frame",
