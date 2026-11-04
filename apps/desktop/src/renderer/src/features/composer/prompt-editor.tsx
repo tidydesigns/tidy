@@ -419,6 +419,28 @@ export function PromptEditor({
           event.preventDefault();
           return;
         }
+        if (
+          event.key === "-" &&
+          !event.defaultPrevented &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.nativeEvent.isComposing &&
+          window.getSelection()?.isCollapsed
+        ) {
+          const root = event.currentTarget;
+          const text = read(root);
+          const cursor = offset(root);
+          const lineStart = text.lastIndexOf("\n", cursor - 1) + 1;
+          if (
+            text.slice(lineStart, cursor) === "--" &&
+            (cursor === text.length || text[cursor] === "\n")
+          ) {
+            event.preventDefault();
+            insert("-\n");
+            return;
+          }
+        }
         if (event.key === "Enter" && !event.defaultPrevented && !event.nativeEvent.isComposing) {
           event.preventDefault();
           insert("\n");
