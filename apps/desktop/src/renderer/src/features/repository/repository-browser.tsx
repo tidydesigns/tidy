@@ -434,7 +434,7 @@ export function RepositoryBrowser({
                 data-status={status?.filtered ? undefined : status?.status}
                 style={{
                   top: (virtual.start + offset) * 28,
-                  paddingLeft: Math.min(row.depth - 1, 12) * 12 + 6,
+                  paddingLeft: `calc(${Math.min(row.depth - 1, 12)} * var(--repository-indent, 12px) + 6px)`,
                 }}
                 title={
                   status?.filtered
@@ -456,7 +456,7 @@ export function RepositoryBrowser({
                 {Array.from({ length: Math.min(row.depth - 1, 12) }, (_, index) => (
                   <span
                     className="repository-indent-guide"
-                    style={{ left: index * 12 + 12 }}
+                    style={{ left: `calc(${index} * var(--repository-indent, 12px) + 12px)` }}
                     key={index}
                     aria-hidden="true"
                   />

@@ -10,13 +10,14 @@
 }
 
 .desktop-navigation .thread-item.selected {
-  border-color: light-dark(#d8d8d1, #3b3b35);
-  background: light-dark(#ffffff, #2c2c27);
+  border-color: light-dark(#cacac1, #4b4b42);
+  background: light-dark(#ffffff, #34342e);
   box-shadow: none;
 }
 
 .desktop-navigation .thread-select {
-  padding: 7px 10px;
+  padding: 6px 10px;
+  gap: 0;
 }
 
 .thread-heading {
@@ -307,8 +308,8 @@
   }
 
   .thread-workspace .thread-context .composer-context {
-    font-size: 11px;
-    gap: 2px 4px;
+    font-size: 12px;
+    gap: 2px 8px;
   }
 
   .thread-workspace .thread-context .context-trigger {
@@ -347,4 +348,36 @@
   .thread-workspace .prompt-editor {
     max-height: 108px;
   }
+}
+
+.thread-workspace .tool-activity-group > summary {
+  width: fit-content;
+  max-width: 100%;
+  padding-inline: 4px;
+  margin-left: -4px;
+}
+
+.thread-workspace .tool-activity-group > summary .activity-summary-content {
+  margin-right: 0;
+}
+
+.thread-workspace .tool-activity-group > summary .activity-summary-title {
+  flex: initial;
+}
+
+.workspace-side-panel .repository-explorer {
+  container: repository-tree-panel / inline-size;
+}
+
+@container repository-tree-panel (max-width: 220px) {
+  .repository-tree-row {
+    --repository-indent: 6px;
+    gap: 3px;
+    padding-right: 4px;
+  }
+}
+
+.workspace-side-panel .repository-explorer-resize:is(:hover, :focus-visible)::after {
+  width: 3px;
+  background: var(--color-muted-ink);
 }
