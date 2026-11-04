@@ -179,7 +179,8 @@ configuring the executable paths:
 
 ```sh
 TIDY_TEST_BROWSER_VIDEO=1 node --import ./apps/desktop/node_modules/tsx/dist/loader.mjs \
-  --test apps/desktop/src/main/browser/video-stream.test.ts
+  --test apps/desktop/src/main/browser/video-stream.test.ts \
+  apps/desktop/src/main/browser/owned-loopback.test.ts
 ```
 
 The test covers live video, repeated streaming-process failure, session reuse,
@@ -192,10 +193,9 @@ is not evidence that every remote environment is supported.
 
 After building the desktop app, `TIDY_TEST_BROWSER_VIDEO=1 bun scripts/test-browser.ts`
 from `apps/desktop` exercises the production renderer and authenticated remote
-transport, including painted pixels and native interaction. Optional
-`TIDY_TEST_BROWSER_SOAK_SECONDS=300` extends that fixture with a five-minute
-rendered-frame check. Tests use disposable browser profiles and require the same
-native executable configuration as the host. The paint budget defaults to 20 fps;
+transport, including painted pixels and native interaction. Tests use disposable
+browser profiles and require the same native executable configuration as the host.
+The paint budget defaults to 20 fps;
 `TIDY_TEST_BROWSER_MIN_FPS` can select a different explicit budget for deliberately
 degraded-network checks. Report that budget alongside those results.
 

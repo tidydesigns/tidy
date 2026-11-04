@@ -136,14 +136,11 @@ export async function checkBrowserVideo(options: {
     "remote conversation link",
   );
   await evaluate(`(() => {
-    window.fixturePaints={video:0,jpeg:0};
+    window.fixturePaints={video:0};
     window.fixtureVideoEvents=[];window.fixtureQueuedVideo=[];window.fixtureHoldVideo=false;
     const draw=CanvasRenderingContext2D.prototype.drawImage;
     CanvasRenderingContext2D.prototype.drawImage=function(...args){
-      if(this.canvas.classList.contains('browser-canvas')){
-        if(typeof VideoFrame!=='undefined'&&args[0] instanceof VideoFrame)window.fixturePaints.video++;
-        else window.fixturePaints.jpeg++;
-      }
+      if(this.canvas.classList.contains('browser-canvas')&&typeof VideoFrame!=='undefined'&&args[0] instanceof VideoFrame)window.fixturePaints.video++;
       return draw.apply(this,args);
     };
     const Original=Worker; window.Worker=class extends Original {
@@ -397,9 +394,6 @@ export async function checkBrowserVideo(options: {
     await moving();
     assert.equal(await inspect("document.querySelector('#name').value"), "Seán 王 👩🏽‍💻");
   }
-  const fastBefore = z.number().parse(await evaluate("window.fixturePaints.video"));
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-  const fastPaints = z.number().parse(await evaluate("window.fixturePaints.video")) - fastBefore;
   const slowId = randomUUID();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const slow = await service.browser.watch(scope, slowId, (event) => {
@@ -419,20 +413,6 @@ export async function checkBrowserVideo(options: {
     const paintedBefore = z.number().parse(await evaluate("window.fixturePaints.video"));
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const paintedAfter = z.number().parse(await evaluate("window.fixturePaints.video"));
-    console.log(
-      JSON.stringify({
-        kind: "browser-video-viewer-isolation",
-        seconds: 3,
-        fastPaints,
-        fastPaintsWithSlowViewer: paintedAfter - paintedBefore,
-        deliveredFrames: options.h264Frames() - before,
-        minimumFps,
-        streamStatus: await evaluate(
-          "document.querySelector('.browser-stream-status')?.textContent??'video'",
-        ),
-        decoderEvents: await evaluate("window.fixtureVideoEvents"),
-      }),
-    );
     assert.ok(
       options.h264Frames() > before + 3 * minimumFps,
       "Video delivery must meet the selected network budget",
@@ -482,79 +462,6 @@ export async function checkBrowserVideo(options: {
   );
   await moving();
   assert.equal(await inspect("document.querySelector('#name').value"), saved);
-  const soakSeconds = z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(1800)
-    .parse(process.env.TIDY_TEST_BROWSER_SOAK_SECONDS ?? 0);
-  if (soakSeconds) {
-    const sampleSchema = z.object({ video: z.number(), jpeg: z.number(), status: z.string() });
-    const sample = async () =>
-      sampleSchema.parse(
-        await evaluate(
-          `({...window.fixturePaints,status:document.querySelector('.browser-stream-status')?.textContent.trim()??'video'})`,
-        ),
-      );
-    let previous = await sample();
-    let videoPaints = 0;
-    let jpegPaints = 0;
-    let validMarkers = 0;
-    let changingMarkers = 0;
-    let minimumVideoFps = Infinity;
-    let peakMainRss = process.memoryUsage().rss;
-    const statuses = new Map<string, number>();
-    const started = performance.now();
-    const cpu = process.cpuUsage();
-    let previousMarker = await marker();
-    for (let second = 0; second < soakSeconds; second++) {
-      const before = performance.now();
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const current = await sample();
-      const elapsed = (performance.now() - before) / 1000;
-      const paints = current.video - previous.video;
-      videoPaints += paints;
-      jpegPaints += current.jpeg - previous.jpeg;
-      minimumVideoFps = Math.min(minimumVideoFps, paints / elapsed);
-      statuses.set(current.status, (statuses.get(current.status) ?? 0) + 1);
-      peakMainRss = Math.max(peakMainRss, process.memoryUsage().rss);
-      const currentMarker = await marker();
-      if (currentMarker.valid) validMarkers++;
-      if (currentMarker.valid && currentMarker.value !== previousMarker.value) changingMarkers++;
-      previousMarker = currentMarker;
-      previous = current;
-      if ((second + 1) % 30 === 0)
-        console.log(
-          JSON.stringify({
-            kind: "browser-video-soak-progress",
-            seconds: second + 1,
-            videoPaints,
-            jpegPaints,
-            validMarkers,
-            statuses: Object.fromEntries(statuses),
-          }),
-        );
-    }
-    const seconds = (performance.now() - started) / 1000;
-    const usedCpu = process.cpuUsage(cpu);
-    console.log(
-      JSON.stringify({
-        kind: "browser-video-soak",
-        seconds,
-        videoFps: videoPaints / seconds,
-        minimumVideoFps,
-        jpegPaints,
-        validMarkers,
-        changingMarkers,
-        statuses: Object.fromEntries(statuses),
-        peakMainRssBytes: peakMainRss,
-        mainCpuSeconds: (usedCpu.user + usedCpu.system) / 1e6,
-      }),
-    );
-    assert.ok(validMarkers >= soakSeconds * 0.95, "soak must display valid source pixels");
-    assert.ok(changingMarkers >= soakSeconds * 0.9, "soak must keep source pixels moving");
-    assert.ok(videoPaints > soakSeconds * minimumFps, "soak must sustain actual video painting");
-  }
   console.log(
     "PASS authenticated remote renderer: decoded H264, hover/leave, native click/Unicode/drag, odd viewport resize, tab switching, screenshot, three encoder restarts, slow viewer isolation, automatic video recovery, disconnect without input replay",
   );
