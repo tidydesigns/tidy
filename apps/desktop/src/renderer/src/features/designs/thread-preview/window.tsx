@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -34,6 +35,8 @@ import { preloadCanvasEditor } from "../load-canvas-editor";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import type { CanvasGeometry } from "./dock-state";
 import { documentPage } from "@tidy/editor/design/pages";
+import type { DesignDocument } from "@tidy/design/document";
+import { equalJsonValues } from "@tidy/editor/design/json-value";
 import { compactViewportTransform } from "./transition-geometry";
 
 type Phase = "closed" | "opening" | "open" | "closing";
@@ -186,11 +189,37 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   onPreviewError(error: unknown): void;
 }) {
   const [value, setValue] = useState<LocalDesign>();
+  const [liveDocument, setLiveDocument] = useState<{
+    document: DesignDocument;
+    assets: Record<string, string>;
+  }>();
   const [phase, setPhase] = useState<Phase>("closed");
   const [visited, setVisited] = useState(false);
+  const editorMounted = visited && warm && active;
+  const displayedPreview = useRef<{ source: LocalDesign; value: LocalDesign } | undefined>(
+    undefined,
+  );
+  const previewValue = useMemo(() => {
+    if (phase === "open" || phase === "opening") {
+      const displayed = displayedPreview.current;
+      return displayed && displayed.source === value ? displayed.value : value;
+    }
+    if (!value || !editorMounted || !liveDocument) return value;
+    if (
+      equalJsonValues(value.document, liveDocument.document) &&
+      equalJsonValues(value.assets, liveDocument.assets)
+    )
+      return value;
+    return { ...value, ...liveDocument };
+  }, [value, editorMounted, liveDocument, phase]);
+  useLayoutEffect(() => {
+    displayedPreview.current =
+      value && previewValue ? { source: value, value: previewValue } : undefined;
+  }, [value, previewValue]);
   const [selectedPage, setSelectedPage] = useState<{ id: string; background?: string }>();
   const page =
-    value && documentPage(value.document, selectedPage?.id ?? viewportMemory.current?.pageId);
+    previewValue &&
+    documentPage(previewValue.document, selectedPage?.id ?? viewportMemory.current?.pageId);
   const background = selectedPage?.id === page?.id ? selectedPage?.background : page?.background;
   const editorReady = selectedPage !== undefined;
   const onPageChange = useCallback((id: string, background?: string) => {
@@ -494,6 +523,19 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     },
     [onUpdate],
   );
+  const documentChanged = useCallback(
+    (document: DesignDocument, assets: Record<string, string>) => {
+      setLiveDocument((current) =>
+        current?.document === document && current.assets === assets
+          ? current
+          : { document, assets },
+      );
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!editorMounted) setLiveDocument(undefined);
+  }, [editorMounted]);
 
   useEffect(() => {
     if (!active) return;
@@ -556,6 +598,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       const compactSurface = frame.current;
       if (!surface || !button || !content || !edge || !compactSurface) return;
       flushSync(() => setVisited(true));
+      if (!open) flushSync(() => setPhase("closing"));
       const epoch = ++generation.current;
       const rect = compactSurface.getBoundingClientRect();
       const corners = getComputedStyle(compactSurface).borderTopLeftRadius.split(" ");
@@ -750,12 +793,12 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           >
             <span className="thread-design-lens" aria-hidden="true" inert>
               <span className="thread-design-artwork">
-                {value && page && (
+                {previewValue && page && (
                   <PreviewCamera
                     key={page.id}
                     pageId={page.id}
                     onError={onPreviewError}
-                    value={value}
+                    value={previewValue}
                     memory={previewMemory}
                     surface={trigger}
                     suppressClick={suppressClick}
@@ -887,6 +930,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
               backIcon={minimiseIcon}
               onBack={minimise}
               onUpdate={update}
+              onDocumentChange={documentChanged}
+              preserveOnBack
             />
           )}
         </div>

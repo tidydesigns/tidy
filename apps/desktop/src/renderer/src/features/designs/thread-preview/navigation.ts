@@ -9,6 +9,7 @@ export type PreviewCameraMemory = {
   current?: PreviewCamera;
   pageId?: string;
   pages?: Map<string, PreviewCamera>;
+  autoFitted?: WeakSet<PreviewCamera>;
 };
 
 export function selectPreviewPage(memory: PreviewCameraMemory, pageId: string) {

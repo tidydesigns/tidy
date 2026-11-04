@@ -152,7 +152,7 @@ export function nodeStyle(
       : node.style.gradientFrom && node.style.gradientTo
         ? `linear-gradient(${node.style.gradientAngle ?? 180}deg, ${node.style.gradientFrom}, ${node.style.gradientTo})`
         : fill,
-    color,
+    color: color ?? (node.parentId === null ? "#000000" : undefined),
     borderColor: borderColor ?? "#000000",
     // React clears undefined longhands after applying a shorthand. Explicit
     // fallbacks keep a transparent/dark common border from becoming currentColor.
@@ -183,8 +183,8 @@ export function nodeStyle(
       ]
         .filter(Boolean)
         .join(" ") || undefined,
-    fontSize: node.style.fontSize,
-    fontWeight: node.style.fontWeight,
+    fontSize: node.style.fontSize ?? (node.parentId === null ? 16 : undefined),
+    fontWeight: node.style.fontWeight ?? (node.parentId === null ? 400 : undefined),
     lineHeight:
       node.style.lineHeightMode === "auto"
         ? "normal"
@@ -192,15 +192,18 @@ export function nodeStyle(
           ? `${node.style.lineHeightPx ?? (node.style.fontSize ?? 16) * (node.style.lineHeight ?? 1.35)}px`
           : node.style.lineHeightMode === "percent"
             ? (node.style.lineHeight ?? 1.35)
-            : node.style.lineHeight,
-    textAlign: node.style.textAlign,
+            : (node.style.lineHeight ?? (node.parentId === null ? 1.5 : undefined)),
+    textAlign: node.style.textAlign ?? (node.parentId === null ? "start" : undefined),
     fontFamily: renderFontFamily(
-      node.style.fontFamily ?? (node.type === "text" ? "system-ui" : undefined),
+      node.style.fontFamily ??
+        (node.type === "text" || node.parentId === null ? "system-ui" : undefined),
       node.style.fontSource === "local" ? node.style.fontFace : undefined,
     ),
-    letterSpacing: node.style.letterSpacing,
-    fontStyle: node.style.fontStyle,
-    textDecoration: node.richText ? "none" : node.style.textDecoration,
+    letterSpacing: node.style.letterSpacing ?? (node.parentId === null ? "normal" : undefined),
+    fontStyle: node.style.fontStyle ?? (node.parentId === null ? "normal" : undefined),
+    textDecoration: node.richText
+      ? "none"
+      : (node.style.textDecoration ?? (node.parentId === null ? "none" : undefined)),
     overflow:
       node.style.maxLines ||
       (node.type === "text" &&
@@ -209,9 +212,15 @@ export function nodeStyle(
         ? "hidden"
         : (node.style.overflow ??
           (["artboard", "image"].includes(node.type) ? "hidden" : undefined)),
-    textTransform: node.style.textCase,
+    textTransform: node.style.textCase ?? (node.parentId === null ? "none" : undefined),
     whiteSpace:
-      node.type === "text" ? (node.style.textWrap === "nowrap" ? "pre" : "pre-wrap") : undefined,
+      node.type === "text"
+        ? node.style.textWrap === "nowrap"
+          ? "pre"
+          : "pre-wrap"
+        : node.parentId === null
+          ? "normal"
+          : undefined,
     ...constraintStyle(node, parent, absolute),
     ...stroke,
     ...(node.vectorPath
