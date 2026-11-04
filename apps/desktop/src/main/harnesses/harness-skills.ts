@@ -6,6 +6,7 @@ import { version } from "../../../package.json";
 import type { HarnessId } from "../../shared/contracts/desktop";
 import {
   skillCommand,
+  skillMessages,
   skillNameSchema,
   type Skill,
   type SkillCatalog,
@@ -24,7 +25,7 @@ const nativeSkillSchema = z.discriminatedUnion("kind", [
 ]);
 const commandSchema = nativeSkillSchema.options[1].omit({ kind: true });
 type NativeSkill = z.infer<typeof nativeSkillSchema>;
-type CatalogEntry = { public: Skill; native: NativeSkill };
+type CatalogEntry = { public: Skill; native: NativeSkill; legacyId: string };
 type CachedCatalog = {
   until: number;
   value: Promise<CatalogEntry[]>;
@@ -62,9 +63,7 @@ const adapters = {
           })
           .parse(await request("skills/list", { cwds: [input.cwd], forceReload: true }));
         if (result.data.some((entry) => entry.errors?.length && !entry.skills.length))
-          throw new Error(
-            "The harness could not load its skills. Check the skill definitions and retry.",
-          );
+          throw new Error(skillMessages.discoveryFailed);
         return result.data
           .filter((entry) => entry.cwd === input.cwd)
           .flatMap((entry) =>
@@ -153,18 +152,29 @@ export class HarnessSkills {
     if (cached && (cached.pending || (!refresh && cached.until > this.now()))) return cached.value;
     const value = (async () => {
       const executable = await this.locate(harness);
-      if (!executable) throw new Error("Install and sign in to this harness to load skills.");
+      if (!executable) throw new Error(skillMessages.notInstalled);
       const skills = await this.providers[harness].discover({ executable, harness, cwd });
       const names = new Set<string>();
       return skills.slice(0, 2000).flatMap((native): CatalogEntry[] => {
         if (names.has(native.name)) return [];
         names.add(native.name);
         const id = createHash("sha256")
-          .update(JSON.stringify([harness, cwd, native]))
+          .update(
+            JSON.stringify([
+              harness,
+              cwd,
+              native.kind,
+              native.name,
+              native.kind === "file" ? native.path : null,
+            ]),
+          )
           .digest("hex");
         return [
           {
             native,
+            legacyId: createHash("sha256")
+              .update(JSON.stringify([harness, cwd, native]))
+              .digest("hex"),
             public: { id, name: native.name, description: native.description.slice(0, 10_000) },
           },
         ];
@@ -208,9 +218,11 @@ export class HarnessSkills {
     prompt: string;
   }): Promise<NativeSkill> {
     const entries = await this.entries(input.harness, input.cwd, false, true);
-    const entry = entries.find((entry) => entry.public.id === input.id);
+    const entry = entries.find(
+      (entry) => entry.public.id === input.id || entry.legacyId === input.id,
+    );
     if (!entry || !skillCommand(input.prompt, [entry.native.name]))
-      throw new Error("This skill is no longer available. Select it again before sending.");
+      throw new Error(skillMessages.unavailable);
     return entry.native;
   }
 }

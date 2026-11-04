@@ -414,7 +414,7 @@ export function PromptEditor({
       tabIndex={disabled ? -1 : 0}
       onKeyDown={(event) => {
         onKeyDown?.(event);
-        if (disabled) return;
+        if (disabled || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         if ((event.metaKey || event.ctrlKey) && ["b", "i", "u"].includes(event.key.toLowerCase())) {
           event.preventDefault();
           return;

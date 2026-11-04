@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { HarnessSkills, type SkillAdapter } from "./harness-skills";
 import { matchingSkills, skillCommand, skillQuery } from "../../shared/contracts/skills";
@@ -207,4 +208,62 @@ describe("skill composer", () => {
     expect(matchingSkills(skills, "rev").map((skill) => skill.name)).toEqual(["review", "audit"]);
     expect(matchingSkills(skills, "missing")).toEqual([]);
   });
+});
+
+describe("skill identity across catalog updates", () => {
+  for (const cwd of ["/home/alex/Design projects/应用", "/Users/alex/Design projects/应用"]) {
+    test.each(["codex", "claude", "opencode"] as const)(
+      `%s keeps selections across description changes in ${cwd}`,
+      async (harness) => {
+        let description = "Review changes";
+        let path = `${cwd}/.agents/skills/review/SKILL.md`;
+        const adapter: SkillAdapter = {
+          async discover() {
+            return [{ kind: "file", name: "review", description, path }];
+          },
+        };
+        const catalog = new HarnessSkills(async () => "/fixture", {
+          codex: adapter,
+          claude: adapter,
+          opencode: adapter,
+        });
+        const input = { harness, cwd };
+        const first = await catalog.list(input);
+        description = "Review architecture, security and performance — 检查";
+        const refreshed = await catalog.list({ ...input, refresh: true });
+        expect(refreshed.skills[0].description).toBe(description);
+        expect(refreshed.skills[0].id).toBe(first.skills[0].id);
+        const selection = { ...input, id: first.skills[0].id, prompt: "Please use $review here" };
+        expect(await catalog.resolve(selection)).toMatchObject({ description, path });
+        path = `${cwd}/.agents/skills/moved-review/SKILL.md`;
+        await catalog.list({ ...input, refresh: true });
+        await expect(catalog.resolve(selection)).rejects.toThrow("no longer available");
+      },
+    );
+  }
+});
+
+test("persisted selections from earlier versions remain bound to the exact native skill", async () => {
+  const input = { harness: "claude" as const, cwd: "/project" };
+  const native = { kind: "command" as const, name: "review", description: "Review changes" };
+  const id = createHash("sha256")
+    .update(JSON.stringify([input.harness, input.cwd, native]))
+    .digest("hex");
+  const catalog = new HarnessSkills(async () => "/fixture", {
+    codex: provider,
+    claude: provider,
+    opencode: provider,
+  });
+  expect(await catalog.resolve({ ...input, id, prompt: "Please use $review here" })).toEqual(
+    native,
+  );
+  await expect(catalog.resolve({ ...input, id, prompt: "Please use $other here" })).rejects.toThrow(
+    "no longer available",
+  );
+  await expect(catalog.resolve({ ...input, cwd: "/other", id, prompt: "$review" })).rejects.toThrow(
+    "no longer available",
+  );
+  await expect(
+    catalog.resolve({ ...input, harness: "codex", id, prompt: "$review" }),
+  ).rejects.toThrow("no longer available");
 });
