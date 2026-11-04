@@ -3,7 +3,7 @@ import {
   communityEligible,
   communityKeys,
   dismissCommunity,
-  recordCommunityDesign,
+  recordCommunityVisit,
 } from "./community-progress";
 
 function storage() {
@@ -14,24 +14,32 @@ function storage() {
   };
 }
 
-test("qualifies after five distinct designs and bounds stored progress", () => {
+test("qualifies after three editor visits, including repeat visits to the same design", () => {
   const saved = storage();
-  for (let index = 0; index < 10; index++) recordCommunityDesign(saved, "user", "first");
-  for (let index = 0; index < 3; index++) recordCommunityDesign(saved, "user", `design-${index}`);
+  recordCommunityVisit(saved, "user", "same-design-first-visit");
   expect(communityEligible(saved, "user")).toBe(false);
-  recordCommunityDesign(saved, "user", "fifth");
+  recordCommunityVisit(saved, "user", "same-design-second-visit");
+  expect(communityEligible(saved, "user")).toBe(false);
+  recordCommunityVisit(saved, "user", "same-design-third-visit");
   expect(communityEligible(saved, "user")).toBe(true);
-  for (let index = 0; index < 100; index++) recordCommunityDesign(saved, "user", `later-${index}`);
-  expect(JSON.parse(saved.getItem(communityKeys("user").designs)!)).toHaveLength(5);
+  for (let index = 0; index < 100; index++) recordCommunityVisit(saved, "user", `later-${index}`);
+  expect(JSON.parse(saved.getItem(communityKeys("user").visits)!)).toHaveLength(3);
+});
+
+test("rerenders and repeated effects count a mounted editor visit only once", () => {
+  const saved = storage();
+  for (let index = 0; index < 10; index++) recordCommunityVisit(saved, "user", "mounted-visit");
+  expect(communityEligible(saved, "user")).toBe(false);
+  expect(JSON.parse(saved.getItem(communityKeys("user").visits)!)).toEqual(["mounted-visit"]);
 });
 
 test("dismissal persists independently of stale progress writes", () => {
   const saved = storage();
   const keys = communityKeys("user");
-  for (let index = 0; index < 5; index++) recordCommunityDesign(saved, "user", `${index}`);
+  for (let index = 0; index < 3; index++) recordCommunityVisit(saved, "user", `${index}`);
   dismissCommunity(saved, "user");
-  saved.setItem(keys.designs, JSON.stringify(["a", "b", "c", "d", "e"]));
-  recordCommunityDesign(saved, "user", "another");
+  saved.setItem(keys.visits, JSON.stringify(["a", "b", "c"]));
+  recordCommunityVisit(saved, "user", "another");
   expect(communityEligible(saved, "user")).toBe(false);
   expect(saved.getItem(keys.dismissed)).toBe("1");
 });
@@ -39,7 +47,7 @@ test("dismissal persists independently of stale progress writes", () => {
 test("progress and dismissal are scoped to the signed-in user", () => {
   const saved = storage();
   for (const user of ["first-user", "second-user"]) {
-    for (let index = 0; index < 5; index++) recordCommunityDesign(saved, user, `${index}`);
+    for (let index = 0; index < 3; index++) recordCommunityVisit(saved, user, `${index}`);
   }
   dismissCommunity(saved, "first-user");
   expect(communityEligible(saved, "first-user")).toBe(false);
@@ -49,11 +57,11 @@ test("progress and dismissal are scoped to the signed-in user", () => {
 
 test("malformed and duplicate progress does not qualify or break future visits", () => {
   const saved = storage();
-  const key = communityKeys("user").designs;
-  for (const value of ["not json", "null", "{}", '["a","a","a","a","a"]', "[1,2,3,4,5]"]) {
+  const key = communityKeys("user").visits;
+  for (const value of ["not json", "null", "{}", '["a","a","a"]', "[1,2,3]"]) {
     saved.setItem(key, value);
     expect(communityEligible(saved, "user")).toBe(false);
-    recordCommunityDesign(saved, "user", "new");
+    recordCommunityVisit(saved, "user", "new");
     expect(JSON.parse(saved.getItem(key)!)).toContain("new");
   }
 });
@@ -68,6 +76,16 @@ test("blocked browser storage never disrupts navigation or shows an invitation",
     },
   };
   expect(communityEligible(blocked, "user")).toBe(false);
-  expect(() => recordCommunityDesign(blocked, "user", "design")).not.toThrow();
+  expect(() => recordCommunityVisit(blocked, "user", "visit")).not.toThrow();
   expect(() => dismissCommunity(blocked, "user")).not.toThrow();
+});
+
+test("retains prior dismissal when replacing the distinct-design threshold", () => {
+  const saved = storage();
+  saved.setItem("tidy:community:user:designs", JSON.stringify(["a", "b", "c", "d", "e"]));
+  expect(communityEligible(saved, "user")).toBe(false);
+  saved.setItem("tidy:community:user:dismissed", "1");
+  for (let index = 0; index < 3; index++) recordCommunityVisit(saved, "user", `${index}`);
+  expect(communityEligible(saved, "user")).toBe(false);
+  expect(saved.getItem(communityKeys("user").visits)).toBeNull();
 });

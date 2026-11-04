@@ -1,15 +1,15 @@
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 
-const threshold = 5;
+const threshold = 3;
 
 export function communityKeys(userId: string) {
   return {
-    designs: `tidy:community:${userId}:designs`,
+    visits: `tidy:community:${userId}:visits`,
     dismissed: `tidy:community:${userId}:dismissed`,
   };
 }
 
-function designs(storage: Storage, key: string): string[] {
+function visits(storage: Storage, key: string): string[] {
   try {
     const value: unknown = JSON.parse(storage.getItem(key) ?? "[]");
     return Array.isArray(value)
@@ -26,20 +26,20 @@ function designs(storage: Storage, key: string): string[] {
 export function communityEligible(storage: Storage, userId: string) {
   try {
     const keys = communityKeys(userId);
-    return !storage.getItem(keys.dismissed) && designs(storage, keys.designs).length >= threshold;
+    return !storage.getItem(keys.dismissed) && visits(storage, keys.visits).length >= threshold;
   } catch {
     return false;
   }
 }
 
-/** Keep only enough local progress to qualify; dismissal has its own permanent key. */
-export function recordCommunityDesign(storage: Storage, userId: string, designId: string) {
+/** A mount has one visit ID so rerenders and Strict Mode cannot count it twice. */
+export function recordCommunityVisit(storage: Storage, userId: string, visitId: string) {
   try {
     const keys = communityKeys(userId);
-    if (!designId || storage.getItem(keys.dismissed)) return;
-    const opened = designs(storage, keys.designs);
-    if (opened.length >= threshold || opened.includes(designId)) return;
-    storage.setItem(keys.designs, JSON.stringify([...opened, designId]));
+    if (!visitId || storage.getItem(keys.dismissed)) return;
+    const recorded = visits(storage, keys.visits);
+    if (recorded.length >= threshold || recorded.includes(visitId)) return;
+    storage.setItem(keys.visits, JSON.stringify([...recorded, visitId]));
   } catch {
     // An optional invitation must never interfere with opening a design.
   }

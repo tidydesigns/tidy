@@ -9,8 +9,8 @@ import { renameDesignFile } from "../actions";
 import posthog, { appErrorReporter } from "@/lib/posthog-client";
 import { EditorThumbnail } from "../editor-thumbnail";
 import { useEditorPerformance } from "./use-editor-performance";
-import { useEffect, useMemo, type ComponentProps } from "react";
-import { recordCommunityDesign } from "@/components/community/community-progress";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { recordCommunityVisit } from "@/components/community/community-progress";
 import { useFileCreation, type FileCreation } from "../new/use-file-creation";
 const host = {
   AgentConnection: EditorAgentConnection,
@@ -28,6 +28,7 @@ export function FileEditor({
   ...props
 }: ComponentProps<typeof SharedFileEditor> & { creation?: FileCreation }) {
   const { persistenceReady, statusControl } = useFileCreation(creation);
+  const [visitId] = useState(() => crypto.randomUUID());
   const { viewerId, fileId, canEdit = true, local, archived } = props;
   useEffect(() => {
     if (!viewerId || !canEdit || local || archived) return;
@@ -35,7 +36,7 @@ export function FileEditor({
     const record = () => {
       if (cancelled) return;
       try {
-        recordCommunityDesign(window.localStorage, viewerId, fileId);
+        recordCommunityVisit(window.localStorage, viewerId, visitId);
       } catch {
         // Storage restrictions must not prevent the editor from opening.
       }
@@ -45,7 +46,7 @@ export function FileEditor({
     return () => {
       cancelled = true;
     };
-  }, [viewerId, fileId, canEdit, local, archived, persistenceReady]);
+  }, [viewerId, fileId, canEdit, local, archived, persistenceReady, visitId]);
   const editorHost = useMemo(
     () =>
       persistenceReady
