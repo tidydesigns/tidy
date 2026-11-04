@@ -51,6 +51,18 @@ test("batch filenames are safe and unique even with case collisions and suffixed
   expect(names).toEqual(["Button@2x.png", "button-2@2x.png", "button-2-2@2x.png", "layer@2x.png"]);
   expect(exportFilename("Native", 1, "svg")).toBe("Native.svg");
 });
+test("filenames preserve normalization, trimming, truncation and suffixes", () => {
+  expect(exportFilename("--Ｆｏｏ / Bar__--", 0.5, "webp", 3)).toBe("Foo-Bar__-3@0.5x.webp");
+  expect(exportFilename("", 1, "png")).toBe("layer.png");
+  expect(exportFilename("---???---", 1, "zip")).toBe("layer.zip");
+  expect(exportFilename(`--${"a".repeat(99)}--b--`, 1, "pdf")).toBe(`${"a".repeat(99)}-.pdf`);
+});
+test("filenames handle long internal, leading and trailing hyphen runs", () => {
+  const hyphens = "-".repeat(100_000);
+  expect(exportFilename(`a${hyphens}b`, 1, "png")).toBe(`a${"-".repeat(99)}.png`);
+  expect(exportFilename(`${hyphens}Layer${hyphens}`, 2, "svg")).toBe("Layer@2x.svg");
+  expect(exportFilename(hyphens, 1, "zip")).toBe("layer.zip");
+});
 test("transformed selection bounds include rotations, negative coordinates and parent offsets", () => {
   const matrix = matrixMultiply([1, 0, 0, 1, 100, 50], [0, 1, -1, 0, 0, 0]);
   expect(transformedExportBounds({ x: 0, y: 0, width: 40, height: 20 }, matrix)).toEqual({

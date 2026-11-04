@@ -71,12 +71,12 @@ export function exportFilename(
   format: ExportFormat | "zip",
   duplicate = 1,
 ) {
-  const base =
-    name
-      .normalize("NFKC")
-      .replace(/[^a-z0-9_-]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 100) || "layer";
+  const sanitized = name.normalize("NFKC").replace(/[^a-z0-9_-]+/gi, "-");
+  let start = 0,
+    end = sanitized.length;
+  while (start < end && sanitized[start] === "-") start++;
+  while (end > start && sanitized[end - 1] === "-") end--;
+  const base = sanitized.slice(start, Math.min(end, start + 100)) || "layer";
   return `${base}${duplicate > 1 ? `-${duplicate}` : ""}${scale === 1 ? "" : `@${scale}x`}.${format}`;
 }
 export function exportNames(nodes: readonly DesignNode[], scale: number, format: ExportFormat) {
