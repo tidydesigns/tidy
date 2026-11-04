@@ -16,8 +16,8 @@
 }
 
 .desktop-navigation .thread-select {
-  padding: 6px 10px;
-  gap: 0;
+  padding: 8px 10px;
+  gap: 2px;
 }
 
 .thread-heading {
@@ -380,4 +380,9 @@
 .workspace-side-panel .repository-explorer-resize:is(:hover, :focus-visible)::after {
   width: 3px;
   background: var(--color-muted-ink);
+}
+
+.desktop-navigation .thread-time {
+  top: 8px;
+  line-height: 18px;
 }
