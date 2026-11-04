@@ -1,6 +1,6 @@
 import { compactCanvasPatch, expandCanvasPatch } from "./canvas-patch";
 import type { RenderDiagnostic } from "./render-diagnostics";
-import { canvasImportAssetSchema } from "./canvas-assets";
+import { canvasImportAssetSchema, CANVAS_ASSET_INPUT_LIMITS } from "./canvas-assets";
 import type { SvgImportResult } from "@tidy/editor/design/svg-path-import";
 import { CloudComputeBusyError } from "../cloud/cloud-compute-errors";
 import { createHash, randomUUID } from "node:crypto";
@@ -69,7 +69,7 @@ export const CANVAS_LIMITS = {
   undo_receipt_bytes: 64 * 1024,
   imported_asset_bytes: 2 * 1024 * 1024,
   editable_svg_bytes: 24 * 1024,
-  inline_image_encoded_bytes: 900000,
+  ...CANVAS_ASSET_INPUT_LIMITS,
   request_bytes: 1024 * 1024,
   render_asset_bytes: 8 * 1024 * 1024,
   render_side_pixels: 4096,
@@ -94,7 +94,8 @@ export const canvasCapabilities = {
     "style elements",
     "animation",
     "embedded documents",
-    "XML declarations and entities",
+    "DOCTYPE and entity declarations",
+    "processing instructions other than the XML declaration",
   ],
   svg_conversion:
     "Supported paths and basic shapes become editable vectors; unsupported artwork remains an SVG asset with a warning.",
@@ -938,7 +939,7 @@ export class CanvasService {
     await this.access(scope, request.design_id, true);
     const hash = createHash("sha256").update(data).digest("hex");
     const assetId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-    await this.options.store.cacheSyncAsset(scope.projectId, assetId, data, async () => {
+    const assertCurrent = async () => {
       await this.access(scope, request.design_id, true);
       const latest = await this.options.store.readDesign(scope.projectId, request.design_id, false);
       if (latest.archivedAt || latest.version !== request.expected_version)
@@ -946,8 +947,9 @@ export class CanvasService {
           "CONFLICT",
           "This design changed during asset import. Read its latest version.",
         );
-    });
-    await this.access(scope, request.design_id, true);
+    };
+    await this.options.store.cacheSyncAsset(scope.projectId, assetId, data, assertCurrent);
+    await assertCurrent();
     return {
       design_id: file.id,
       version: file.version,
@@ -1024,14 +1026,17 @@ export class CanvasService {
       const cached = visibility.get(node.id);
       if (cached !== undefined) return cached;
       const parent = node.parentId ? byId.get(node.parentId) : undefined;
-      const result = node.visible && (!parent || visible(parent));
+      const result = node.visible && node.style.opacity !== 0 && (!parent || visible(parent));
       visibility.set(node.id, result);
       return result;
     };
     const assetNodes = renderedNodes.filter(visible).map((node) => ({
       ...node,
       variants: undefined,
-      style: { ...node.style, paints: node.style.paints?.filter((paint) => paint.visible) },
+      style: {
+        ...node.style,
+        paints: node.style.paints?.filter((paint) => paint.visible && paint.opacity !== 0),
+      },
     }));
     for (const id of documentAssetIds({ ...document, nodes: assetNodes, reusableStyles: {} })) {
       await this.access(scope, request.design_id);

@@ -8,6 +8,7 @@ export const renderDiagnosticSchema = z
       "font_load_error",
       "missing_asset",
       "asset_decode_error",
+      "resource_timeout",
     ]),
     resource: z.string(),
     message: z.string(),

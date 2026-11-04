@@ -7,6 +7,7 @@ import { BrowserRuntime } from "../browser/runtime";
 import { AgentOperationError } from "./contracts";
 import type { CanvasSnapshot, CanvasRenderResult } from "./canvas-service";
 import type { BrowserContext, Page } from "puppeteer-core";
+import { rasterDimensions } from "./raster-dimensions";
 
 async function untilAborted<T>(signal: AbortSignal, action: () => Promise<T>) {
   signal.throwIfAborted();
@@ -18,6 +19,87 @@ async function untilAborted<T>(signal: AbortSignal, action: () => Promise<T>) {
   } finally {
     signal.removeEventListener("abort", abort);
   }
+}
+
+/** Serialized into the isolated page; resource tracking must not capture host values. */
+export async function canvasResourceReadiness({
+  requests,
+  assets,
+  timeoutMs = 10000,
+}: {
+  requests: Awaited<ReturnType<typeof canvasFonts>>["requests"];
+  assets: Record<string, string>;
+  timeoutMs?: number;
+}): Promise<RenderDiagnostic[]> {
+  const diagnostics: RenderDiagnostic[] = [];
+  const pending = new Map<string, string>();
+  const load = async (
+    key: string,
+    resource: string,
+    kind: "font_load_error" | "asset_decode_error",
+    action: () => Promise<unknown>,
+  ) => {
+    pending.set(key, resource);
+    try {
+      await action();
+    } catch {
+      diagnostics.push({
+        kind,
+        resource,
+        message:
+          kind === "font_load_error"
+            ? "Embedded font could not be loaded."
+            : "Asset could not be decoded.",
+      });
+    } finally {
+      pending.delete(key);
+    }
+  };
+  const ready = Promise.all([
+    ...requests.map((request, index) => {
+      const spec = `${request.italic ? "italic" : "normal"} ${request.weight} 16px ${JSON.stringify(request.face ?? request.family)}`;
+      return load(`font:${index}`, spec, "font_load_error", async () => {
+        const faces = await document.fonts.load(spec, request.text || "Aa");
+        if (faces.some((face) => face.status !== "loaded")) throw new Error("Font did not load.");
+      });
+    }),
+    load("font-set", "document.fonts", "font_load_error", () => document.fonts.ready),
+    ...Object.entries(assets).map(([id, data]) =>
+      load(`asset:${id}`, id, "asset_decode_error", async () => {
+        const image = new Image();
+        image.src = data;
+        await image.decode();
+      }),
+    ),
+    ...[...document.images].map((image, index) =>
+      load(
+        `image:${index}`,
+        image.getAttribute("data-asset-id") ?? (image.alt || `image:${index}`),
+        "asset_decode_error",
+        () => image.decode(),
+      ),
+    ),
+  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      ready,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          for (const resource of pending.values())
+            diagnostics.push({
+              kind: "resource_timeout",
+              resource,
+              message: "Preview resource did not finish loading before the deadline.",
+            });
+          resolve();
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  return [...diagnostics];
 }
 
 async function renderedFontSubstitutions(page: Page): Promise<RenderDiagnostic[]> {
@@ -84,6 +166,18 @@ export class CanvasRenderer {
         "BUSY",
         "A canvas preview or import is running. Retry shortly.",
       );
+    if (!data.startsWith("data:image/svg+xml;base64,")) {
+      const header = /^data:(image\/(?:png|jpeg|webp));base64,/.exec(data);
+      const size =
+        header && rasterDimensions(Buffer.from(data.slice(header[0].length), "base64"), header[1]);
+      if (!size || !size.width || !size.height)
+        throw new AgentOperationError(
+          "CONFLICT",
+          "Image header has invalid or missing dimensions. Choose a PNG, JPEG or WebP image.",
+        );
+      if (size.width * size.height > 16_000_000)
+        throw new AgentOperationError("BUSY", "Imported image must contain at most 16 megapixels.");
+    }
     this.active = true;
     let context: BrowserContext | undefined;
     const abort = () => {
@@ -204,76 +298,10 @@ export class CanvasRenderer {
           { waitUntil: "load" },
         );
         const readiness = await untilAborted(snapshot.signal, () =>
-          page.evaluate(
-            async ({ requests, assets }) => {
-              const diagnostics: {
-                kind: "asset_decode_error" | "font_load_error";
-                resource: string;
-                message: string;
-              }[] = [];
-              const ready = async () => {
-                for (const request of requests) {
-                  const spec = `${request.italic ? "italic" : "normal"} ${request.weight} 16px ${JSON.stringify(request.face ?? request.family)}`;
-                  try {
-                    const faces = await document.fonts.load(spec, request.text || "Aa");
-                    if (faces.some((face) => face.status !== "loaded"))
-                      throw new Error("Font did not load.");
-                  } catch {
-                    diagnostics.push({
-                      kind: "font_load_error",
-                      resource: spec,
-                      message: "Embedded font could not be loaded.",
-                    });
-                  }
-                }
-                await document.fonts.ready;
-                await Promise.all(
-                  Object.entries(assets).map(async ([id, data]) => {
-                    try {
-                      const image = new Image();
-                      image.src = data;
-                      await image.decode();
-                    } catch {
-                      diagnostics.push({
-                        kind: "asset_decode_error",
-                        resource: id,
-                        message: "Asset could not be decoded.",
-                      });
-                    }
-                  }),
-                );
-                await Promise.all(
-                  [...document.images].map(async (image) => {
-                    try {
-                      await image.decode();
-                    } catch {
-                      diagnostics.push({
-                        kind: "asset_decode_error",
-                        resource: image.getAttribute("data-asset-id") ?? image.alt ?? "image",
-                        message: "Image could not be decoded.",
-                      });
-                    }
-                  }),
-                );
-              };
-              let timer: ReturnType<typeof setTimeout> | undefined;
-              try {
-                await Promise.race([
-                  ready(),
-                  new Promise<never>((_, reject) => {
-                    timer = setTimeout(
-                      () => reject(new Error("Preview resources timed out.")),
-                      10000,
-                    );
-                  }),
-                ]);
-              } finally {
-                clearTimeout(timer);
-              }
-              return diagnostics;
-            },
-            { requests: fonts.requests, assets: snapshot.assets },
-          ),
+          page.evaluate(canvasResourceReadiness, {
+            requests: fonts.requests,
+            assets: snapshot.assets,
+          }),
         );
         diagnostics.push(...readiness);
         diagnostics.push(

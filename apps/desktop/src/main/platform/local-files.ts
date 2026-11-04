@@ -10,11 +10,14 @@ export async function readLocalFile(
   const before = await lstat(path);
   if (!before.isFile() || before.isSymbolicLink())
     throw new Error("Local files must be regular files, not symbolic links.");
-  const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const file = await open(
+    path,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+  );
   try {
     const info = await file.stat();
-    if (!info.isFile() || info.size > limit)
-      throw new Error("The local project file is too large.");
+    if (!info.isFile()) throw new Error("Local files must be regular files.");
+    if (info.size > limit) throw new Error("The local project file is too large.");
     await verifyOpened?.(info, file);
     const chunks: Buffer[] = [];
     let size = 0;

@@ -907,6 +907,25 @@ test("asset imports require attached writable scope and bounded project paths wi
     source: { kind: "inline_image", data_url: "data:image/png;base64,iVBORw0KGgo=" },
   });
   expect(inline.node.type).toBe("image");
+  const rejecting = new CanvasService({
+    store: f.store,
+    receipts: f.store.processState,
+    authorize: async () => {},
+    onChange: async () => {},
+    inspectAsset: async () => {
+      throw new Error("decode failed");
+    },
+  });
+  cleanups.push(() => rejecting.close());
+  await expect(
+    rejecting.importAsset(f.scope, {
+      ...request,
+      source: { kind: "inline_image", data_url: "data:image/png;base64,iVBORw0KGgo=" },
+    }),
+  ).rejects.toMatchObject({
+    code: "CONFLICT",
+    message: expect.stringContaining("could not be decoded"),
+  });
   expect(repeated.asset_id).toBe(imported.asset_id);
   expect(await f.store.readSyncAsset(f.project.id, imported.asset_id)).toStartWith(
     "data:image/svg+xml;base64,",
@@ -1000,7 +1019,7 @@ test("render viewport follows resolved component variant dimensions", async () =
   expect({ width, height }).toEqual({ width: 500, height: 300 });
 });
 
-test("strict rendering only requires assets from visible nodes and the selected variant", async () => {
+test("strict rendering only requires assets from painted nodes and the selected variant", async () => {
   const f = await fixture();
   const root = f.file.document.nodes[0];
   const missing = randomUUID();
@@ -1022,7 +1041,11 @@ test("strict rendering only requires assets from visible nodes and the selected 
     },
   });
   cleanups.push(() => service.close());
-  for (const visible of [false, true]) {
+  for (const [visible, opacity] of [
+    [false, 1],
+    [true, 0],
+    [true, 1],
+  ] as const) {
     const file = await f.store.createDesign(f.project.id, {
       name: "Visible resources",
       document: {
@@ -1033,7 +1056,10 @@ test("strict rendering only requires assets from visible nodes and the selected 
             isComponent: true,
             style: {
               ...root.style,
-              paints: [{ id: "hidden-fill", type: "image", assetId: missing, visible: false }],
+              paints: [
+                { id: "hidden-fill", type: "image", assetId: missing, visible: false },
+                { id: "transparent-fill", type: "image", assetId: missing, opacity: 0 },
+              ],
             },
             variants: {
               default: "active",
@@ -1046,7 +1072,14 @@ test("strict rendering only requires assets from visible nodes and the selected 
             },
             variant: "active",
           },
-          { ...root, id: "hidden", type: "container", parentId: root.id, visible },
+          {
+            ...root,
+            id: "hidden",
+            type: "container",
+            parentId: root.id,
+            visible,
+            style: { opacity },
+          },
           { ...root, id: "image", type: "image", parentId: "hidden", assetId: missing },
         ],
       },
@@ -1060,7 +1093,43 @@ test("strict rendering only requires assets from visible nodes and the selected 
         strict_fidelity: true,
       },
     );
-    if (visible) await expect(rendered).rejects.toThrow("missing_asset");
+    if (visible && opacity) await expect(rendered).rejects.toThrow("missing_asset");
     else expect((await rendered).kind).toBe("rendered");
+  }
+});
+
+test("asset imports recheck design versions after inspection on cache hits and misses", async () => {
+  for (const cached of [false, true]) {
+    const f = await fixture();
+    let changeDuringInspection = false;
+    const service = new CanvasService({
+      store: f.store,
+      receipts: f.store.processState,
+      authorize: async () => {},
+      onChange: async () => {},
+      inspectAsset: async () => {
+        if (changeDuringInspection)
+          await f.store.updateDesign({
+            projectId: f.project.id,
+            designId: f.file.id,
+            expectedVersion: f.file.version,
+            name: "Changed during import",
+          });
+        return { width: 10, height: 10 };
+      },
+    });
+    cleanups.push(() => service.close());
+    const request = {
+      design_id: f.file.id,
+      expected_version: f.file.version,
+      source: { kind: "inline_image", data_url: "data:image/png;base64,iVBORw0KGgo=" },
+    };
+    if (cached) await service.importAsset(f.scope, request);
+    changeDuringInspection = true;
+    const result = await service.importAsset(f.scope, request).catch((error: unknown) => error);
+    expect(result).toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("changed during asset import"),
+    });
   }
 });

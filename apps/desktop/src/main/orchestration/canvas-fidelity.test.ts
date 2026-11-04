@@ -15,7 +15,7 @@ import {
   type DesignNode,
 } from "@tidy/design/document";
 import { BrowserRuntime } from "../browser/runtime";
-import { CanvasRenderer } from "./render-service";
+import { CanvasRenderer, canvasResourceReadiness } from "./render-service";
 import { CanvasService } from "./canvas-service";
 import { ProjectStore } from "../workspace/project-store";
 import type { AgentScope } from "./contracts";
@@ -682,13 +682,25 @@ browserTest(
 browserTest(
   "asset inspection preserves safe unsupported SVGs and rejects active, external and malformed artwork",
   async () => {
+    for (const format of ["png", "jpeg", "webp"] as const) {
+      const bytes = await sharp({
+        create: { width: 30, height: 20, channels: 3, background: "#15803d" },
+      })
+        .toFormat(format)
+        .toBuffer();
+      const size = await renderer.inspectAsset(
+        `data:image/${format};base64,${bytes.toString("base64")}`,
+        new AbortController().signal,
+      );
+      expect({ width: size.width, height: size.height }).toEqual({ width: 30, height: 20 });
+    }
     const inspect = (svg: string) =>
       renderer.inspectAsset(
         `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
         new AbortController().signal,
       );
     const safe = await inspect(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><g transform="translate(2 2)"><rect width="10" height="10" fill="#ff0000"/></g></svg>',
+      '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><g transform="translate(2 2)"><rect width="10" height="10" fill="#ff0000"/></g></svg>',
     );
     expect(safe.svg?.editable).toBeUndefined();
     expect(safe.svg?.reason).toContain("Original SVG retained");
@@ -712,8 +724,55 @@ browserTest(
       ),
     ).rejects.toThrow();
     await expect(inspect("<svg><path></svg>")).rejects.toThrow();
+    await expect(
+      inspect(
+        '<?xml-stylesheet href="https://outside.invalid/style.css"?><svg xmlns="http://www.w3.org/2000/svg"/>',
+      ),
+    ).rejects.toThrow();
   },
   60000,
+);
+
+browserTest(
+  "resource deadlines retain existing errors and identify pending fonts and images",
+  async () => {
+    const page = await browser.newPage();
+    try {
+      await page.setContent("<span>Resource deadline</span>");
+      await page.evaluate(() => {
+        document.fonts.load = (spec) =>
+          spec.includes("Broken")
+            ? Promise.reject(new Error("font failed"))
+            : new Promise(() => {});
+        Image.prototype.decode = () => new Promise(() => {});
+      });
+      const diagnostics = await page.evaluate(canvasResourceReadiness, {
+        requests: ["Broken font", "Pending font"].map((family) => ({
+          family,
+          weight: 400,
+          italic: false,
+          text: "Aa",
+        })),
+        assets: { "pending-logo": "data:image/png;base64,aW52YWxpZA==" },
+        timeoutMs: 25,
+      });
+      expect(diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "font_load_error",
+            resource: expect.stringContaining("Broken font"),
+          }),
+          expect.objectContaining({
+            kind: "resource_timeout",
+            resource: expect.stringContaining("Pending font"),
+          }),
+          expect.objectContaining({ kind: "resource_timeout", resource: "pending-logo" }),
+        ]),
+      );
+    } finally {
+      await page.close();
+    }
+  },
 );
 
 browserTest(

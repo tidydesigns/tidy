@@ -14,6 +14,19 @@ import { bundledCanvasFontCss } from "../../../scripts/canvas-fonts";
 
 declare const TIDY_CANVAS_FONT_CSS: Record<string, string> | undefined;
 const cached = new Map<string, string>();
+let cachedBytes = 0;
+function cacheFontResource(url: string, value: string) {
+  cachedBytes -= Buffer.byteLength(cached.get(url) ?? "");
+  cached.delete(url);
+  cached.set(url, value);
+  cachedBytes += Buffer.byteLength(value);
+  while (cached.size > 32 || cachedBytes > 8 * 1024 * 1024) {
+    const oldest = cached.keys().next().value;
+    if (oldest === undefined) break;
+    cachedBytes -= Buffer.byteLength(cached.get(oldest)!);
+    cached.delete(oldest);
+  }
+}
 let bundled: Promise<Record<string, string>> | undefined;
 let catalog: Promise<typeof import("@tidy/editor/design/fonts/catalog")> | undefined;
 
@@ -70,7 +83,7 @@ export async function canvasFonts(nodes: DesignNode[], signal: AbortSignal) {
     const cached = visibility.get(node.id);
     if (cached !== undefined) return cached;
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
-    const result = node.visible && (!parent || visible(parent));
+    const result = node.visible && node.style.opacity !== 0 && (!parent || visible(parent));
     visibility.set(node.id, result);
     return result;
   };
@@ -160,8 +173,7 @@ export async function canvasFonts(nodes: DesignNode[], signal: AbortSignal) {
         let stylesheet = cached.get(url);
         if (!stylesheet) {
           stylesheet = (await fontResource(url, "fonts.googleapis.com", signal)).toString("utf8");
-          if (cached.size >= 32) cached.delete(cached.keys().next().value!);
-          cached.set(url, stylesheet);
+          cacheFontResource(url, stylesheet);
         }
         css = fontCssForText(stylesheet, style.weight, style.italic, text);
         if (!css) throw new Error("No font subsets cover the requested text.");
@@ -171,8 +183,7 @@ export async function canvasFonts(nodes: DesignNode[], signal: AbortSignal) {
           let data = cached.get(url);
           if (!data) {
             data = `data:font/woff2;base64,${(await fontResource(url, "fonts.gstatic.com", signal)).toString("base64")}`;
-            if (cached.size >= 32) cached.delete(cached.keys().next().value!);
-            cached.set(url, data);
+            cacheFontResource(url, data);
           }
           css = css.replace(match[0], `url(${data})`);
         }

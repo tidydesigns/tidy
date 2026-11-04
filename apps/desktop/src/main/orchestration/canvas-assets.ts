@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { inspectSvgElements, type SvgElementData } from "@tidy/editor/design/svg-path-import";
 
+export const CANVAS_ASSET_INPUT_LIMITS = {
+  inline_image_encoded_bytes: 900000,
+  inline_svg_characters: 340 * 1024,
+  inline_svg_encoded_bytes: 900000,
+} as const;
+
 export const canvasImportAssetSchema = z
   .object({
     design_id: z.uuid(),
@@ -11,7 +17,7 @@ export const canvasImportAssetSchema = z
           kind: z.literal("inline_image"),
           data_url: z
             .string()
-            .max(900000)
+            .max(CANVAS_ASSET_INPUT_LIMITS.inline_image_encoded_bytes)
             .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/),
         })
         .strict(),
@@ -24,7 +30,13 @@ export const canvasImportAssetSchema = z
           svg: z
             .string()
             .min(1)
-            .max(512 * 1024),
+            .max(CANVAS_ASSET_INPUT_LIMITS.inline_svg_characters)
+            .refine(
+              (svg) =>
+                Buffer.byteLength(JSON.stringify(svg)) <=
+                CANVAS_ASSET_INPUT_LIMITS.inline_svg_encoded_bytes,
+              "Encoded SVG exceeds the request budget.",
+            ),
         })
         .strict(),
     ]),
