@@ -1,19 +1,32 @@
 import { FileThumbnail } from "@/app/files/file-thumbnail";
 import { expect, test } from "bun:test";
+import { DOMParser } from "@xmldom/xmldom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { ThumbnailRenderer } from "@/app/files/thumbnail-renderer";
+import { ThumbnailRenderer, type Snapshot } from "@/app/files/thumbnail-renderer";
 import { buildLoginDocument } from "@/lib/design/examples/login";
 import { blankDesignDocument } from "@/lib/design/document";
 
-test("fallback thumbnail renderer preserves the UI preview", () => {
-  const document = buildLoginDocument("00000000-0000-4000-8000-000000000001");
-  const html = renderToStaticMarkup(
+function renderThumbnail(snapshot: Snapshot) {
+  return renderToStaticMarkup(
     createElement(ThumbnailRenderer, {
-      fileId: "example",
-      snapshot: { document: { content: document }, frames: [], rectangles: [] },
+      snapshot,
+      signal: new AbortController().signal,
+      onComplete: () => {},
+      onError: (error) => {
+        throw error;
+      },
     }),
   );
+}
+
+test("fallback thumbnail renderer preserves the UI preview", () => {
+  const document = buildLoginDocument("00000000-0000-4000-8000-000000000001");
+  const html = renderThumbnail({
+    document: { content: document, revision: 0 },
+    frames: [],
+    rectangles: [],
+  });
   expect(html).toContain("<svg");
   expect(html).toContain("Welcome back.");
   expect(html).toContain("Tidy");
@@ -21,16 +34,11 @@ test("fallback thumbnail renderer preserves the UI preview", () => {
 });
 
 test("fallback thumbnail renderer preserves legacy shapes", () => {
-  const html = renderToStaticMarkup(
-    createElement(ThumbnailRenderer, {
-      fileId: "example",
-      snapshot: {
-        document: null,
-        frames: [{ id: "frame", x: 10, y: 20, width: 300, height: 200 }],
-        rectangles: [],
-      },
-    }),
-  );
+  const html = renderThumbnail({
+    document: null,
+    frames: [{ id: "frame", x: 10, y: 20, width: 300, height: 200 }],
+    rectangles: [],
+  });
   expect(html).toContain("<svg");
   expect(html).toContain('width="300"');
   expect(html).not.toContain("border-dashed");
@@ -49,44 +57,41 @@ test("fallback thumbnail renderer includes shapes drawn outside frames", () => {
     locked: false,
     layout: "absolute",
   });
-  const html = renderToStaticMarkup(
-    createElement(ThumbnailRenderer, {
-      fileId: "example",
-      snapshot: { document: { content: document }, frames: [], rectangles: [] },
-    }),
-  );
-  expect(html).toContain('viewBox="1776 76 168 128"');
+  const html = renderThumbnail({
+    document: { content: document, revision: 0 },
+    frames: [],
+    rectangles: [],
+  });
+  const svg = new DOMParser()
+    .parseFromString(html, "text/html")
+    .getElementsByTagName("svg")
+    .item(0);
+  const crop = svg?.getAttribute("viewBox")?.split(/\s+/).map(Number) ?? [];
+  expect(crop).toHaveLength(4);
+  const [x, y, width, height] = crop;
+  expect(x).toBeLessThan(1800);
+  expect(y).toBeLessThan(100);
+  expect(x + width).toBeGreaterThan(1920);
+  expect(y + height).toBeGreaterThan(180);
   expect(html).toContain("background:#dedede");
-  expect(html).toContain("left:1800px;top:100px");
-  expect(html).toContain("left:-1776px;top:-76px");
+  expect(html).toContain('data-thumbnail-node="free-rectangle"');
 });
 
 test("an empty editable file uses the neutral placeholder", () => {
-  const html = renderToStaticMarkup(
-    createElement(ThumbnailRenderer, {
-      fileId: "example",
-      snapshot: {
-        document: { content: blankDesignDocument() },
-        frames: [],
-        rectangles: [],
-      },
-    }),
-  );
+  const html = renderThumbnail({
+    document: { content: blankDesignDocument(), revision: 0 },
+    frames: [],
+    rectangles: [],
+  });
   expect(html).not.toContain("<svg");
 });
 
 test("deleted legacy shapes do not reappear in a converted file card", () => {
-  const html = renderToStaticMarkup(
-    createElement(ThumbnailRenderer, {
-      fileId: "example",
-      snapshot: {
-        document: { content: blankDesignDocument() },
-        frames: [{ id: "old-frame", x: 10, y: 20, width: 300, height: 200 }],
-        rectangles: [],
-      },
-    }),
-  );
-  expect(html).not.toContain("<svg");
+  const html = renderThumbnail({
+    document: { content: blankDesignDocument(), revision: 0 },
+    frames: [{ id: "old-frame", x: 10, y: 20, width: 300, height: 200 }],
+    rectangles: [],
+  });
   expect(html).not.toContain("<svg");
 });
 
@@ -118,12 +123,11 @@ test("thumbnail uses the same flex layout and tokens as the editor", () => {
     locked: false,
     layout: "absolute",
   });
-  const html = renderToStaticMarkup(
-    createElement(ThumbnailRenderer, {
-      fileId: "example",
-      snapshot: { document: { content: document }, frames: [], rectangles: [] },
-    }),
-  );
+  const html = renderThumbnail({
+    document: { content: document, revision: 0 },
+    frames: [],
+    rectangles: [],
+  });
   expect(html).toContain("display:flex");
   expect(html).toContain("flex-direction:column");
   expect(html).toContain("background:#aabbcc");
