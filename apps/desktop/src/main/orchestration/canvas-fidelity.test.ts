@@ -696,6 +696,7 @@ browserTest(
       "<script>alert(1)</script>",
       "<foreignObject/>",
       '<image href="file:///etc/passwd"/>',
+      '<image xmlns:q="http://www.w3.org/1999/xlink" q:href="https://outside.invalid/image.svg"/>',
       '<path onload="alert(1)"/>',
       '<style>@import "https://example.com";</style>',
       '<animate attributeName="x"/>',
@@ -761,6 +762,17 @@ browserTest(
     const generic = await renderer.render(snapshot);
     expect(generic.diagnostics?.[0].kind).toBe("font_substitution");
     document.nodes[1].style = { fontFamily: "Instrument Sans" };
+    document.nodes[1].text = "Wiśniewska-Kowalczyk";
+    const bundled = await renderer.render({ ...snapshot, strictFidelity: true });
+    expect(bundled.resources_complete).toBe(true);
+    document.nodes[1].text = "Tolerance ±5%";
+    await expect(renderer.render({ ...snapshot, strictFidelity: true })).rejects.toThrow(
+      "font_substitution",
+    );
+    const substituted = await renderer.render(snapshot);
+    expect(substituted.resources_complete).toBe(false);
+    expect(substituted.diagnostics?.some((item) => item.kind === "font_substitution")).toBe(true);
+    document.nodes[1].text = "Editable text";
     const assetId = randomUUID();
     document.nodes.push(
       designNodeSchema.parse({

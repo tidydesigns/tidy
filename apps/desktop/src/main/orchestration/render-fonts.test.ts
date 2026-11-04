@@ -9,7 +9,7 @@ const label = (family: string, weight = 400) =>
     name: "Label",
     parentId: null,
     type: "text",
-    text: "Editable typography",
+    text: "Wiśniewska-Kowalczyk",
     box: { x: 0, y: 0, width: 200, height: 24 },
     style: { fontFamily: family, fontWeight: weight },
   });

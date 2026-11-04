@@ -124,10 +124,7 @@ export async function canvasFonts(nodes: DesignNode[], signal: AbortSignal) {
       bundledFamily &&
       !italic &&
       weight >= 400 &&
-      weight <= (bundledFamily === "Instrument Sans" ? 700 : 400) &&
-      /^[\u0000-\u00ff\u0131\u0152\u0153\u02bb\u02bc\u02c6\u02da\u02dc\u2000-\u206f\u20ac\u2122\u2191\u2193\u2212\u2215\ufeff\ufffd]*$/.test(
-        text,
-      )
+      weight <= (bundledFamily === "Instrument Sans" ? 700 : 400)
         ? owned[bundledFamily]
         : undefined;
     const font =

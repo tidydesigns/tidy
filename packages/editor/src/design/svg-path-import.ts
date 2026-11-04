@@ -28,7 +28,16 @@ export function parseSvgElements(source: string): SvgElementData {
     if (++count > 10000 || depth > 40) throw new Error("SVG exceeds import limits.");
     return {
       name: element.localName,
-      attributes: Object.fromEntries([...element.attributes].map((a) => [a.name, a.value])),
+      attributes: Object.fromEntries(
+        [...element.attributes].map((attribute) => [
+          attribute.namespaceURI === "http://www.w3.org/1999/xlink"
+            ? `xlink:${attribute.localName}`
+            : attribute.namespaceURI === "http://www.w3.org/XML/1998/namespace"
+              ? `xml:${attribute.localName}`
+              : attribute.name,
+          attribute.value,
+        ]),
+      ),
       children: [...element.children].map((child) => walk(child, depth + 1)),
     };
   };

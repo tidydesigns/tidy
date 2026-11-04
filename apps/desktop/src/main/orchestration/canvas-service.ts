@@ -14,6 +14,7 @@ import {
   nodePageId,
   parseDesignDocument,
   type DesignDocument,
+  type DesignNode,
 } from "@tidy/design/document";
 import {
   duplicateLayers,
@@ -1017,7 +1018,22 @@ export class CanvasService {
     const diagnostics: RenderDiagnostic[] = [];
     let assetBytes = 0;
     const renderedNodes = resolvedDocumentNodes(document).filter((node) => selected.has(node.id));
-    for (const id of documentAssetIds({ ...document, nodes: renderedNodes, reusableStyles: {} })) {
+    const byId = new Map(renderedNodes.map((node) => [node.id, node]));
+    const visibility = new Map<string, boolean>();
+    const visible = (node: DesignNode): boolean => {
+      const cached = visibility.get(node.id);
+      if (cached !== undefined) return cached;
+      const parent = node.parentId ? byId.get(node.parentId) : undefined;
+      const result = node.visible && (!parent || visible(parent));
+      visibility.set(node.id, result);
+      return result;
+    };
+    const assetNodes = renderedNodes.filter(visible).map((node) => ({
+      ...node,
+      variants: undefined,
+      style: { ...node.style, paints: node.style.paints?.filter((paint) => paint.visible) },
+    }));
+    for (const id of documentAssetIds({ ...document, nodes: assetNodes, reusableStyles: {} })) {
       await this.access(scope, request.design_id);
       const data = await this.options.store.readSyncAsset(scope.projectId, id);
       if (!data || !/^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(data)) {

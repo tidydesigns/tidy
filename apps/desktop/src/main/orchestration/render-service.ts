@@ -6,7 +6,7 @@ import { CloudCompute } from "../cloud/cloud-compute";
 import { BrowserRuntime } from "../browser/runtime";
 import { AgentOperationError } from "./contracts";
 import type { CanvasSnapshot, CanvasRenderResult } from "./canvas-service";
-import type { BrowserContext } from "puppeteer-core";
+import type { BrowserContext, Page } from "puppeteer-core";
 
 async function untilAborted<T>(signal: AbortSignal, action: () => Promise<T>) {
   signal.throwIfAborted();
@@ -17,6 +17,52 @@ async function untilAborted<T>(signal: AbortSignal, action: () => Promise<T>) {
     return await Promise.race([action(), cancelled.promise]);
   } finally {
     signal.removeEventListener("abort", abort);
+  }
+}
+
+async function renderedFontSubstitutions(page: Page): Promise<RenderDiagnostic[]> {
+  const count = await page.evaluate(() => {
+    const parents = new Set<Element>();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const parent = walker.currentNode.parentElement;
+      if (
+        walker.currentNode.textContent?.trim() &&
+        parent?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+      )
+        parents.add(parent);
+    }
+    for (const parent of parents) parent.setAttribute("data-canvas-font-audit", "");
+    return parents.size;
+  });
+  if (!count) return [];
+  const session = await page.createCDPSession();
+  try {
+    await session.send("DOM.enable");
+    await session.send("CSS.enable");
+    const { root } = await session.send("DOM.getDocument");
+    const { nodeIds } = await session.send("DOM.querySelectorAll", {
+      nodeId: root.nodeId,
+      selector: "[data-canvas-font-audit]",
+    });
+    const families = new Set<string>();
+    for (let offset = 0; offset < nodeIds.length; offset += 8) {
+      const results = await Promise.all(
+        nodeIds
+          .slice(offset, offset + 8)
+          .map((nodeId) => session.send("CSS.getPlatformFontsForNode", { nodeId })),
+      );
+      for (const { fonts } of results)
+        for (const font of fonts)
+          if (!font.isCustomFont && font.glyphCount) families.add(font.familyName);
+    }
+    return [...families].map((family) => ({
+      kind: "font_substitution",
+      resource: family,
+      message: `Host font ${JSON.stringify(family)} supplied rendered glyphs that were not embedded.`,
+    }));
+  } finally {
+    await session.detach().catch(() => {});
   }
 }
 
@@ -230,6 +276,9 @@ export class CanvasRenderer {
           ),
         );
         diagnostics.push(...readiness);
+        diagnostics.push(
+          ...(await untilAborted(snapshot.signal, () => renderedFontSubstitutions(page))),
+        );
         if (snapshot.strictFidelity && diagnostics.length)
           throw new AgentOperationError(
             "UNAVAILABLE",

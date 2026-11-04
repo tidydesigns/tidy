@@ -999,3 +999,68 @@ test("render viewport follows resolved component variant dimensions", async () =
   );
   expect({ width, height }).toEqual({ width: 500, height: 300 });
 });
+
+test("strict rendering only requires assets from visible nodes and the selected variant", async () => {
+  const f = await fixture();
+  const root = f.file.document.nodes[0];
+  const missing = randomUUID();
+  const service = new CanvasService({
+    store: f.store,
+    receipts: f.store.processState,
+    authorize: async () => {},
+    onChange: async () => {},
+    renderSnapshot: async (snapshot) => {
+      expect(snapshot.assets).toEqual({});
+      return {
+        kind: "rendered",
+        mime_type: "image/png",
+        data: "",
+        width: 100,
+        height: 100,
+        limitations: [],
+      };
+    },
+  });
+  cleanups.push(() => service.close());
+  for (const visible of [false, true]) {
+    const file = await f.store.createDesign(f.project.id, {
+      name: "Visible resources",
+      document: {
+        ...f.file.document,
+        nodes: [
+          {
+            ...root,
+            isComponent: true,
+            style: {
+              ...root.style,
+              paints: [{ id: "hidden-fill", type: "image", assetId: missing, visible: false }],
+            },
+            variants: {
+              default: "active",
+              options: {
+                active: {},
+                inactive: {
+                  root: { style: { paints: [{ id: "missing", type: "image", assetId: missing }] } },
+                },
+              },
+            },
+            variant: "active",
+          },
+          { ...root, id: "hidden", type: "container", parentId: root.id, visible },
+          { ...root, id: "image", type: "image", parentId: "hidden", assetId: missing },
+        ],
+      },
+    });
+    const rendered = service.render(
+      { ...f.scope, designIds: [file.id] },
+      {
+        design_id: file.id,
+        expected_version: file.version,
+        node_id: root.id,
+        strict_fidelity: true,
+      },
+    );
+    if (visible) await expect(rendered).rejects.toThrow("missing_asset");
+    else expect((await rendered).kind).toBe("rendered");
+  }
+});
