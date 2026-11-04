@@ -6,7 +6,7 @@ import coral from "./cloud-coral.avif";
 import spectrum from "./cloud-spectrum.avif";
 import "./community-dialog.css";
 
-type Phase = "ask" | "starring" | "success" | "browser" | "opening" | "open-error";
+type Phase = "ask" | "starring" | "success" | "opening" | "open-error";
 
 const cloudCharacters = [
   "                                ",
@@ -72,7 +72,7 @@ export default function CommunityDialog({
   const pending = useRef(false);
   const [phase, setPhase] = useState<Phase>("ask");
   const success = phase === "success";
-  const browser = phase === "browser" || phase === "opening" || phase === "open-error";
+  const browser = phase === "opening" || phase === "open-error";
 
   useLayoutEffect(() => {
     const element = dialog.current;
@@ -89,24 +89,21 @@ export default function CommunityDialog({
     return () => clearTimeout(timer);
   }, [success]);
 
-  const star = async () => {
+  const starOrOpen = async () => {
     if (pending.current) return;
     pending.current = true;
-    setPhase("starring");
-    const starred = await api.star().catch(() => false);
-    pending.current = false;
-    if (!dialog.current?.open) return;
-    if (starred) {
-      onSuccess();
-      setPhase("success");
-    } else setPhase("browser");
-  };
-
-  const open = async () => {
-    if (pending.current) return;
-    pending.current = true;
-    setPhase("opening");
     try {
+      if (phase !== "open-error") {
+        setPhase("starring");
+        const starred = await api.star().catch(() => false);
+        if (!dialog.current?.open) return;
+        if (starred) {
+          onSuccess();
+          setPhase("success");
+          return;
+        }
+      }
+      setPhase("opening");
       await api.open();
       dialog.current?.close();
     } catch {
@@ -180,7 +177,7 @@ export default function CommunityDialog({
               type="button"
               className="community-star-button"
               disabled={phase === "starring" || phase === "opening"}
-              onClick={() => void (browser ? open() : star())}
+              onClick={() => void starOrOpen()}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path

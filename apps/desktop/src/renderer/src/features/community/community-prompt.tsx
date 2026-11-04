@@ -19,14 +19,14 @@ export function CommunityPrompt({ api }: { api?: CommunityAPI }) {
     const check = () => {
       if (checked || !progress.eligible) return;
       checked = true;
-      void api.status().then(
-        (status) => {
+      void api
+        .status()
+        .catch(() => "unavailable" as const)
+        .then((status) => {
           if (!active) return;
           if (status === "starred") return progress.suppress();
-          if (status === "unstarred" && progress.eligible) setVisible(true);
-        },
-        () => {},
-      );
+          if (progress.eligible) setVisible(true);
+        });
     };
     const storageChanged = () => {
       if (progress.suppressed) {

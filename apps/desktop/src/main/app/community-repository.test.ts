@@ -18,7 +18,7 @@ test("reads the star status for the fixed community repository", async () => {
   ]);
 });
 
-test("unavailable authentication and malformed responses never invite the user", async () => {
+test("unavailable authentication and malformed responses return unavailable status", async () => {
   for (const response of ["not json", "{}", '{"data":{"repository":null}}']) {
     expect(await new CommunityRepository(async () => response).status()).toBe("unavailable");
   }
