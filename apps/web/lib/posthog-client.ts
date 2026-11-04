@@ -272,6 +272,9 @@ async function initializeClient() {
     const previousAccount = account?.id;
     account = telemetryAccount(receipt.user?.id, receipt.user?.email);
     if (previousAccount && previousAccount !== account?.id) clearWebsiteAttribution();
+    // stop() removed optional storage. Rebind and persist only after resolving
+    // this receipt, before init/loaded can capture any events.
+    if (consent.analytics) websiteAttribution(true, account?.id ?? null);
     // No SDK, remote config, anonymous cookie, event buffer or identity request before consent.
     const { PostHog: Client } = await import("posthog-js/full/no-external");
     if (generation !== revision || JSON.stringify(browserConsent()) !== choice) return;
@@ -290,7 +293,10 @@ async function initializeClient() {
                 properties: {
                   ...event.properties,
                   tidy_consent_receipt: receipt.id,
-                  website_visitor_id: websiteAttribution(browserConsent()?.analytics === true),
+                  website_visitor_id: websiteAttribution(
+                    browserConsent()?.analytics === true,
+                    account?.id ?? null,
+                  ),
                 },
               },
               browserConsent() ?? ESSENTIAL_ONLY,
@@ -328,10 +334,8 @@ export function startPostHogConsent() {
   window.addEventListener("focus", () => void checkSessionIdentity());
   window.addEventListener("storage", (event) => {
     if (event.key !== AUTH_EVENT) return;
-    clearWebsiteAttribution();
     // No identifiers or email are put in localStorage. Other tabs resolve the
     // current auth session after stopping the previous account's collection.
-    account = undefined;
     invalidateConsentReceipt();
     activeChoice = "";
     void refresh();
