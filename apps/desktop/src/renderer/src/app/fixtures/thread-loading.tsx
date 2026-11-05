@@ -2548,6 +2548,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await settle();
     const viewport = visibleTranscript();
     const article = required(viewport.querySelector("article"), "First message");
+    const work = required(
+      viewport.querySelector<HTMLButtonElement>(".turn-work-summary"),
+      "Completed turn work",
+    );
+    check(work.getAttribute("aria-expanded") === "false", "Historical work starts expanded");
+    work.click();
+    await until(() => Boolean(viewport.querySelector(".tool-activity-group")), "Reveal turn tools");
     const group = required(viewport.querySelector(".tool-activity-group summary"), "Tool group");
     group.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await until(() => Boolean(viewport.querySelector(".tool-call")), "Tool rows");
@@ -3895,7 +3902,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     );
   });
   await run(
-    "command groups stay anchored above replies and preserve the reader's place",
+    "command groups follow their messages and preserve the reader's place",
     async (root) => {
       const { a, threads, render } = conversationFixture(root);
       a.messages = [{ ...a.messages[0], turn: { startedAt: timestamp } }];
@@ -3952,15 +3959,15 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         activity: "Replying",
       };
       render({ selected: a.id });
-      check(
-        host.querySelectorAll(".tool-activity-group").length === 1 &&
-          host.querySelector(".tool-activity-group") === group,
-        "New commands moved or recreated the turn's group",
-      );
+      const groups = host.querySelectorAll(".tool-activity-group");
+      check(groups.length === 2 && groups[0] === group, "New commands recreated earlier tools");
+      check(row.open, "New commands collapsed earlier output");
       const response = required(host.querySelector(".message-assistant"), "Reply");
+      const following = required(groups[1], "Reply tool group");
       check(
-        Boolean(group.compareDocumentPosition(response) & Node.DOCUMENT_POSITION_FOLLOWING),
-        "Commands appeared below the reply",
+        Boolean(group.compareDocumentPosition(response) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+          Boolean(response.compareDocumentPosition(following) & Node.DOCUMENT_POSITION_FOLLOWING),
+        "Command groups lost their message anchors",
       );
       const many = Array.from({ length: 35 }, () => ({ ...tool, id: crypto.randomUUID() }));
       threads[a.id] = { ...threads[a.id], toolActivities: [...many, next] };
