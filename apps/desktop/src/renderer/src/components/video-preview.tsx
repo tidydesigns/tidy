@@ -40,7 +40,6 @@ export function VideoPreview({
       ref={video}
       src={src}
       controls
-      controlsList="nofullscreen"
       playsInline
       preload="metadata"
       aria-label={displayName}

@@ -52,6 +52,7 @@ import {
   rendererURL,
   rendererAssetPath,
   trustedRendererURL,
+  trustedRendererPermission,
 } from "./app/renderer-security";
 
 protocol.registerSchemesAsPrivileged([
@@ -504,19 +505,24 @@ app
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) => {
         callback(
-          (permission === "local-fonts" || permission === "clipboard-sanitized-write") &&
-            details.isMainFrame &&
-            trustedRendererURL(contents.mainFrame.url, entryURL) &&
-            Boolean(BrowserWindow.fromWebContents(contents)),
+          trustedRendererPermission({
+            permission,
+            isMainFrame: details.isMainFrame,
+            url: contents.mainFrame.url,
+            entryURL,
+            hasWindow: Boolean(BrowserWindow.fromWebContents(contents)),
+          }),
         );
       },
     );
-    session.defaultSession.setPermissionCheckHandler(
-      (contents, permission, _origin, details) =>
-        (permission === "local-fonts" || permission === "clipboard-sanitized-write") &&
-        details.isMainFrame &&
-        Boolean(contents && trustedRendererURL(contents.mainFrame.url, entryURL)) &&
-        Boolean(contents && BrowserWindow.fromWebContents(contents)),
+    session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
+      trustedRendererPermission({
+        permission,
+        isMainFrame: details.isMainFrame,
+        url: contents?.mainFrame.url ?? "",
+        entryURL,
+        hasWindow: Boolean(contents && BrowserWindow.fromWebContents(contents)),
+      }),
     );
 
     const restore = profiles.list().filter((machine) => machine.restoreOnLaunch);

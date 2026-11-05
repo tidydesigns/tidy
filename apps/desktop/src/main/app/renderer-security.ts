@@ -44,3 +44,26 @@ export function rendererAssetPath(root: string, requestURL: string) {
     throw new Error("Invalid resource path.");
   return path;
 }
+
+export function trustedRendererPermission({
+  permission,
+  isMainFrame,
+  url,
+  entryURL,
+  hasWindow,
+}: {
+  permission: string;
+  isMainFrame: boolean;
+  url: string;
+  entryURL: string;
+  hasWindow: boolean;
+}) {
+  return (
+    (permission === "local-fonts" ||
+      permission === "clipboard-sanitized-write" ||
+      permission === "fullscreen") &&
+    isMainFrame &&
+    hasWindow &&
+    trustedRendererURL(url, entryURL)
+  );
+}

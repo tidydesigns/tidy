@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { APP_URL, rendererURL, rendererAssetPath, trustedRendererURL } from "./renderer-security";
+import {
+  APP_URL,
+  rendererURL,
+  rendererAssetPath,
+  trustedRendererURL,
+  trustedRendererPermission,
+} from "./renderer-security";
 
 test("packaged renderers ignore environment overrides; development requires loopback", () => {
   expect(rendererURL(true, "https://attacker.invalid/")).toBe(APP_URL);
@@ -50,4 +56,23 @@ test("the app protocol exposes only renderer output and rejects traversal", () =
     "file:///private.json",
   ])
     expect(() => rendererAssetPath(root, url)).toThrow();
+});
+
+test("fullscreen requires a trusted main document in an app window", () => {
+  const trusted = {
+    permission: "fullscreen",
+    isMainFrame: true,
+    url: APP_URL,
+    entryURL: APP_URL,
+    hasWindow: true,
+  };
+  for (const permission of ["fullscreen", "local-fonts", "clipboard-sanitized-write"]) {
+    expect(trustedRendererPermission({ ...trusted, permission })).toBe(true);
+    expect(trustedRendererPermission({ ...trusted, permission, isMainFrame: false })).toBe(false);
+    expect(trustedRendererPermission({ ...trusted, permission, hasWindow: false })).toBe(false);
+    for (const url of ["https://example.com/", "tidy://app/assets/video.html", ""])
+      expect(trustedRendererPermission({ ...trusted, permission, url })).toBe(false);
+  }
+  for (const permission of ["automatic-fullscreen", "media", "display-capture", "unknown"])
+    expect(trustedRendererPermission({ ...trusted, permission })).toBe(false);
 });
