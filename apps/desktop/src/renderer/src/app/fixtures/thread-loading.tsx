@@ -1591,17 +1591,18 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await until(() => visible().length === 1, "Dismissed sibling reopens");
     window.dispatchEvent(new Event("blur"));
     await until(() => visible().length === 0, "Window blur closes the preview");
-    const before = preloads;
     for (const [event, dismiss] of [
       ["blur", () => window.dispatchEvent(new Event("blur"))],
       ["resize", () => window.dispatchEvent(new Event("resize"))],
       ["scroll", () => document.dispatchEvent(new Event("scroll"))],
       ["Escape", () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))],
     ] as const) {
+      flushSync(() => leave(first));
+      const before = preloads;
       // Commit the waiting state and its dismissal listeners before dispatching
       // the event, without giving the hover timer time to open the preview.
       flushSync(() => enter(first));
-      dismiss();
+      flushSync(dismiss);
       await new Promise((resolve) => setTimeout(resolve, 200));
       check(
         preloads === before && visible().length === 0,
