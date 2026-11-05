@@ -88,53 +88,69 @@ export function ThreadCard({
   const canOpenChildApproval =
     status === "permission" && !thread.pendingApprovalCount && Boolean(onOpenChildApproval);
   const Status = canOpenChildApproval ? Button : "span";
-  const [open, setOpen] = useState(false);
+  const [previewState, setPreviewState] = useState<"closed" | "waiting" | "open">("closed");
+  const open = previewState === "open";
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null),
     preview = useRef<HTMLDivElement>(null);
   const id = useId();
   function close() {
     clearTimeout(timer.current);
-    setOpen(false);
+    setPreviewState("closed");
   }
   function show() {
     clearTimeout(timer.current);
+    if (open) return;
+    setPreviewState("waiting");
     timer.current = setTimeout(() => {
       onPreload?.();
-      setOpen(true);
+      setPreviewState("open");
     }, 150);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
-    if (!open || !preview.current || !root.current) return;
+    if (orderControls?.dragging) {
+      close();
+      return;
+    }
+    if (previewState === "closed") return;
     const popup = preview.current;
-    popup.showPopover();
-    const bounds = root.current.getBoundingClientRect(),
-      size = popup.getBoundingClientRect();
-    popup.style.left = `${Math.max(8, Math.min(bounds.right + 6, innerWidth - size.width - 8))}px`;
-    popup.style.top = `${Math.max(8, Math.min(bounds.top, innerHeight - size.height - 8))}px`;
-    const dismiss = () => setOpen(false);
+    if (popup && root.current) {
+      popup.showPopover();
+      const bounds = root.current.getBoundingClientRect(),
+        size = popup.getBoundingClientRect();
+      popup.style.left = `${Math.max(8, Math.min(bounds.right + 6, innerWidth - size.width - 8))}px`;
+      popup.style.top = `${Math.max(8, Math.min(bounds.top, innerHeight - size.height - 8))}px`;
+    }
+    const dismiss = () => close();
+    const visibility = () => {
+      if (document.visibilityState === "hidden") dismiss();
+    };
     const scroll = (event: Event) => {
-      if (!(event.target instanceof Node && popup.contains(event.target))) dismiss();
+      if (!(event.target instanceof Node && popup?.contains(event.target))) dismiss();
     };
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (popup.contains(document.activeElement))
+        if (popup?.contains(document.activeElement))
           root.current
             ?.querySelector<HTMLButtonElement>(".thread-select")
             ?.focus({ preventScroll: true });
         dismiss();
       }
     };
+    window.addEventListener("blur", dismiss);
+    document.addEventListener("visibilitychange", visibility);
     window.addEventListener("resize", dismiss);
     document.addEventListener("scroll", scroll, true);
     document.addEventListener("keydown", key);
     return () => {
+      window.removeEventListener("blur", dismiss);
+      document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("resize", dismiss);
       document.removeEventListener("scroll", scroll, true);
       document.removeEventListener("keydown", key);
     };
-  }, [open]);
+  }, [previewState, orderControls?.dragging]);
   return (
     <div
       ref={root}
@@ -155,7 +171,8 @@ export function ThreadCard({
       }}
       onPointerLeave={(event) => {
         clearTimeout(timer.current);
-        if (open && !event.currentTarget.contains(document.activeElement))
+        if (!open) close();
+        else if (!event.currentTarget.querySelector(":focus-visible"))
           timer.current = setTimeout(close, 150);
       }}
       onBlur={(event) => {
@@ -201,7 +218,7 @@ export function ThreadCard({
           onPreload?.();
           if (event.currentTarget.matches(":focus-visible")) {
             clearTimeout(timer.current);
-            setOpen(true);
+            setPreviewState("open");
           }
         }}
         onClick={() => {
@@ -244,7 +261,7 @@ export function ThreadCard({
               onPointerDown={(event) => event.stopPropagation()}
               onFocus={() => {
                 clearTimeout(timer.current);
-                setOpen(true);
+                setPreviewState("open");
               }}
             >
               <ChatLink
@@ -327,7 +344,10 @@ export function ThreadCard({
         <div
           ref={preview}
           id={id}
-          popover="manual"
+          popover="hint"
+          onToggle={(event) => {
+            if (event.newState === "closed") close();
+          }}
           role={hasPullRequests ? "dialog" : "tooltip"}
           aria-label={hasPullRequests ? `${title} details` : undefined}
           onPointerDown={(event) => event.stopPropagation()}
