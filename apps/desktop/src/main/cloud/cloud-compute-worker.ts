@@ -1,3 +1,4 @@
+import { validateSvgElements } from "../orchestration/canvas-assets";
 import { AgentOperationError } from "../orchestration/contracts";
 import { canvasMarkup } from "../orchestration/render-markup";
 import { prepareCanvasEdit, canvasEditSchema } from "../orchestration/canvas-service";
@@ -67,6 +68,10 @@ async function run(request: ComputeRequest) {
       parentPort!.postMessage({ id: request.id, value });
       return;
     }
+    if (request.kind === "inspect-svg") {
+      parentPort!.postMessage({ id: request.id, value: validateSvgElements(request.elements) });
+      return;
+    }
     if (request.kind === "render-markup") {
       const value = canvasMarkup(request.snapshot);
       parentPort!.postMessage({ id: request.id, value });
@@ -129,7 +134,8 @@ async function run(request: ComputeRequest) {
           request.kind === "sign-thread" ||
           request.kind === "encode-design" ||
           request.kind === "prepare-canvas" ||
-          request.kind === "render-markup") &&
+          request.kind === "render-markup" ||
+          request.kind === "inspect-svg") &&
         error instanceof Error
           ? error.message.slice(0, 300)
           : "This design could not be compared for sync.",

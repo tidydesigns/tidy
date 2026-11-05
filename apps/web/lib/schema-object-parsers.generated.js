@@ -6790,7 +6790,7 @@ newResult["enabled"] = key_2.value;
 payload.value = newResult;
 return payload;
 }],
-["[true,[[\"strokeCap\",\"optional\",\"optional\"],[\"strokeJoin\",\"optional\",\"optional\"],[\"strokeStart\",\"optional\",\"optional\"],[\"strokeEnd\",\"optional\",\"optional\"],[\"strokePosition\",\"optional\",\"optional\"],[\"strokePaints\",\"optional\",\"optional\"],[\"cornerSmoothing\",\"optional\",\"optional\"],[\"effects\",\"optional\",\"optional\"],[\"paints\",\"optional\",\"optional\"],[\"fill\",\"optional\",\"optional\"],[\"color\",\"optional\",\"optional\"],[\"borderColor\",\"optional\",\"optional\"],[\"borderTopColor\",\"optional\",\"optional\"],[\"borderRightColor\",\"optional\",\"optional\"],[\"borderBottomColor\",\"optional\",\"optional\"],[\"borderLeftColor\",\"optional\",\"optional\"],[\"borderWidth\",\"optional\",\"optional\"],[\"radius\",\"optional\",\"optional\"],[\"radiusTopLeft\",\"optional\",\"optional\"],[\"radiusTopRight\",\"optional\",\"optional\"],[\"radiusBottomRight\",\"optional\",\"optional\"],[\"radiusBottomLeft\",\"optional\",\"optional\"],[\"borderTopWidth\",\"optional\",\"optional\"],[\"borderRightWidth\",\"optional\",\"optional\"],[\"borderBottomWidth\",\"optional\",\"optional\"],[\"borderLeftWidth\",\"optional\",\"optional\"],[\"borderStyle\",\"optional\",\"optional\"],[\"opacity\",\"optional\",\"optional\"],[\"fontSize\",\"optional\",\"optional\"],[\"fontWeight\",\"optional\",\"optional\"],[\"lineHeight\",\"optional\",\"optional\"],[\"lineHeightMode\",\"optional\",\"optional\"],[\"lineHeightPx\",\"optional\",\"optional\"],[\"paragraphSpacing\",\"optional\",\"optional\"],[\"textVerticalAlign\",\"optional\",\"optional\"],[\"textAlign\",\"optional\",\"optional\"],[\"textOverflow\",\"optional\",\"optional\"],[\"fontFamily\",\"optional\",\"optional\"],[\"fontSource\",\"optional\",\"optional\"],[\"fontFace\",\"optional\",\"optional\"],[\"objectFit\",\"optional\",\"optional\"],[\"shadow\",\"optional\",\"optional\"],[\"shadows\",\"optional\",\"optional\"],[\"backdropBlur\",\"optional\",\"optional\"],[\"saturation\",\"optional\",\"optional\"],[\"hueRotate\",\"optional\",\"optional\"],[\"objectPositionX\",\"optional\",\"optional\"],[\"objectPositionY\",\"optional\",\"optional\"],[\"objectScale\",\"optional\",\"optional\"],[\"imageCrop\",\"optional\",\"optional\"],[\"imageAdjustments\",\"optional\",\"optional\"],[\"textCase\",\"optional\",\"optional\"],[\"textWrap\",\"optional\",\"optional\"],[\"maxLines\",\"optional\",\"optional\"],[\"innerShadow\",\"optional\",\"optional\"],[\"blur\",\"optional\",\"optional\"],[\"brightness\",\"optional\",\"optional\"],[\"contrast\",\"optional\",\"optional\"],[\"grayscale\",\"optional\",\"optional\"],[\"blendMode\",\"optional\",\"optional\"],[\"flipX\",\"optional\",\"optional\"],[\"flipY\",\"optional\",\"optional\"],[\"gradientFrom\",\"optional\",\"optional\"],[\"gradientTo\",\"optional\",\"optional\"],[\"gradientAngle\",\"optional\",\"optional\"],[\"outlineColor\",\"optional\",\"optional\"],[\"outlineWidth\",\"optional\",\"optional\"],[\"rotation\",\"optional\",\"optional\"],[\"letterSpacing\",\"optional\",\"optional\"],[\"fontStyle\",\"optional\",\"optional\"],[\"textDecoration\",\"optional\",\"optional\"],[\"overflow\",\"optional\",\"optional\"],[\"fillToken\",\"optional\",\"optional\"],[\"colorToken\",\"optional\",\"optional\"],[\"borderColorToken\",\"optional\",\"optional\"]]]", (shape, inst, memo) => function(payload, ctx) {
+["[true,[[\"strokeCap\",\"optional\",\"optional\"],[\"strokeJoin\",\"optional\",\"optional\"],[\"strokeStart\",\"optional\",\"optional\"],[\"strokeEnd\",\"optional\",\"optional\"],[\"strokePosition\",\"optional\",\"optional\"],[\"strokePaints\",\"optional\",\"optional\"],[\"cornerSmoothing\",\"optional\",\"optional\"],[\"effects\",\"optional\",\"optional\"],[\"paints\",\"optional\",\"optional\"],[\"fill\",\"optional\",\"optional\"],[\"color\",\"optional\",\"optional\"],[\"borderColor\",\"optional\",\"optional\"],[\"borderTopColor\",\"optional\",\"optional\"],[\"borderRightColor\",\"optional\",\"optional\"],[\"borderBottomColor\",\"optional\",\"optional\"],[\"borderLeftColor\",\"optional\",\"optional\"],[\"borderWidth\",\"optional\",\"optional\"],[\"radius\",\"optional\",\"optional\"],[\"radiusTopLeft\",\"optional\",\"optional\"],[\"radiusTopRight\",\"optional\",\"optional\"],[\"radiusBottomRight\",\"optional\",\"optional\"],[\"radiusBottomLeft\",\"optional\",\"optional\"],[\"borderTopWidth\",\"optional\",\"optional\"],[\"borderRightWidth\",\"optional\",\"optional\"],[\"borderBottomWidth\",\"optional\",\"optional\"],[\"borderLeftWidth\",\"optional\",\"optional\"],[\"borderStyle\",\"optional\",\"optional\"],[\"opacity\",\"optional\",\"optional\"],[\"fontSize\",\"optional\",\"optional\"],[\"fontWeight\",\"optional\",\"optional\"],[\"lineHeight\",\"optional\",\"optional\"],[\"lineHeightMode\",\"optional\",\"optional\"],[\"lineHeightPx\",\"optional\",\"optional\"],[\"paragraphSpacing\",\"optional\",\"optional\"],[\"textVerticalAlign\",\"optional\",\"optional\"],[\"textAlign\",\"optional\",\"optional\"],[\"textOverflow\",\"optional\",\"optional\"],[\"fontFamily\",\"optional\",\"optional\"],[\"fontSource\",\"optional\",\"optional\"],[\"fontFace\",\"optional\",\"optional\"],[\"objectFit\",\"optional\",\"optional\"],[\"shadow\",\"optional\",\"optional\"],[\"shadows\",\"optional\",\"optional\"],[\"backdropBlur\",\"optional\",\"optional\"],[\"saturation\",\"optional\",\"optional\"],[\"hueRotate\",\"optional\",\"optional\"],[\"objectPositionX\",\"optional\",\"optional\"],[\"objectPositionY\",\"optional\",\"optional\"],[\"objectScale\",\"optional\",\"optional\"],[\"imageCrop\",\"optional\",\"optional\"],[\"imageAdjustments\",\"optional\",\"optional\"],[\"textCase\",\"optional\",\"optional\"],[\"textWrap\",\"optional\",\"optional\"],[\"maxLines\",\"optional\",\"optional\"],[\"innerShadow\",\"optional\",\"optional\"],[\"blur\",\"optional\",\"optional\"],[\"brightness\",\"optional\",\"optional\"],[\"contrast\",\"optional\",\"optional\"],[\"grayscale\",\"optional\",\"optional\"],[\"blendMode\",\"optional\",\"optional\"],[\"flipX\",\"optional\",\"optional\"],[\"flipY\",\"optional\",\"optional\"],[\"gradientFrom\",\"optional\",\"optional\"],[\"gradientTo\",\"optional\",\"optional\"],[\"gradientAngle\",\"optional\",\"optional\"],[\"outlineColor\",\"optional\",\"optional\"],[\"outlineWidth\",\"optional\",\"optional\"],[\"rotation\",\"optional\",\"optional\"],[\"letterSpacing\",\"optional\",\"optional\"],[\"fontStyle\",\"optional\",\"optional\"],[\"fontVariantNumeric\",\"optional\",\"optional\"],[\"textDecoration\",\"optional\",\"optional\"],[\"overflow\",\"optional\",\"optional\"],[\"fillToken\",\"optional\",\"optional\"],[\"colorToken\",\"optional\",\"optional\"],[\"borderColorToken\",\"optional\",\"optional\"]]]", (shape, inst, memo) => function(payload, ctx) {
 const input = payload.value;
 const newResult = memo.alloc(inst, payload, {}, ctx);
 const key_0 = shape["strokeCap"]._zod.run({ value: input["strokeCap"], issues: [] }, ctx);
@@ -8263,14 +8263,14 @@ const key_69 = shape["fontStyle"]._zod.run({ value: input["fontStyle"], issues: 
     }
   }
 
-const key_70 = shape["textDecoration"]._zod.run({ value: input["textDecoration"], issues: [] }, ctx);
-  const key_70_present = "textDecoration" in input;
+const key_70 = shape["fontVariantNumeric"]._zod.run({ value: input["fontVariantNumeric"], issues: [] }, ctx);
+  const key_70_present = "fontVariantNumeric" in input;
   if (!key_70.issues.length || key_70_present) {
     if (key_70.issues.length) {
     let key_70_ab = false;
     for (let i = 0; i < key_70.issues.length; i++) {
       const iss = key_70.issues[i];
-      iss.path = iss.path ? ["textDecoration", ...iss.path] : ["textDecoration"];
+      iss.path = iss.path ? ["fontVariantNumeric", ...iss.path] : ["fontVariantNumeric"];
       payload.issues.push(iss);
       if (iss.continue !== true) key_70_ab = true;
     }
@@ -8280,18 +8280,18 @@ const key_70 = shape["textDecoration"]._zod.run({ value: input["textDecoration"]
     }
     }
     if (key_70_present) {
-      newResult["textDecoration"] = key_70.value;
+      newResult["fontVariantNumeric"] = key_70.value;
     }
   }
 
-const key_71 = shape["overflow"]._zod.run({ value: input["overflow"], issues: [] }, ctx);
-  const key_71_present = "overflow" in input;
+const key_71 = shape["textDecoration"]._zod.run({ value: input["textDecoration"], issues: [] }, ctx);
+  const key_71_present = "textDecoration" in input;
   if (!key_71.issues.length || key_71_present) {
     if (key_71.issues.length) {
     let key_71_ab = false;
     for (let i = 0; i < key_71.issues.length; i++) {
       const iss = key_71.issues[i];
-      iss.path = iss.path ? ["overflow", ...iss.path] : ["overflow"];
+      iss.path = iss.path ? ["textDecoration", ...iss.path] : ["textDecoration"];
       payload.issues.push(iss);
       if (iss.continue !== true) key_71_ab = true;
     }
@@ -8301,18 +8301,18 @@ const key_71 = shape["overflow"]._zod.run({ value: input["overflow"], issues: []
     }
     }
     if (key_71_present) {
-      newResult["overflow"] = key_71.value;
+      newResult["textDecoration"] = key_71.value;
     }
   }
 
-const key_72 = shape["fillToken"]._zod.run({ value: input["fillToken"], issues: [] }, ctx);
-  const key_72_present = "fillToken" in input;
+const key_72 = shape["overflow"]._zod.run({ value: input["overflow"], issues: [] }, ctx);
+  const key_72_present = "overflow" in input;
   if (!key_72.issues.length || key_72_present) {
     if (key_72.issues.length) {
     let key_72_ab = false;
     for (let i = 0; i < key_72.issues.length; i++) {
       const iss = key_72.issues[i];
-      iss.path = iss.path ? ["fillToken", ...iss.path] : ["fillToken"];
+      iss.path = iss.path ? ["overflow", ...iss.path] : ["overflow"];
       payload.issues.push(iss);
       if (iss.continue !== true) key_72_ab = true;
     }
@@ -8322,18 +8322,18 @@ const key_72 = shape["fillToken"]._zod.run({ value: input["fillToken"], issues: 
     }
     }
     if (key_72_present) {
-      newResult["fillToken"] = key_72.value;
+      newResult["overflow"] = key_72.value;
     }
   }
 
-const key_73 = shape["colorToken"]._zod.run({ value: input["colorToken"], issues: [] }, ctx);
-  const key_73_present = "colorToken" in input;
+const key_73 = shape["fillToken"]._zod.run({ value: input["fillToken"], issues: [] }, ctx);
+  const key_73_present = "fillToken" in input;
   if (!key_73.issues.length || key_73_present) {
     if (key_73.issues.length) {
     let key_73_ab = false;
     for (let i = 0; i < key_73.issues.length; i++) {
       const iss = key_73.issues[i];
-      iss.path = iss.path ? ["colorToken", ...iss.path] : ["colorToken"];
+      iss.path = iss.path ? ["fillToken", ...iss.path] : ["fillToken"];
       payload.issues.push(iss);
       if (iss.continue !== true) key_73_ab = true;
     }
@@ -8343,18 +8343,18 @@ const key_73 = shape["colorToken"]._zod.run({ value: input["colorToken"], issues
     }
     }
     if (key_73_present) {
-      newResult["colorToken"] = key_73.value;
+      newResult["fillToken"] = key_73.value;
     }
   }
 
-const key_74 = shape["borderColorToken"]._zod.run({ value: input["borderColorToken"], issues: [] }, ctx);
-  const key_74_present = "borderColorToken" in input;
+const key_74 = shape["colorToken"]._zod.run({ value: input["colorToken"], issues: [] }, ctx);
+  const key_74_present = "colorToken" in input;
   if (!key_74.issues.length || key_74_present) {
     if (key_74.issues.length) {
     let key_74_ab = false;
     for (let i = 0; i < key_74.issues.length; i++) {
       const iss = key_74.issues[i];
-      iss.path = iss.path ? ["borderColorToken", ...iss.path] : ["borderColorToken"];
+      iss.path = iss.path ? ["colorToken", ...iss.path] : ["colorToken"];
       payload.issues.push(iss);
       if (iss.continue !== true) key_74_ab = true;
     }
@@ -8364,7 +8364,28 @@ const key_74 = shape["borderColorToken"]._zod.run({ value: input["borderColorTok
     }
     }
     if (key_74_present) {
-      newResult["borderColorToken"] = key_74.value;
+      newResult["colorToken"] = key_74.value;
+    }
+  }
+
+const key_75 = shape["borderColorToken"]._zod.run({ value: input["borderColorToken"], issues: [] }, ctx);
+  const key_75_present = "borderColorToken" in input;
+  if (!key_75.issues.length || key_75_present) {
+    if (key_75.issues.length) {
+    let key_75_ab = false;
+    for (let i = 0; i < key_75.issues.length; i++) {
+      const iss = key_75.issues[i];
+      iss.path = iss.path ? ["borderColorToken", ...iss.path] : ["borderColorToken"];
+      payload.issues.push(iss);
+      if (iss.continue !== true) key_75_ab = true;
+    }
+    if (key_75_ab && ctx && ctx.abortEarly) {
+      payload.value = newResult;
+      return payload;
+    }
+    }
+    if (key_75_present) {
+      newResult["borderColorToken"] = key_75.value;
     }
   }
 

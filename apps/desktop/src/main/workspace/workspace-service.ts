@@ -516,6 +516,7 @@ export class WorkspaceService {
       onChange: async (projectId) => this.requestDesignRefresh(projectId),
       prepareEdit: (document, operations) => this.canvasCompute.prepareCanvas(document, operations),
       diff: (before, after) => this.canvasCompute.diff(before, after),
+      inspectAsset: (data, signal) => this.canvasRenderer.inspectAsset(data, signal),
       renderSnapshot: (snapshot) => this.canvasRenderer.render(snapshot),
     });
     this.agentMcp = new AgentMcpBridge({

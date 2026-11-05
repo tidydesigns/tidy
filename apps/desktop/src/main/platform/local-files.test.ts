@@ -1,5 +1,8 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { expect, test, spyOn } from "bun:test";
+import { constants } from "node:fs";
+import * as files from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readLocalFile } from "./local-files";
@@ -33,6 +36,32 @@ test("bounded reads preserve bytes across chunks and accept an empty file", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== "linux")(
+  "a regular file replaced by a FIFO is opened without blocking and rejected",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tidy-local-fifo-"));
+    const path = join(directory, "asset.png"),
+      fifo = join(directory, "replacement");
+    await writeFile(path, "data");
+    execFileSync("mkfifo", [fifo]);
+    const originalOpen = files.open;
+    const opening = spyOn(files, "open").mockImplementation(async (...args) => {
+      if (args[0] === path) {
+        await rename(fifo, path);
+        if (typeof args[1] !== "number" || !(args[1] & constants.O_NONBLOCK))
+          throw new Error("Blocking FIFO opens are forbidden in this test.");
+      }
+      return originalOpen(...args);
+    });
+    try {
+      await expect(readLocalFile(path)).rejects.toThrow("regular files");
+    } finally {
+      opening.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test.skipIf(process.platform !== "linux")(
   "repeated bounded reads release every descriptor for the source file",

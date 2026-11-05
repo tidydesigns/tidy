@@ -16,6 +16,18 @@ export type ToolDefinition = {
   readOnly?: boolean;
   invoke(input: unknown): Promise<unknown>;
 };
+export function mcpInputSchema(schema: z.ZodObject) {
+  return {
+    "~standard": {
+      ...schema["~standard"],
+      jsonSchema: {
+        input: () => z.toJSONSchema(schema, { reused: "ref", io: "input" }),
+        output: () => z.toJSONSchema(schema, { reused: "ref", io: "output" }),
+      },
+    },
+  };
+}
+
 type Session = {
   scope: Omit<AgentScope, "signal">;
   controller: AbortController;
@@ -187,7 +199,7 @@ export class AgentMcpBridge {
               tool.name,
               {
                 description: tool.description,
-                inputSchema: tool.inputSchema,
+                inputSchema: mcpInputSchema(tool.inputSchema),
                 outputSchema: tool.outputSchema ?? outputSchema,
                 annotations: {
                   readOnlyHint: tool.readOnly ?? false,

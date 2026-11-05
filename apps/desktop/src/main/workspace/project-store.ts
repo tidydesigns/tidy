@@ -920,6 +920,53 @@ export class ProjectStore {
     await next;
   }
 
+  async readCanvasAsset(projectId: string, relativePath: string) {
+    if (process.platform !== "linux")
+      throw new Error(
+        "Project path attestation is unavailable on this host. Import image bytes or inline SVG instead.",
+      );
+    const project = this.project(projectId);
+    const segments = relativePath.split("/");
+    if (
+      project.cloud ||
+      segments.some(
+        (part) => !part || part.startsWith(".") || part.includes("\\") || part.includes(":"),
+      )
+    )
+      throw new Error(
+        "Choose an image inside the local project, without hidden paths or traversal.",
+      );
+    const mime = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".svg": "image/svg+xml",
+    }[extname(relativePath).toLowerCase()];
+    if (!mime) throw new Error("Choose a PNG, JPEG, WebP or SVG asset.");
+    let path = project.path;
+    if ((await realpath(path)) !== path) throw new Error("The project directory has moved.");
+    for (const segment of segments) {
+      path = join(path, segment);
+      if ((await lstat(path)).isSymbolicLink())
+        throw new Error("Asset paths cannot contain symbolic links.");
+    }
+    const bytes = await readLocalFile(path, 2 * 1024 * 1024, async (opened, handle) => {
+      const current = await lstat(path);
+      if (
+        opened.nlink !== 1 ||
+        current.dev !== opened.dev ||
+        current.ino !== opened.ino ||
+        (await realpath(`/proc/self/fd/${handle.fd}`)) !== path ||
+        (await realpath(path)) !== path
+      )
+        throw new Error(
+          "Asset must be a regular project file without hard links, and its path must remain stable during import.",
+        );
+    });
+    return { data: `data:${mime};base64,${bytes.toString("base64")}`, mime };
+  }
+
   async uploadDesignAsset(projectId: string, dataUrl: string) {
     if (
       !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
@@ -942,7 +989,12 @@ export class ProjectStore {
     }
   }
 
-  async cacheSyncAsset(projectId: string, assetId: string, dataUrl: string) {
+  async cacheSyncAsset(
+    projectId: string,
+    assetId: string,
+    dataUrl: string,
+    beforeWrite?: () => Promise<void>,
+  ) {
     if (
       !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
       dataUrl.length > 3_000_000
@@ -954,7 +1006,11 @@ export class ProjectStore {
         throw new Error("A local image has changed. Keep both copies to continue.");
       return;
     }
-    await this.atomicWrite(() => this.storagePath(projectId, "assets", assetId), { dataUrl });
+    await this.writeEncoded(
+      () => this.storagePath(projectId, "assets", assetId),
+      JSON.stringify({ dataUrl }),
+      beforeWrite,
+    );
   }
 
   async designs(projectId: string) {
@@ -1161,13 +1217,14 @@ export class ProjectStore {
   private writeEncoded(
     target: string | (() => Promise<string>),
     encoded: string | (() => Promise<Uint8Array>),
+    beforeWrite?: () => Promise<void>,
   ) {
     if (typeof encoded === "string" && Buffer.byteLength(encoded) > 16 * 1024 * 1024)
       return Promise.reject(new Error("The local project file reached its size limit."));
     const next = this.writes.then(async () => {
       const json = typeof encoded === "string" ? encoded : await encoded();
       const path = typeof target === "string" ? target : await target();
-      await this.writeAtomicFile(path, json);
+      await this.writeAtomicFile(path, json, beforeWrite);
     });
     this.writes = next.catch(() => {});
     return next;

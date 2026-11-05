@@ -1,3 +1,4 @@
+import type { SvgElementData, SvgImportResult } from "@tidy/editor/design/svg-path-import";
 import { CloudComputeBusyError } from "./cloud-compute-errors";
 export { CloudComputeBusyError } from "./cloud-compute-errors";
 import { AgentOperationError } from "../orchestration/contracts";
@@ -12,6 +13,7 @@ declare const TIDY_COMPUTE_WORKER_SOURCE: string | undefined;
 
 export type ComputeRequest = { id: number } & (
   | { kind: "equal" | "diff"; before: DesignDocument; after: DesignDocument }
+  | { kind: "inspect-svg"; elements: SvgElementData }
   | { kind: "remap"; document: DesignDocument; aliases: Record<string, string> }
   | { kind: "read-file"; path: string; summary: boolean; background?: boolean }
   | { kind: "read-thread-summary"; path: string }
@@ -57,7 +59,8 @@ export class CloudCompute {
       | Omit<Extract<ComputeRequest, { kind: "sign-thread" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "encode-design" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "prepare-canvas" }>, "id">
-      | Omit<Extract<ComputeRequest, { kind: "render-markup" }>, "id">,
+      | Omit<Extract<ComputeRequest, { kind: "render-markup" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "inspect-svg" }>, "id">,
   ): Promise<T> {
     if (this.pending.size >= this.maxPending) return Promise.reject(new CloudComputeBusyError());
     if (!this.worker) {
@@ -157,6 +160,9 @@ export class CloudCompute {
       document,
       operations,
     });
+  }
+  inspectSvg(elements: SvgElementData) {
+    return this.run<SvgImportResult>({ kind: "inspect-svg", elements });
   }
   renderMarkup({
     document,

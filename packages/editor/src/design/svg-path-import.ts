@@ -6,21 +6,56 @@ export type SvgImportResult =
   | { editable: Imported; reason?: never }
   | { editable?: never; reason: string };
 
-/** Unsupported SVG features retain the original asset, without changing their appearance. */
-export function inspectSvgImport(source: string): SvgImportResult {
-  const fallback = (reason: string): SvgImportResult => ({
-    reason: `Original SVG retained: ${reason}`,
-  });
-  if (typeof DOMParser === "undefined" || /<!DOCTYPE|<!ENTITY/i.test(source))
-    return fallback("unsupported XML declarations.");
-  const document = new DOMParser().parseFromString(source, "image/svg+xml"),
-    root = document.documentElement;
+export type SvgElementData = {
+  name: string;
+  attributes: Record<string, string>;
+  children: SvgElementData[];
+};
+
+export function parseSvgElements(source: string): SvgElementData {
+  if (/<!DOCTYPE|<!ENTITY|<\?(?!xml\s)/i.test(source))
+    throw new Error("Unsupported XML declarations.");
+  const document = new DOMParser().parseFromString(source, "image/svg+xml");
+  const root = document.documentElement;
   if (
     root.localName !== "svg" ||
     root.namespaceURI !== "http://www.w3.org/2000/svg" ||
     document.querySelector("parsererror")
   )
-    return fallback("invalid SVG.");
+    throw new Error("Invalid SVG.");
+  let count = 0;
+  const walk = (element: Element, depth: number): SvgElementData => {
+    if (++count > 10000 || depth > 40) throw new Error("SVG exceeds import limits.");
+    return {
+      name: element.localName,
+      attributes: Object.fromEntries(
+        [...element.attributes].map((attribute) => [
+          attribute.namespaceURI === "http://www.w3.org/1999/xlink"
+            ? `xlink:${attribute.localName}`
+            : attribute.namespaceURI === "http://www.w3.org/XML/1998/namespace"
+              ? `xml:${attribute.localName}`
+              : attribute.name,
+          attribute.value,
+        ]),
+      ),
+      children: [...element.children].map((child) => walk(child, depth + 1)),
+    };
+  };
+  return walk(root, 0);
+}
+
+export function inspectSvgImport(source: string): SvgImportResult {
+  try {
+    return inspectSvgElements(parseSvgElements(source));
+  } catch {
+    return { reason: "Original SVG retained: invalid SVG or unsupported XML declarations." };
+  }
+}
+
+export function inspectSvgElements(root: SvgElementData): SvgImportResult {
+  const fallback = (reason: string): SvgImportResult => ({
+    reason: `Original SVG retained: ${reason}`,
+  });
   const presentation = [
     "fill",
     "fill-rule",
@@ -29,26 +64,27 @@ export function inspectSvgImport(source: string): SvgImportResult {
     "stroke-linecap",
     "stroke-linejoin",
   ];
-  const allowed = (element: Element, keys: string[]) =>
-    [...element.attributes].every((a) => keys.includes(a.name));
-  if (!allowed(root, ["xmlns", "viewBox", "width", "height", ...presentation]))
+  const allowed = (element: SvgElementData, keys: string[]) =>
+    Object.keys(element.attributes).every((name) => keys.includes(name));
+  if (
+    !allowed(root, ["xmlns", "viewBox", "width", "height", "role", "aria-label", ...presentation])
+  )
     return fallback("viewport attributes require asset rendering.");
-  const values = root
-    .getAttribute("viewBox")
+  const values = root.attributes.viewBox
     ?.trim()
     .split(/[\s,]+/)
     .map(Number);
   if (!values || values.length !== 4 || values.some((v) => !Number.isFinite(v)))
     return fallback("a numeric viewBox is required for editing.");
   const [x, y, width, height] = values;
-  const sourceWidth = Number(root.getAttribute("width") ?? width),
-    sourceHeight = Number(root.getAttribute("height") ?? height);
+  const sourceWidth = Number(root.attributes.width ?? width),
+    sourceHeight = Number(root.attributes.height ?? height);
   if (
     !(width > 0 && height > 0 && sourceWidth > 0 && sourceHeight > 0) ||
     Math.abs(sourceWidth / sourceHeight - width / height) > 0.00001
   )
     return fallback("viewport scaling requires asset rendering.");
-  const shapes = [...root.children].filter((e) => !["title", "desc"].includes(e.localName));
+  const shapes = [...root.children].filter((e) => !["title", "desc"].includes(e.name));
   if (!shapes.length) return fallback("no editable shapes.");
   const paths: string[] = [];
   let paints: string[] | undefined;
@@ -63,9 +99,9 @@ export function inspectSvgImport(source: string): SvgImportResult {
       polygon: ["points"],
     };
     if (
-      !attributes[shape.localName] ||
+      !attributes[shape.name] ||
       shape.children.length ||
-      !allowed(shape, ["id", ...attributes[shape.localName], ...presentation])
+      !allowed(shape, ["id", ...attributes[shape.name], ...presentation])
     )
       return fallback(
         "groups, transforms, gradients, clipping, text and effects require asset rendering.",
@@ -79,21 +115,21 @@ export function inspectSvgImport(source: string): SvgImportResult {
       "stroke-linejoin": "miter",
     };
     const style = presentation.map(
-      (key) => shape.getAttribute(key) ?? root.getAttribute(key) ?? defaults[key],
+      (key) => shape.attributes[key] ?? root.attributes[key] ?? defaults[key],
     );
     if (paints && JSON.stringify(paints) !== JSON.stringify(style))
       return fallback("shapes with different paints require asset rendering.");
     paints = style;
-    const n = (key: string, defaultValue = 0) => Number(shape.getAttribute(key) ?? defaultValue);
+    const n = (key: string, defaultValue = 0) => Number(shape.attributes[key] ?? defaultValue);
     const ellipse = (cx: number, cy: number, rx: number, ry: number) =>
       `M ${cx + rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx - rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx + rx} ${cy} Z`;
-    if (shape.localName === "path") paths.push(shape.getAttribute("d") ?? "");
-    else if (shape.localName === "circle" || shape.localName === "ellipse") {
-      const rx = n(shape.localName === "circle" ? "r" : "rx"),
-        ry = shape.localName === "circle" ? rx : n("ry");
+    if (shape.name === "path") paths.push(shape.attributes.d ?? "");
+    else if (shape.name === "circle" || shape.name === "ellipse") {
+      const rx = n(shape.name === "circle" ? "r" : "rx"),
+        ry = shape.name === "circle" ? rx : n("ry");
       if (!(rx > 0 && ry > 0)) return fallback("empty ellipse.");
       paths.push(ellipse(n("cx"), n("cy"), rx, ry));
-    } else if (shape.localName === "rect") {
+    } else if (shape.name === "rect") {
       const x = n("x"),
         y = n("y"),
         w = n("width"),
@@ -106,12 +142,10 @@ export function inspectSvgImport(source: string): SvgImportResult {
           ? `M ${x + rx} ${y} H ${x + w - rx} A ${rx} ${ry} 0 0 1 ${x + w} ${y + ry} V ${y + h - ry} A ${rx} ${ry} 0 0 1 ${x + w - rx} ${y + h} H ${x + rx} A ${rx} ${ry} 0 0 1 ${x} ${y + h - ry} V ${y + ry} A ${rx} ${ry} 0 0 1 ${x + rx} ${y} Z`
           : `M ${x} ${y} H ${x + w} V ${y + h} H ${x} Z`,
       );
-    } else if (shape.localName === "line")
-      paths.push(`M ${n("x1")} ${n("y1")} L ${n("x2")} ${n("y2")}`);
+    } else if (shape.name === "line") paths.push(`M ${n("x1")} ${n("y1")} L ${n("x2")} ${n("y2")}`);
     else {
       const points =
-        shape
-          .getAttribute("points")
+        shape.attributes.points
           ?.trim()
           .split(/[\s,]+/)
           .map(Number) ?? [];
@@ -121,7 +155,7 @@ export function inspectSvgImport(source: string): SvgImportResult {
         `M ${points[0]} ${points[1]} ${points
           .slice(2)
           .map((v, i) => (i % 2 ? `${v}` : `L ${v}`))
-          .join(" ")}${shape.localName === "polygon" ? " Z" : ""}`,
+          .join(" ")}${shape.name === "polygon" ? " Z" : ""}`,
       );
     }
   }

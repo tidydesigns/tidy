@@ -1,3 +1,4 @@
+import { renderDiagnosticSchema } from "./render-diagnostics";
 import { z } from "zod";
 import { taskStateSchema } from "./task-store";
 
@@ -83,7 +84,23 @@ export const toolOutputSchemas = {
       undo_available: z.boolean(),
     })
     .passthrough(),
+  canvas_import_asset: z
+    .object({
+      design_id: id,
+      version: z.string(),
+      asset_id: id,
+      node: z.object({ type: z.enum(["image", "vector"]) }).passthrough(),
+      warnings: z.array(z.string()),
+    })
+    .passthrough(),
   canvas_render: z
-    .object({ kind: z.enum(["rendered", "unavailable"]), design_id: id, version: z.string() })
+    .object({
+      kind: z.enum(["rendered", "unavailable"]),
+      design_id: id,
+      version: z.string(),
+      diagnostics: z.array(renderDiagnosticSchema).optional(),
+      resources_complete: z.boolean().optional(),
+      fidelity: z.literal("unverified").optional(),
+    })
     .passthrough(),
 };

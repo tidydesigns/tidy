@@ -77,7 +77,8 @@
     "release:desktop:mac": "bun run --cwd apps/desktop release:mac",
     "typecheck:tsc": "turbo run typecheck:tsc",
     "test:analytics:db": "node apps/web/scripts/test-account-controls.mjs --analytics",
-    "blog:image": "node apps/site/scripts/build-blog-image.mjs"
+    "blog:image": "node apps/site/scripts/build-blog-image.mjs",
+    "test:canvas:fidelity": "TIDY_TEST_CANVAS_BROWSER=1 bun test apps/desktop/src/main/orchestration/canvas-fidelity.test.ts apps/desktop/src/main/orchestration/render-service.test.ts"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

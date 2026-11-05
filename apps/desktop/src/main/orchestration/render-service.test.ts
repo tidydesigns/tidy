@@ -73,6 +73,30 @@ test("cancelled markup releases preview admission while outstanding worker jobs 
   await startup.promise.catch(() => {});
 });
 
+test("invalid and oversized raster headers are rejected before starting a browser", async () => {
+  const get = spyOn(BrowserRuntime.prototype, "get").mockRejectedValue(
+    new Error("Browser must not start"),
+  );
+  const renderer = new CanvasRenderer();
+  cleanups.push(() => renderer.close());
+  const png = Buffer.alloc(33);
+  Buffer.from("89504e470d0a1a0a", "hex").copy(png);
+  png.writeUInt32BE(13, 8);
+  png.write("IHDR", 12);
+  png.writeUInt32BE(10000, 16);
+  png.writeUInt32BE(10000, 20);
+  await expect(
+    renderer.inspectAsset(
+      `data:image/png;base64,${png.toString("base64")}`,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("16 megapixels");
+  await expect(
+    renderer.inspectAsset("data:image/png;base64,aW52YWxpZA==", new AbortController().signal),
+  ).rejects.toThrow("header");
+  expect(get).not.toHaveBeenCalled();
+});
+
 test("cancelled browser startup releases the render gate without closing shared startup", async () => {
   const startup = Promise.withResolvers<Browser>();
   let entered = Promise.withResolvers<void>();

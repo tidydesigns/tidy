@@ -1,3 +1,5 @@
+import { mcpInputSchema } from "./mcp-bridge";
+import { canvasImportAssetSchema, CANVAS_ASSET_INPUT_LIMITS } from "./canvas-assets";
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -96,7 +98,7 @@ async function fixture() {
   return { store, documents, parent, scope, tools, call, addThread, sends: () => sends };
 }
 
-test("the initial catalog has ten typed tools within a fixed schema budget", async () => {
+test("the canvas catalog has typed tools within a fixed schema budget", async () => {
   const { tools } = await fixture();
   expect(tools.map((tool) => tool.name)).toEqual([
     "tidy_context",
@@ -108,20 +110,53 @@ test("the initial catalog has ten typed tools within a fixed schema budget", asy
     "task_cancel",
     "canvas_read",
     "canvas_edit",
+    "canvas_import_asset",
     "canvas_render",
   ]);
   const catalog = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    inputSchema: z.toJSONSchema(tool.inputSchema),
+    inputSchema: mcpInputSchema(tool.inputSchema)["~standard"].jsonSchema.input(),
     outputSchema: tool.outputSchema && z.toJSONSchema(tool.outputSchema),
   }));
-  expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(24 * 1024);
-  for (const tool of tools) {
+  expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(64 * 1024);
+  for (const [index, tool] of tools.entries()) {
+    const input = catalog[index].inputSchema;
+    expect(input.type).toBe("object");
+    expect(Object.keys(input.properties ?? {})).toEqual(Object.keys(tool.inputSchema.shape));
     expect(tool.inputSchema).toBeInstanceOf(z.ZodObject);
     expect(tool.outputSchema).toBeDefined();
     expect(tool.outputSchema?.safeParse({}).success).toBe(false);
   }
+});
+
+test("accepted inline SVG payloads fit the bridge byte budget after Unicode and JSON encoding", () => {
+  const request = (svg: string) => ({
+    design_id: randomUUID(),
+    expected_version: "v",
+    source: { kind: "inline_svg", svg },
+  });
+  for (const content of ["漢".repeat(299000), String.fromCharCode(92, 34).repeat(170000)]) {
+    const input = canvasImportAssetSchema.parse(
+      request(`<svg xmlns="http://www.w3.org/2000/svg"><desc>${content}</desc></svg>`),
+    );
+    expect(
+      Buffer.byteLength(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "canvas_import_asset", arguments: input },
+        }),
+      ),
+    ).toBeLessThan(1024 * 1024);
+  }
+  expect(
+    canvasImportAssetSchema.safeParse(
+      request("x".repeat(CANVAS_ASSET_INPUT_LIMITS.inline_svg_characters + 1)),
+    ).success,
+  ).toBe(false);
+  expect(canvasImportAssetSchema.safeParse(request("\u0001".repeat(150001))).success).toBe(false);
 });
 
 test("thread reads cap bytes and messages, preserve a cursor and never include native state", async () => {
