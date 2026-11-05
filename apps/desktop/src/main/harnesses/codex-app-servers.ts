@@ -235,9 +235,7 @@ class CodexAppServer {
   async unsubscribe(threadId: string) {
     try {
       await this.transport.request("thread/unsubscribe", { threadId }, 2000);
-    } catch {
-      // Keep sibling work intact; process expiry still bounds native retention.
-    }
+    } catch {}
   }
   async release(channel: CodexChannel) {
     this.channels.delete(channel);
@@ -249,12 +247,11 @@ class CodexAppServer {
         this.requests.delete(id);
       }
     if (this.idle && this.retiring) this.close();
+    if (channel.threadId && this.available) await this.unsubscribe(channel.threadId);
     if (this.idle && this.available) {
-      // Allow a replacement lease in the current acquisition before releasing the process.
       this.timer = setImmediate(() => this.close());
       this.timer.unref();
     }
-    if (channel.threadId && this.available) await this.unsubscribe(channel.threadId);
   }
   close() {
     if (this.stopped) return;
@@ -292,6 +289,11 @@ export class CodexAppServers {
       });
     }
     return server.acquire(context);
+  }
+  async clearEmpty(matches: (context: ServerContext) => boolean) {
+    const selected = [...this.all].filter((server) => server.idle && matches(server.context));
+    for (const server of selected) server.close();
+    await Promise.all(selected.map((server) => server.transport.done));
   }
   async clear(matches: (context: ServerContext) => boolean, idleOnly: boolean) {
     const selected = [...this.all].filter((server) => matches(server.context));

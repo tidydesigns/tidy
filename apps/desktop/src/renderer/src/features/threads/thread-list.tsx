@@ -144,7 +144,7 @@ export function ThreadList({
             ref={virtual ? virtualizer.measureElement : undefined}
             data-index={index}
             data-thread-id={threads[index].id}
-            className="thread-order-row"
+            className={listRef ? "thread-order-row" : undefined}
             role="listitem"
             aria-posinset={index + 1}
             aria-setsize={threads.length}

@@ -419,7 +419,9 @@ export class HarnessSession {
         return turn.delivery;
       },
       done: turn.completion.promise,
-      stop: () => this.stop(),
+      stop: () => {
+        if (this.state.kind === "running" && this.state.turn === turn) this.stop();
+      },
       steer: async (message) => {
         try {
           await submission;

@@ -3438,6 +3438,72 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
+  await run("virtual sidebar retains draft placement and row spacing", async (root) => {
+    const threads = Array.from({ length: 1000 }, () => summarizeThread(makeThread({ count: 1 })));
+    function render(draft: boolean) {
+      flushSync(() =>
+        root.render(
+          <div style={{ height: 400, width: 280, display: "flex" }}>
+            <ThreadSidebar
+              projectId={projectId}
+              threads={threads}
+              search=""
+              draft={
+                draft
+                  ? { text: "Review draft placement", selected: false, onSelect() {} }
+                  : undefined
+              }
+              renderThread={(thread) => (
+                <ThreadCard
+                  thread={thread}
+                  selected={false}
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                />
+              )}
+            />
+          </div>,
+        ),
+      );
+    }
+    render(false);
+    await settle();
+    const list = required(host.querySelector<HTMLElement>(".sidebar-list"), "Sidebar list");
+    const row = () => required(list.querySelector<HTMLElement>('[data-index="0"]'), "First row");
+    check(
+      Math.abs(
+        row().getBoundingClientRect().top -
+          list.getBoundingClientRect().top -
+          parseFloat(getComputedStyle(list).paddingTop),
+      ) < 1,
+      "Virtual rows lost the original top padding",
+    );
+    render(true);
+    await settle();
+    const draft = required(
+      list.querySelector<HTMLElement>(":scope > .thread-select"),
+      "Draft card",
+    );
+    check(
+      Math.abs(
+        row().getBoundingClientRect().top -
+          draft.getBoundingClientRect().bottom -
+          parseFloat(getComputedStyle(draft).marginBottom),
+      ) < 1,
+      "Virtual rows overlapped the draft card or changed its spacing",
+    );
+    render(false);
+    await settle();
+    check(!list.querySelector(":scope > .thread-select"), "Hidden draft retained its space");
+    check(
+      host.querySelectorAll("[data-thread-id]").length < 40,
+      "Draft changes mounted the entire thread list",
+    );
+  });
+
   await run(
     "virtual sidebar preserves keyboard order and a dragged row through scrolling",
     async (root) => {
@@ -3539,7 +3605,17 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
               projectId={crypto.randomUUID()}
               threads={summaries}
               search=""
-              renderThread={(thread) => <button>{thread.title}</button>}
+              renderThread={(thread) => (
+                <ThreadCard
+                  thread={thread}
+                  selected={false}
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                />
+              )}
             />
           </div>,
         ),
@@ -3562,6 +3638,11 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const scroll = required(
         host.querySelector<HTMLElement>(".done-thread-list"),
         "Done viewport",
+      );
+      check(
+        getComputedStyle(required(scroll.querySelector(".thread-select"), "Done card"))
+          .touchAction === "auto",
+        "Done cards inherited drag-only touch behavior",
       );
       scroll.scrollTop = scroll.scrollHeight;
       scroll.dispatchEvent(new Event("scroll"));

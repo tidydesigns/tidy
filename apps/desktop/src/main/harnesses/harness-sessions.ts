@@ -155,9 +155,8 @@ export class HarnessSessions {
     if (this.entries.get(id) !== entry) return;
     this.entries.delete(id);
     clearTimeout(entry.timer);
-    const done = interrupt
-      ? entry.session.stopAndClose()
-      : (entry.session.close(), entry.session.done);
+    if (!interrupt) entry.session.close();
+    const done = interrupt ? entry.session.stopAndClose() : entry.session.done;
     this.retiring.add(done);
     this.retiringById.set(id, done);
     void done.finally(() => {
@@ -413,13 +412,15 @@ export class HarnessSessions {
       }
       entry.invalidated = true;
       if (!idleOnly || (entry.session.idle && !entry.session.hasBackgroundWork))
-        this.retire(id, entry, Boolean(filter.threadId));
+        this.retire(id, entry, Boolean(filter.threadId) && entry.context.harness === "codex");
     }
     return Promise.all([
       ...this.retiring,
       ...(!filter.threadId
         ? [this.codex.clear((context) => matches(context, filter), idleOnly || preserveActive)]
         : []),
-    ]).then(() => {});
+    ]).then(async () => {
+      if (filter.threadId) await this.codex.clearEmpty((context) => matches(context, filter));
+    });
   }
 }
