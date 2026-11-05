@@ -87,6 +87,17 @@ export class TaskStoreError extends Error {
   }
 }
 export class TaskStore {
+  private listeners = new Set<(task: TaskRecord) => void>();
+  subscribe(listener: (task: TaskRecord) => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  private changed(task: TaskRecord) {
+    for (const listener of this.listeners) listener(task);
+    this.onChange?.(task);
+  }
   private worker?: Worker;
   private parents = new Map<string, string>();
   private receivers = new Map<string, { grantId: string; projectScope?: string }>();
@@ -291,7 +302,7 @@ export class TaskStore {
     const task = taskRecordSchema.parse(await this.call("create", { ...parsed, fingerprint }));
     if (task.kind !== "message")
       this.parents.set(`${task.projectId}:${task.childThreadId}`, task.parentThreadId);
-    this.onChange?.(task);
+    this.changed(task);
     return task;
   }
   async list(input: z.input<typeof listSchema>) {
@@ -365,7 +376,7 @@ export class TaskStore {
     const parsed = transitionSchema.parse(input);
     await this.ready();
     const task = taskRecordSchema.parse(await this.call("transition", parsed));
-    this.onChange?.(task);
+    this.changed(task);
     return task;
   }
   async threadPage(projectId: string, parentThreadId: string, before?: number, taskIds?: string[]) {
@@ -452,6 +463,11 @@ export class TaskStore {
     z.string().max(2000).parse(message);
     await this.ready();
     await this.call("delivery-failed", { id, message });
+  }
+  async reopenDelivery(id: string) {
+    uuid.parse(id);
+    await this.ready();
+    await this.call("reopen-delivery", { id });
   }
   async delivered(id: string) {
     uuid.parse(id);

@@ -53,6 +53,8 @@ export const taskDelegateSchema = z
   .object({
     request_id: requestId,
     prompt: z.string().trim().min(1).max(16_000),
+    mode: z.enum(["async", "wait"]).default("async"),
+    timeout_ms: z.number().int().min(1).max(20_000).default(20_000),
     harness: z.enum(["codex", "claude", "opencode"]).optional(),
     model: z.string().min(1).max(200).optional(),
     design_ids: z.array(entityId).max(20).optional(),
@@ -60,6 +62,7 @@ export const taskDelegateSchema = z
   .strict();
 export const taskReadSchema = z
   .object({
+    wait_ms: z.number().int().min(0).max(20_000).default(0),
     task_ids: z.array(entityId).min(1).max(30).optional(),
     after: z.number().int().nonnegative().default(0),
     limit: pageSize,

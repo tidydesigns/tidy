@@ -63,7 +63,7 @@ export const toolOutputSchemas = {
     })
     .passthrough(),
   thread_send: task,
-  task_delegate: task,
+  task_delegate: task.extend({ wait_timed_out: z.boolean() }),
   task_read: z.object({ tasks: z.array(task), cursor: z.number() }).passthrough(),
   task_cancel: task,
   canvas_read: z

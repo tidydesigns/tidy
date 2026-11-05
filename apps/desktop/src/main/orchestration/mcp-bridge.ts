@@ -15,6 +15,7 @@ export type ToolDefinition = {
   outputSchema?: z.ZodObject;
   readOnly?: boolean;
   invoke(input: unknown): Promise<unknown>;
+  settle?(delivered: boolean): Promise<void>;
 };
 export function mcpInputSchema(schema: z.ZodObject) {
   return {
@@ -131,6 +132,7 @@ export class AgentMcpBridge {
     };
     const cancelRequest = () => request.destroy();
     let requestSignal: AbortSignal | undefined;
+    const deliveries: { settle(delivered: boolean): Promise<void>; accepted: boolean }[] = [];
     response.once("close", aborted);
     try {
       const signal = AbortSignal.any([
@@ -224,6 +226,10 @@ export class AgentMcpBridge {
                     .find((candidate) => candidate.name === tool.name);
                   if (!scopedTool)
                     throw new AgentOperationError("UNAVAILABLE", "This tool is unavailable.");
+                  const delivery = scopedTool.settle
+                    ? { settle: scopedTool.settle, accepted: false }
+                    : undefined;
+                  if (delivery) deliveries.push(delivery);
                   const output = outputSchema.parse(
                     await untilAborted(toolSignal, () => scopedTool.invoke(input)),
                   );
@@ -245,6 +251,7 @@ export class AgentMcpBridge {
                       "BUSY",
                       "The tool result exceeds its limit. Request a smaller scope.",
                     );
+                  if (delivery) delivery.accepted = true;
                   return {
                     content: [
                       { type: "text", text },
@@ -342,7 +349,7 @@ export class AgentMcpBridge {
         const reader = result.body.getReader();
         try {
           while (true) {
-            const { done, value } = await reader.read();
+            const { done, value } = await untilAborted(signal, () => reader.read());
             if (done) break;
             signal.throwIfAborted();
             if (!response.write(value))
@@ -363,8 +370,18 @@ export class AgentMcpBridge {
           await reader.cancel().catch(() => {});
         }
       }
-      response.end();
+      if (!response.destroyed && !response.writableFinished)
+        await new Promise<void>((resolve) => {
+          response.once("finish", resolve);
+          response.once("close", resolve);
+          response.end();
+        });
     } finally {
+      await Promise.allSettled(
+        deliveries.map((delivery) =>
+          delivery.settle(delivery.accepted && response.writableFinished),
+        ),
+      );
       response.removeListener("close", aborted);
       requestSignal?.removeEventListener("abort", cancelRequest);
       this.active--;
