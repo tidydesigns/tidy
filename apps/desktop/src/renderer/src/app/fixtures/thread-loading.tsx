@@ -1629,17 +1629,20 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     window.dispatchEvent(new Event("blur"));
     await until(() => visible().length === 0, "Window blur closes the preview");
     const before = preloads;
-    for (const dismiss of [
+    for (const [dismissal, dismiss] of [
       () => window.dispatchEvent(new Event("blur")),
       () => window.dispatchEvent(new Event("resize")),
       () => document.dispatchEvent(new Event("scroll")),
       () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
-    ]) {
+    ].entries()) {
+      // Cover a dismissal before React commits the continuous pointer event.
       enter(first);
-      await frame();
       dismiss();
       await new Promise((resolve) => setTimeout(resolve, 200));
-      check(preloads === before && visible().length === 0, "Dismissal revived pending hover");
+      check(
+        preloads === before && visible().length === 0,
+        `Dismissal ${dismissal} revived pending hover (preloads ${before} → ${preloads}, visible ${visible().length})`,
+      );
     }
     enter(first);
     await until(() => visible().length === 1, "Preview before drag");
