@@ -925,6 +925,8 @@ export class TaskService {
         await this.stopCancelledExecution(latest);
       }
     }
+    this.retryAt.delete(task.id);
+    this.retryAttempts.delete(task.id);
     this.settled.get(task.id)?.();
     await this.reconcile();
   }
