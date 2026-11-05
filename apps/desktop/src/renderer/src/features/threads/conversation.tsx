@@ -336,7 +336,7 @@ const ConversationTurn = memo(function ConversationTurn({
   const hasWork =
     history.some((message) => message.role === "assistant") ||
     messages.some((message) => toolsByMessage.has(message.id));
-  const entry = (message: Message) => (
+  const entry = (message: Message, visible = active) => (
     <ConversationEntry
       key={message.id}
       message={message}
@@ -345,7 +345,7 @@ const ConversationTurn = memo(function ConversationTurn({
       threadId={thread.id}
       summaries={summaries}
       onOpenThread={onOpenThread}
-      active={active}
+      active={visible}
       streaming={message.role === "assistant" && message.id === streamingMessage}
       api={api}
       projectId={thread.projectId}
@@ -358,7 +358,7 @@ const ConversationTurn = memo(function ConversationTurn({
       rows.push({
         id: `message:${message.id}`,
         collapsible: message.role === "assistant" && message.id !== response?.id,
-        content: () => entry(message),
+        content: (visible: boolean) => entry(message, visible),
       });
     const activities = toolsByMessage.get(message.id);
     if (activities?.length)

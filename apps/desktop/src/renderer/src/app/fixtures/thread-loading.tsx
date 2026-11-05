@@ -1196,6 +1196,64 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
+  await run("folded work pauses media transfers and resumes them on expansion", async (root) => {
+    const visibility = videoVisibilityFixture();
+    try {
+      let thread = makeThread({ count: 0 });
+      thread.activity = "Replying";
+      thread.messages = [
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          text: "Inspect the recording",
+          turn: { startedAt: timestamp },
+        },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: "[Watch recording](recordings/demo.mp4)",
+        },
+      ];
+      let requests = 0;
+      const pending = deferred<Awaited<ReturnType<DesktopAPI["readVideoChunk"]>>>();
+      const api: DesktopAPI = {
+        ...nativeAPI,
+        readVideoChunk: async () => {
+          requests++;
+          if (requests === 1) return pending.promise;
+          throw new Error("Synthetic preview unavailable");
+        },
+      };
+      const render = () =>
+        flushSync(() =>
+          root.render(<Conversation thread={thread} identity={thread.id} api={api} active />),
+        );
+      render();
+      await until(() => requests === 1, "Live recording starts its transfer");
+      thread = {
+        ...thread,
+        status: "completed",
+        messages: [
+          { ...thread.messages[0], turn: { startedAt: timestamp, endedAt: timestamp } },
+          thread.messages[1],
+          { id: crypto.randomUUID(), role: "assistant", text: "Recording reviewed." },
+        ],
+      };
+      render();
+      pending.resolve({ data: "ZGVtbw==", size: 8, mimeType: "video/mp4", revision: "late" });
+      await settle();
+      check(requests === 1, "Folded work continued fetching video chunks");
+      check(!host.querySelector("video"), "A late transfer restarted a folded preview");
+      required(
+        host.querySelector<HTMLButtonElement>(".turn-work-summary"),
+        "Work disclosure",
+      ).click();
+      await until(() => requests === 2, "Expanded work resumes its recording");
+    } finally {
+      visibility.restore();
+    }
+  });
+
   await run(
     "thread videos render inline, defer inactive reads and isolate late responses",
     async (root) => {
