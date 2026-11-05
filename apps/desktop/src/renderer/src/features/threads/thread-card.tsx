@@ -91,29 +91,43 @@ export function ThreadCard({
   const [previewState, setPreviewState] = useState<"closed" | "waiting" | "open">("closed");
   const open = previewState === "open";
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const removeDismissListeners = useRef<(() => void) | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null),
     preview = useRef<HTMLDivElement>(null);
   const id = useId();
   function close() {
+    removeDismissListeners.current?.();
+    removeDismissListeners.current = undefined;
     clearTimeout(timer.current);
     setPreviewState("closed");
   }
   function show() {
     clearTimeout(timer.current);
     if (open) return;
+    removeDismissListeners.current?.();
+    removeDismissListeners.current = listenForDismissal();
     setPreviewState("waiting");
     timer.current = setTimeout(() => {
       onPreload?.();
       setPreviewState("open");
     }, 150);
   }
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      removeDismissListeners.current?.();
+      removeDismissListeners.current = undefined;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     if (orderControls?.dragging) {
       close();
       return;
     }
     if (previewState === "closed") return;
+    // Keyboard focus opens directly, without going through hover intent.
+    removeDismissListeners.current ??= listenForDismissal();
     const popup = preview.current;
     if (popup && root.current) {
       popup.showPopover();
@@ -122,16 +136,20 @@ export function ThreadCard({
       popup.style.left = `${Math.max(8, Math.min(bounds.right + 6, innerWidth - size.width - 8))}px`;
       popup.style.top = `${Math.max(8, Math.min(bounds.top, innerHeight - size.height - 8))}px`;
     }
+  }, [previewState, orderControls?.dragging]);
+
+  // Subscribe with the timer, before React commits the pending hover state.
+  function listenForDismissal() {
     const dismiss = () => close();
     const visibility = () => {
       if (document.visibilityState === "hidden") dismiss();
     };
     const scroll = (event: Event) => {
-      if (!(event.target instanceof Node && popup?.contains(event.target))) dismiss();
+      if (!(event.target instanceof Node && preview.current?.contains(event.target))) dismiss();
     };
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (popup?.contains(document.activeElement))
+        if (preview.current?.contains(document.activeElement))
           root.current
             ?.querySelector<HTMLButtonElement>(".thread-select")
             ?.focus({ preventScroll: true });
@@ -150,7 +168,7 @@ export function ThreadCard({
       document.removeEventListener("scroll", scroll, true);
       document.removeEventListener("keydown", key);
     };
-  }, [previewState, orderControls?.dragging]);
+  }
   return (
     <div
       ref={root}

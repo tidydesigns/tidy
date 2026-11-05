@@ -59,6 +59,61 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
     chooseConsent({analytics:true,replay:true,diagnostics:false});await settle();
     assert.equal(events.filter(event=>event.event==="$pageview").length,pageviews);
     assert.equal(instances.at(-1).config.session_recording.sampleRate,0.2);
+    const recording=instances.at(-1).config.session_recording;
+    assert.equal(recording.inlineStylesheet,true);
+    const css="body { color: red; }";
+    const stylesheet={matches:selector=>selector==="style, link[rel='stylesheet']"};
+    assert.equal(recording.maskAttributeFn("_cssText",css,stylesheet),css);
+    assert.equal(recording.maskAttributeFn("_cssText",css,{matches:()=>false}),"");
+    assert.equal(recording.maskAttributeFn("href","/private?token=secret"),"");
+    // Exercise the installed recorder's serialization and callback contract.
+    const {Window}=await import("happy-dom");
+    const replayWindow=new Window({url:"https://site.example/",settings:{disableCSSFileLoading:true}});
+    // Bun's VM-backed Window does not populate these browser globals.
+    Object.assign(replayWindow,{Object,Array});
+    replayWindow.document.body.innerHTML='<main class="replay-css-fixture">Website</main>';
+    const style=replayWindow.document.createElement("style");
+    replayWindow.document.head.append(style);
+    style.sheet.insertRule(".replay-css-fixture { color: rgb(12, 34, 56); }");
+    const late=replayWindow.document.createElement("link");
+    late.rel="stylesheet";
+    late.href="/late-fixture.css";
+    replayWindow.document.head.append(late);
+    const globals=new Map();
+    for(const key of new Set(["window","document","Node","Element","HTMLElement","MutationObserver","CSSStyleSheet","CSSStyleDeclaration","ShadowRoot",...Object.getOwnPropertyNames(replayWindow).filter(key=>/^(HTML|SVG)/.test(key))])) {
+      globals.set(key,Object.getOwnPropertyDescriptor(globalThis,key));
+      Object.defineProperty(globalThis,key,{configurable:true,writable:true,value:key==="window"?replayWindow:replayWindow[key]});
+    }
+    const {record}=await import("posthog-js/rrweb");
+    const snapshots=[];
+    const stopRecording=record({
+      ...recording,emit:event=>snapshots.push(event),
+    });
+    try {
+      replayWindow.document.dispatchEvent(new replayWindow.Event("DOMContentLoaded"));
+      replayWindow.dispatchEvent(new replayWindow.Event("load"));
+      await settle();
+      const full=snapshots.find(event=>event.type===2);
+      assert.ok(full,"recorder emits a full snapshot");
+      const nodes=[];
+      const visit=node=>{nodes.push(node);for(const child of node.childNodes??[])visit(child)};
+      visit(full.data.node);
+      assert.ok(nodes.some(node=>node.tagName==="style"&&node.attributes?._cssText?.includes(".replay-css-fixture")),"serialized stylesheet retains its embedded CSS");
+      assert.ok(nodes.some(node=>node.tagName==="link"&&node.attributes?.rel==="stylesheet"&&!node.attributes?.href),"pending stylesheet is identified without recording its URL");
+      const lateSheet=new replayWindow.CSSStyleSheet();
+      lateSheet.insertRule(".late-css-fixture { color: red; }");
+      Object.defineProperty(late,"sheet",{value:lateSheet});
+      late.dispatchEvent(new replayWindow.Event("load"));
+      await settle();
+      assert.ok(snapshots.some(event=>event.type===3&&event.data.attributes?.some(change=>change.attributes?._cssText?.includes(".late-css-fixture"))),"late stylesheet emits embedded CSS after loading");
+    } finally {
+      stopRecording?.();
+      await replayWindow.happyDOM.close();
+      for(const [key,descriptor] of globals) {
+        if(descriptor)Object.defineProperty(globalThis,key,descriptor);
+        else delete globalThis[key];
+      }
+    }
     const mask=instances.at(-1).config.session_recording.maskCapturedNetworkRequestFn;
     assert.equal(mask({method:"POST",name:"https://site.example/private?secret=private"}),null);
     assert.deepEqual(mask({name:"https://site.example/?secret=private#private"}),{name:"https://site.example/",startTime:0,duration:0,entryType:"navigation"});

@@ -82,6 +82,8 @@ export function PrivacyChoices() {
       setChoices(browserConsent() ?? ESSENTIAL_ONLY);
       setCustomise(false);
       setVisible(true);
+      // The notice may already be visible, so its visibility effect may not run.
+      panel.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
     };
     const status = () => setFailed(websiteAnalyticsStatus() === "failed");
     status();
@@ -96,7 +98,10 @@ export function PrivacyChoices() {
   }, []);
 
   useEffect(() => {
-    if (visible) panel.current?.focus({ preventScroll: true });
+    // A non-modal notice must not interrupt page navigation on arrival.
+    // Explicitly reopening it moves focus to its first usable control.
+    if (visible && trigger.current)
+      panel.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
   }, [visible]);
 
   useEffect(() => {
@@ -117,6 +122,7 @@ export function PrivacyChoices() {
   function close() {
     setVisible(false);
     trigger.current?.focus({ preventScroll: true });
+    trigger.current = null;
   }
 
   function choose(next: ConsentChoices, dismiss = false) {
@@ -137,7 +143,6 @@ export function PrivacyChoices() {
       {visible && (
         <aside
           ref={panel}
-          tabIndex={-1}
           aria-labelledby="website-privacy-title"
           className={`${styles.panel} ph-no-capture`}
           onKeyDown={(event) => {
