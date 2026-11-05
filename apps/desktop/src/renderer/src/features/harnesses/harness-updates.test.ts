@@ -110,9 +110,14 @@ test("persisted notices stay snoozed after remount and reappear autonomously on 
     await act(async () => receive?.([{ ...entry, latestVersion: "1.4.0" }]));
     expect(host.querySelector(".harness-update-notice")).not.toBeNull();
     await act(async () =>
-      receive?.([{ ...entry, status: "current", checkError: "The backend is offline" }]),
+      receive?.([
+        { ...entry, status: "current", canInstall: false, checkError: "The backend is offline" },
+      ]),
     );
     expect(host.textContent).toContain("The backend is offline");
+    expect(host.querySelector(".harness-update-detail")?.textContent).toBe("Version 1.2.3");
+    expect(host.querySelector(".sr-only")?.textContent).toBe("Update check unavailable");
+    expect(host.querySelector('[aria-label="Update Codex"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     clock.mockRestore();

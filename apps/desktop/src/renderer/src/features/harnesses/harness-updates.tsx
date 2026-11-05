@@ -225,17 +225,18 @@ export function HarnessUpdateNotices({
           const updated = entry.status === "updated";
           const error = entry.status === "error";
           const checkError = entry.status === "check-error";
-          const detail = checkError
-            ? entry.installedVersion
-              ? `Version ${entry.installedVersion}`
-              : "Version unavailable"
-            : queued
-              ? entry.waitReason === "installer"
-                ? "Next in line"
-                : "After its active responses"
-              : updated
+          const detail =
+            checkError || entry.status === "current"
+              ? entry.installedVersion
                 ? `Version ${entry.installedVersion}`
-                : `${entry.installedVersion} → ${entry.latestVersion}`;
+                : "Version unavailable"
+              : queued
+                ? entry.waitReason === "installer"
+                  ? "Next in line"
+                  : "After its active responses"
+                : updated
+                  ? `Version ${entry.installedVersion}`
+                  : `${entry.installedVersion} → ${entry.latestVersion}`;
           return (
             <li
               key={entry.id}
@@ -260,7 +261,7 @@ export function HarnessUpdateNotices({
                           ? "Updated"
                           : error
                             ? "Update failed"
-                            : checkError
+                            : checkError || entry.status === "current"
                               ? "Update check unavailable"
                               : "Update available"}
                 </span>
