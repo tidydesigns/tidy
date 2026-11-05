@@ -2,6 +2,12 @@ import { expect, test } from "bun:test";
 import { RemoteHarnessUpdates } from "./remote-harness-updates";
 import type { RemoteClient } from "../remote/client";
 import type { HarnessUpdateState } from "../../shared/contracts/harness-updates";
+import { isRemoteMutation } from "../../shared/remote";
+
+test("maintenance discovery polls do not allocate durable mutation receipts", () => {
+  expect(isRemoteMutation("backend-harness-update-state")).toBe(false);
+  expect(isRemoteMutation("backend-install-harness-update")).toBe(true);
+});
 
 const available: HarnessUpdateState[] = [
   {

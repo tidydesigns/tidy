@@ -7,6 +7,30 @@ import type { Thread, HarnessId } from "../../shared/contracts/desktop";
 import type { startHarness, RunningHarness } from "../harnesses/harnesses";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
+import { UpdateResumes } from "./update-resumes";
+
+test("Stop fences a checkpoint that was prepared before cancellation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tidy-checkpoint-fence-"));
+  try {
+    const journal = new UpdateResumes(root);
+    const entry = {
+      projectId: randomUUID(),
+      threadId: randomUUID(),
+      signature: "a".repeat(64),
+      automaticQueue: false,
+    };
+    const generation = journal.generation(entry.threadId);
+    await journal.cancel(entry.projectId, entry.threadId);
+    await journal.checkpoint(entry, generation);
+    await journal.markUpdate();
+    expect(await journal.list()).toEqual([]);
+    // A fresh user request can authorize a new run after Stop.
+    await journal.checkpoint(entry);
+    expect(await journal.list()).toHaveLength(1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {

@@ -665,6 +665,7 @@ export class ProjectStore {
 
   writeThread(thread: Thread) {
     const value = threadSchema.parse(thread);
+    const recoveryGeneration = this.updateResumes.generation(value.id);
     value.pullRequests = threadPullRequests(value);
     value.pullRequestDetectionVersion = pullRequestDetectionVersion;
     const portable = { ...value };
@@ -756,15 +757,18 @@ export class ProjectStore {
               settings: { ...snapshot.settings, permissionMode: value.settings?.permissionMode },
             }
           : undefined;
-        await this.updateResumes.checkpoint({
-          ...plan,
-          projectId: value.projectId,
-          threadId: value.id,
-          signature: await this.updateResumeSignature(value, executionPath),
-          previousSignature: previous
-            ? await this.updateResumeSignature(previous, executionPath)
-            : plan.previousSignature,
-        });
+        await this.updateResumes.checkpoint(
+          {
+            ...plan,
+            projectId: value.projectId,
+            threadId: value.id,
+            signature: await this.updateResumeSignature(value, executionPath),
+            previousSignature: previous
+              ? await this.updateResumeSignature(previous, executionPath)
+              : plan.previousSignature,
+          },
+          recoveryGeneration,
+        );
       }
       return path;
     }, encoded);

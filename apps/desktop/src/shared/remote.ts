@@ -150,6 +150,7 @@ const remoteReadOperations = new Set([
   "bootstrap",
   "project-snapshot",
   "harness-details",
+  "backend-harness-update-state",
   "harness-usage",
   "codex-usage",
   "harnesses",

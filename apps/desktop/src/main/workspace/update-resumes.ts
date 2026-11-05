@@ -33,6 +33,7 @@ export type UpdateResume = z.infer<typeof entrySchema>;
 export class UpdateResumes {
   private changes: Promise<unknown> = Promise.resolve();
   private path: string;
+  private generations = new Map<string, number>();
   constructor(directory: string) {
     this.path = join(directory, "update-resumes.json");
   }
@@ -60,6 +61,24 @@ export class UpdateResumes {
     return this.read();
   }
 
+  /** Capture before asynchronous writes so Stop can fence every older checkpoint. */
+  generation(threadId: string) {
+    const generation = this.generations.get(threadId) ?? 0;
+    this.generations.set(threadId, generation);
+    return generation;
+  }
+
+  markUpdate() {
+    return this.change(async () => {
+      const entries = await this.read();
+      await writePrivateJSON(
+        this.path,
+        entries.map((entry) => ({ ...entry, reason: "update" })),
+        { durable: true },
+      );
+    });
+  }
+
   stage(entries: UpdateResume[]) {
     return this.change(async () => {
       const previous = await this.read();
@@ -73,8 +92,9 @@ export class UpdateResumes {
   }
 
   /** Authorize both sides of the atomic thread rename if the process dies between writes. */
-  checkpoint(entry: UpdateResume) {
+  checkpoint(entry: UpdateResume, generation = this.generation(entry.threadId)) {
     return this.change(async () => {
+      if (generation !== this.generation(entry.threadId)) return;
       const entries = await this.read().catch(async (error: unknown) => {
         if (!(error instanceof SyntaxError || error instanceof z.ZodError)) throw error;
         // Retain corrupt bytes for diagnosis; only the current native snapshot can rebuild intent.
@@ -86,6 +106,7 @@ export class UpdateResumes {
         ...entry,
         previousSignature: entry.previousSignature ?? previous?.signature,
       });
+      if (generation !== this.generation(entry.threadId)) return;
       await writePrivateJSON(
         this.path,
         z
@@ -97,7 +118,7 @@ export class UpdateResumes {
     });
   }
 
-  /** Consume durably before launching: an uncertain restart must never submit the same work twice. */
+  /** Discard obsolete intent only while it still matches the inspected checkpoint. */
   take(entry: UpdateResume) {
     return this.change(async () => {
       const entries = await this.read();
@@ -119,6 +140,7 @@ export class UpdateResumes {
   }
 
   cancel(projectId: string, threadId: string) {
+    this.generations.set(threadId, this.generation(threadId) + 1);
     return this.change(async () => {
       let entries: UpdateResume[];
       try {
@@ -137,6 +159,7 @@ export class UpdateResumes {
   }
 
   clear() {
+    for (const [id, generation] of this.generations) this.generations.set(id, generation + 1);
     // Replace rather than parse: malformed recovery data must not prevent ordinary shutdown.
     return this.change(() => writePrivateJSON(this.path, [], { durable: true }));
   }

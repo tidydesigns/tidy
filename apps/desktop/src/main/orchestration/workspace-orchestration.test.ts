@@ -1912,7 +1912,7 @@ test("reading a failed result acknowledges legacy queued notices after upgrade",
     },
     { harness: "codex", permissionMode: "default", authorize: async () => {} },
   );
-  f.runs[1].input.onUpdate({ type: "error", text: "Worker file access failed" });
+  f.runs[1].input.onUpdate({ type: "error", text: "Worker file access failed", kind: "request" });
   f.runs[1].complete();
   await until(
     async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "failed",

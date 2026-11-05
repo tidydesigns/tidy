@@ -452,6 +452,7 @@ export class WorkspaceService {
   private closing: symbol | "quit" | undefined;
   private updateRecovery?: Promise<void>;
   private recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private recoveryReadAttempts = new Map<string, number>();
   private recoveringEntries = new Map<string, UpdateResume>();
   private updatingHarnesses = new Set<UpdatableHarnessId>();
   private executionProjects = new Map<string, string>();
@@ -2293,6 +2294,7 @@ export class WorkspaceService {
     message: QueuedMessage,
     steer: boolean,
     allowUntrusted = false,
+    authorize?: () => Promise<void>,
   ): Promise<Thread> {
     const job = this.jobs.get(thread.id);
     const stopVersion = this.stopVersions.get(thread.id) ?? 0;
@@ -2328,7 +2330,15 @@ export class WorkspaceService {
           if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
             return structuredClone(thread);
           this.automaticQueues.add(thread.id);
-          return await this.run(thread, message.text, attachmentIds, message.id, message.skillId);
+          return await this.run(
+            thread,
+            message.text,
+            attachmentIds,
+            message.id,
+            message.skillId,
+            false,
+            authorize,
+          );
         }
         const prepared = await this.prepareMessage(
           thread,
@@ -2338,6 +2348,7 @@ export class WorkspaceService {
         );
         await this.assertProjectAccess(thread.projectId);
         await this.store.assertThreadExecution(thread);
+        await authorize?.();
         if (this.closing || job.stopped) return structuredClone(thread);
         const insertion = thread.messages.length;
         if (
@@ -2376,7 +2387,15 @@ export class WorkspaceService {
           return structuredClone(thread);
       }
       this.automaticQueues.add(thread.id);
-      return await this.run(thread, message.text, attachmentIds, message.id, message.skillId);
+      return await this.run(
+        thread,
+        message.text,
+        attachmentIds,
+        message.id,
+        message.skillId,
+        false,
+        authorize,
+      );
     } catch (error) {
       this.automaticQueues.delete(thread.id);
       thread.queueError = (
@@ -2593,6 +2612,15 @@ export class WorkspaceService {
             },
           ],
         };
+        if (this.cancelledStarts.has(thread.id)) {
+          accepted.status = "stopped";
+          accepted.activity = undefined;
+          this.store.untrackRun(thread.id);
+          await this.store.writeThread(accepted);
+          await this.store.updateResumes.cancel(thread.projectId, thread.id);
+          this.emit({ type: "thread", thread: accepted });
+          return structuredClone(accepted);
+        }
         this.store.trackRun(thread.id, () => ({
           reason: "restart",
           automaticQueue: this.automaticQueues.has(thread.id),
@@ -2750,19 +2778,20 @@ export class WorkspaceService {
     this.jobs.set(thread.id, job);
     const recovery = this.recoveringEntries.get(thread.id);
     job.recoveryAttempt = recovery?.attempt ?? 0;
-    this.store.trackRun(thread.id, () => ({
-      automaticQueue: this.automaticQueues.has(thread.id),
-      reason: thread.recovery?.reason ?? "restart",
-      attempt: thread.recovery?.attempt ?? job.recoveryAttempt ?? 0,
-      retryAt: thread.recovery?.retryAt,
-      previousSignature: recovery?.previousSignature,
-      submission: {
-        ...job.submission,
-        state:
-          job.process?.deliveryState ??
-          (job.process || job.launching ? "unknown" : "not-submitted"),
-      },
-    }));
+    if (!job.stopped)
+      this.store.trackRun(thread.id, () => ({
+        automaticQueue: this.automaticQueues.has(thread.id),
+        reason: thread.recovery?.reason ?? "restart",
+        attempt: thread.recovery?.attempt ?? job.recoveryAttempt ?? 0,
+        retryAt: thread.recovery?.retryAt,
+        previousSignature: recovery?.previousSignature,
+        submission: {
+          ...job.submission,
+          state:
+            job.process?.deliveryState ??
+            (job.process || job.launching ? "unknown" : "not-submitted"),
+        },
+      }));
     onStarted?.(thread);
     try {
       await this.store.writeThread(thread);
@@ -2781,7 +2810,9 @@ export class WorkspaceService {
       turn.endedAt = new Date().toISOString();
       thread.revision++;
       this.jobs.delete(thread.id);
+      this.store.untrackRun(thread.id);
       await this.store.writeThread(thread);
+      if (!this.closing) await this.store.updateResumes.cancel(thread.projectId, thread.id);
       this.emit({ type: "thread", thread });
       return structuredClone(thread);
     }
@@ -2841,6 +2872,7 @@ export class WorkspaceService {
       // Cross the submission boundary durably before the provider can perform any action.
       job.launching = true;
       await this.store.writeThread(thread);
+      await authorize?.();
       if (job.stopped || this.closing) {
         thread.status = "stopped";
         await this.finish({ job, kind: "stop" });
@@ -3025,6 +3057,7 @@ export class WorkspaceService {
   private async finish(request: FinishJobRequest) {
     const { job } = request;
     if (this.jobs.get(job.thread.id) !== job) return;
+    const recoveryGeneration = this.store.updateResumes.generation(job.thread.id);
     const delivery = job.queuedDelivery;
     if (
       delivery &&
@@ -3120,7 +3153,7 @@ export class WorkspaceService {
         (item) => item.threadId === job.thread.id,
       );
       if (background && job.thread.status === "completed") {
-        await this.store.updateResumes.stage([
+        await this.store.updateResumes.checkpoint(
           {
             projectId: job.thread.projectId,
             threadId: job.thread.id,
@@ -3132,7 +3165,8 @@ export class WorkspaceService {
             background: true,
             reason: "restart",
           },
-        ]);
+          recoveryGeneration,
+        );
       } else await this.store.updateResumes.cancel(job.thread.projectId, job.thread.id);
     }
     job.toolsController.abort();
@@ -3249,6 +3283,7 @@ export class WorkspaceService {
     this.stopVersions.set(threadId, (this.stopVersions.get(threadId) ?? 0) + 1);
     clearTimeout(this.recoveryTimers.get(threadId));
     this.recoveryTimers.delete(threadId);
+    this.recoveryReadAttempts.delete(threadId);
     this.store.untrackRun(threadId);
     this.automaticQueues.delete(threadId);
     this.maintenanceQueues.delete(threadId);
@@ -3341,7 +3376,18 @@ export class WorkspaceService {
       await Promise.all(
         entries.slice(index, index + 4).map(async (entry) => {
           if (this.tasks.isManagedExecution(entry.projectId, entry.threadId)) return;
-          await this.resumeThread(entry.projectId, entry.threadId);
+          try {
+            await this.resumeThread(entry.projectId, entry.threadId);
+            this.recoveryReadAttempts.delete(entry.threadId);
+          } catch {
+            // Missing or unreadable work must not strand the other batches or delegated tasks.
+            const attempt = (this.recoveryReadAttempts.get(entry.threadId) ?? 0) + 1;
+            this.recoveryReadAttempts.set(entry.threadId, attempt);
+            this.scheduleRecovery(
+              entry.threadId,
+              new Date(Date.now() + this.retryDelay(attempt)).toISOString(),
+            );
+          }
         }),
       );
     }
@@ -3434,7 +3480,7 @@ export class WorkspaceService {
               ].join("\n\n");
         thread =
           queued && ["not-submitted", "rejected"].includes(entry.submission?.state ?? "")
-            ? await this.deliverQueued(thread, queued, false)
+            ? await this.deliverQueued(thread, queued, false, false, authorize)
             : await this.run(
                 thread,
                 prompt,
@@ -3505,10 +3551,7 @@ export class WorkspaceService {
         },
       );
       await this.shutdownDeadline(stopping);
-      const entries = await this.store.updateResumes.list();
-      await this.store.updateResumes.stage(
-        entries.map((entry) => ({ ...entry, reason: "update" as const })),
-      );
+      await this.store.updateResumes.markUpdate();
     } catch (error) {
       // A timed-out drain retains ownership until it actually settles; never launch over a live process.
       if (!stopping || settled) await restore();
