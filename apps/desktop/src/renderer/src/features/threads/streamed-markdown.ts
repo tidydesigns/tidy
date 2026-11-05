@@ -1,4 +1,4 @@
-import type { Code, Root } from "mdast";
+import type { Blockquote, Code, ListItem, Parent, Root, RootContent } from "mdast";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useBlockReveal(active: boolean) {
@@ -54,13 +54,49 @@ export function useBufferedMarkdown(text: string, buffering: boolean) {
   };
 }
 
-function closedFence(block: Code, text: string) {
+function expandTabs(line: string) {
+  let padding = 0;
+  return line.replace(/\t/gu, (_tab, offset: number) => {
+    const spaces = 4 - ((offset + padding) % 4);
+    padding += spaces - 1;
+    return " ".repeat(spaces);
+  });
+}
+
+function closedFence(block: Code, text: string, containers: (ListItem | Blockquote)[] = []) {
   const raw = text.slice(block.position?.start.offset ?? 0, block.position?.end.offset).trimEnd();
   const lines = raw.split(/\r?\n/u);
   const opening = /^ {0,3}(`{3,}|~{3,})/u.exec(lines[0]);
   if (!opening || lines.length < 2) return false;
+  let closing = expandTabs(lines.at(-1) ?? "");
+  for (const container of containers) {
+    if (container.type === "blockquote") {
+      closing = closing.replace(/^ {0,3}> ?/u, "");
+    } else {
+      const start = container.position?.start.offset ?? 0;
+      const marker = /^(?:[*+-]|\d{1,9}[.)])([ \t]*)/u.exec(text.slice(start));
+      if (!marker) return false;
+      const prefix = text.slice(text.lastIndexOf("\n", start - 1) + 1, start);
+      const markerWidth = marker[0].length - marker[1].length;
+      const gap = expandTabs(prefix + marker[0]).length - (expandTabs(prefix).length + markerWidth);
+      const next = text[start + marker[0].length];
+      const indent = markerWidth + (!next || next === "\n" || next === "\r" || gap > 4 ? 1 : gap);
+      closing = closing.replace(new RegExp(`^ {0,${indent}}`, "u"), "");
+    }
+  }
   const marker = opening[1];
-  return new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`, "u").test(lines.at(-1) ?? "");
+  return new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \t]*$`, "u").test(closing);
+}
+
+function holdUnfinishedCode(node: Parent, text: string, containers: (ListItem | Blockquote)[]) {
+  const tail = node.children.at(-1);
+  if (!tail) return;
+  if (tail.type === "code") {
+    if (!closedFence(tail, text, containers)) node.children.pop();
+  } else if (tail.type === "list" || tail.type === "listItem" || tail.type === "blockquote") {
+    holdUnfinishedCode(tail, text, tail.type === "list" ? containers : [...containers, tail]);
+    if (!tail.children.length) node.children.pop();
+  }
 }
 
 export function remarkCompleteBlocks({
@@ -82,27 +118,17 @@ export function remarkCompleteBlocks({
     const codeReady = tail.type === "code" && closedFence(tail, text);
     const separated = /\r?\n[ \t]*\r?\n[ \t]*$/u.test(text);
     if (tail.type === "list") {
-      const items = tail.children
-        .filter(
-          (item, index) =>
-            index < tail.children.length - 1 ||
-            (item.position?.start.offset ?? text.length) < minimum ||
-            (separated && item.children.at(-1)?.type === "paragraph"),
-        )
-        .map((item) =>
-          item === tail.children.at(-1)
-            ? {
-                ...item,
-                children: item.children.filter(
-                  (child, index) =>
-                    index < item.children.length - 1 ||
-                    child.type !== "code" ||
-                    closedFence(child, text),
-                ),
-              }
-            : item,
-        )
-        .filter((item) => item.children.length > 0);
+      const items = tail.children.filter(
+        (item, index) =>
+          index < tail.children.length - 1 ||
+          (item.position?.start.offset ?? text.length) < minimum ||
+          (separated && item.children.at(-1)?.type === "paragraph"),
+      );
+      const last = items.at(-1);
+      if (last && last === tail.children.at(-1)) {
+        holdUnfinishedCode(last, text, [last]);
+        if (!last.children.length) items.pop();
+      }
       if (items.length) ready.push({ ...tail, children: items });
     } else if (
       exposed ||
@@ -117,11 +143,9 @@ export function remarkCompleteBlocks({
       ready.pop();
     }
     root.children = ready;
-    const last = ready.at(-1);
-    onExpose?.(
-      (last?.type === "list"
-        ? last.children.at(-1)?.children.at(-1)?.position?.end.offset
-        : last?.position?.end.offset) ?? 0,
-    );
+    let last: RootContent | undefined = ready.at(-1);
+    while (last && (last.type === "list" || last.type === "listItem" || last.type === "blockquote"))
+      last = last.children.at(-1);
+    onExpose?.(last?.position?.end.offset ?? 0);
   };
 }

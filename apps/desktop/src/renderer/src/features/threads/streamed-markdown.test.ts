@@ -41,6 +41,8 @@ describe("streamed Markdown sections", () => {
     expect(render(fence)).toBe("");
     expect(render(fence + "\n}\n```")).toContain("color: red;");
     expect(render("~~~text\r\nComplete code\r\n~~~~")).toContain("Complete code");
+    expect(render(fence + "\n   ```")).toContain("color: red;");
+    expect(render(fence + "\n    ```")).toBe("");
   });
 
   test("keeps blank lines inside an unfinished code fence hidden", () => {
@@ -118,21 +120,44 @@ test("exposed list items do not expose a later unfinished fenced item", () => {
   expect(html).not.toContain("const hidden");
 });
 
-test("exposed list items retain their text while a new code fence remains unfinished", () => {
+test("exposed list items retain text and hold unfinished code through nested containers", () => {
   for (const marker of ["```", "~~~"]) {
-    const prefix = "- Visible item\n\n";
-    let exposed = 0;
-    const onExpose = (offset: number) => {
-      exposed = Math.max(exposed, offset);
-    };
-    expect(render(prefix, true, exposed, onExpose)).toContain("Visible item");
-    const retained = exposed;
-    const text = prefix + `  ${marker}ts\n  const pending = 1;\n\n`;
-    const html = render(text, true, exposed, onExpose);
-    expect(html).toContain("Visible item");
-    expect(html).not.toContain("const pending");
-    expect(exposed).toBe(retained);
-    expect(render(text + `  ${marker}`, true, exposed)).toContain("const pending");
-    expect(render(text, false)).toContain("const pending");
+    for (const { prefix, continuation } of [
+      { prefix: "- Visible item\n\n", continuation: "  " },
+      { prefix: "100. Visible item\n\n", continuation: "     " },
+      { prefix: "100.\n     Visible item\n\n", continuation: "     " },
+      { prefix: "100.\tVisible item\n\n", continuation: "        " },
+      { prefix: "- Visible item\n\n", continuation: "  > " },
+      {
+        prefix: "- Visible item\n\n  > Quoted introduction\n  >\n",
+        continuation: "  > ",
+      },
+      { prefix: "100. Visible item\n\n", continuation: "     > > " },
+      { prefix: "- Outer\n\n  - Visible item\n\n", continuation: "    " },
+    ]) {
+      let exposed = 0;
+      const onExpose = (offset: number) => {
+        exposed = Math.max(exposed, offset);
+      };
+      render(prefix.slice(0, prefix.indexOf("\n\n") + 2), true, exposed, onExpose);
+      expect(render(prefix, true, exposed, onExpose)).toContain("Visible item");
+      const retained = exposed;
+      const text =
+        prefix +
+        `${continuation}${marker}ts\n${continuation}const pending = 1;\n${continuation.trimEnd()}\n`;
+      const html = render(text, true, exposed, onExpose);
+      expect(html).toContain("Visible item");
+      expect(html).not.toContain("const pending");
+      if (prefix.includes("Quoted introduction")) expect(html).toContain("Quoted introduction");
+      expect(exposed).toBe(retained);
+      expect(render(text + `${continuation}${marker}`, true, exposed)).toContain("const pending");
+      expect(render(text + `${continuation}   ${marker}`, true, exposed)).toContain(
+        "const pending",
+      );
+      expect(render(text + `${continuation}    ${marker}`, true, exposed)).not.toContain(
+        "const pending",
+      );
+      expect(render(text, false)).toContain("const pending");
+    }
   }
 });
