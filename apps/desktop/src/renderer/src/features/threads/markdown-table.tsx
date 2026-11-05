@@ -1,11 +1,19 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { ExtraProps } from "react-markdown";
 import { createPortal } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { showToast } from "@tidy/ui/toast";
-import { formatTableCsv } from "./table-format";
+import { formatTableCsv, tableSourceRows } from "./table-format";
 
 const tableClassName =
   "w-full border-collapse text-sm leading-relaxed tabular-nums [overflow-wrap:normal] [word-break:normal] [&_:is(th,td)]:min-w-28 [&_:is(th,td)]:max-w-96 [&_:is(th,td)]:px-3 [&_:is(th,td)]:py-3 [&_:is(th,td)]:text-start [&_:is(th,td)]:align-top [&_:is(th,td)]:[overflow-wrap:anywhere] [&_:is(th,td)]:[text-wrap:pretty] [&_tr>:first-child]:ps-0 [&_tr>:last-child]:pe-0 [&_thead_th]:border-b [&_thead_th]:border-border/60 [&_thead_th]:pb-2.5 [&_thead_th]:pt-0 [&_thead_th]:text-xs [&_thead_th]:font-medium [&_thead_th]:text-muted-ink [&_tbody_tr:last-child_td]:pb-1 [&_td[style*=right]]:[overflow-wrap:normal] [&_td[style*=right]]:[direction:ltr] [&_td[style*=right]]:[unicode-bidi:isolate] [&_code]:[direction:ltr] [&_code]:[unicode-bidi:isolate] [&_code]:rounded-none! [&_code]:bg-transparent! [&_code]:p-0! [&_code]:text-[0.8125rem]!";
@@ -15,6 +23,27 @@ const actionClassName =
 
 export function MarkdownTable({ children, node }: { children?: ReactNode } & ExtraProps) {
   const [expanded, setExpanded] = useState(false);
+  const [page, setPage] = useState(0);
+  const sections = Children.toArray(children);
+  const body = sections
+    .filter(isValidElement<{ children?: ReactNode }>)
+    .find((child) => child.type === "tbody");
+  const rows = Children.toArray(body?.props.children).filter(
+    (child) => isValidElement(child) && child.type === "tr",
+  );
+  const pageSize = 100;
+  const current = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
+  if (current !== page) setPage(current);
+  const start = current * pageSize;
+  const paginated = rows.length > pageSize;
+  const visible =
+    paginated && body
+      ? sections.map((section) =>
+          section === body
+            ? cloneElement(body, { children: rows.slice(start, start + pageSize) })
+            : section,
+        )
+      : children;
   const dialog = useRef<HTMLDialogElement>(null);
   const table = useRef<HTMLTableElement>(null);
   const markdown = node?.properties["data-markdown-source"];
@@ -26,9 +55,11 @@ export function MarkdownTable({ children, node }: { children?: ReactNode } & Ext
       format === "markdown" && typeof markdown === "string"
         ? markdown
         : formatTableCsv(
-            Array.from(table.current.rows, (row) =>
-              Array.from(row.cells, (cell) => cell.innerText),
-            ),
+            paginated && node
+              ? tableSourceRows(node)
+              : Array.from(table.current.rows, (row) =>
+                  Array.from(row.cells, (cell) => cell.innerText),
+                ),
           );
     void navigator.clipboard.writeText(content).then(
       () => showToast("Table copied", "success"),
@@ -40,13 +71,38 @@ export function MarkdownTable({ children, node }: { children?: ReactNode } & Ext
     if (expanded) dialog.current?.showModal();
   }, [expanded]);
 
+  const pagination = paginated && (
+    <div className="markdown-table-pages">
+      <span aria-live="polite">
+        Rows {start + 1}–{Math.min(start + pageSize, rows.length)} of {rows.length.toLocaleString()}
+      </span>
+      <Button
+        variant="text"
+        className="markdown-table-action"
+        disabled={current === 0}
+        onClick={() => setPage(current - 1)}
+      >
+        Previous rows
+      </Button>
+      <Button
+        variant="text"
+        className="markdown-table-action"
+        disabled={start + pageSize >= rows.length}
+        onClick={() => setPage(current + 1)}
+      >
+        Next rows
+      </Button>
+    </div>
+  );
+
   return (
     <div className="my-[0.65rem] min-w-0 max-w-full">
       <div className="markdown-table-scroll" tabIndex={0} role="region" aria-label="Table">
         <table ref={table} className={tableClassName}>
-          {children}
+          {visible}
         </table>
       </div>
+      {!expanded && pagination}
       <div className="mt-2 flex items-center justify-end gap-0.5 select-none">
         <Button
           variant="text"
@@ -123,9 +179,10 @@ export function MarkdownTable({ children, node }: { children?: ReactNode } & Ext
             </div>
             <div className="message-markdown markdown-table-content">
               <div className="markdown-table-scroll" tabIndex={0} role="region" aria-label="Table">
-                <table className={tableClassName}>{children}</table>
+                <table className={tableClassName}>{visible}</table>
               </div>
             </div>
+            {pagination}
           </Dialog>,
           document.body,
         )}
