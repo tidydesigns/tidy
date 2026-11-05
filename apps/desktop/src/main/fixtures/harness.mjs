@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 if (process.argv.includes("login") && process.argv.includes("status")) process.exit(0);
 if (process.argv.includes("auth") && process.argv.includes("status")) {
@@ -11,7 +12,9 @@ if (process.argv.includes("auth") && process.argv.includes("status")) {
 
 let structuredInput, threadParams, turnParams;
 const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
-const session = "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
+let session = "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
+const threads = new Map();
+let threadSequence = 0;
 const turn = "fixture-turn";
 const metadataArgs = process.argv.slice(2);
 if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format")) {
@@ -44,10 +47,21 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
         ),
       );
     if (method === "thread/start" || method === "thread/resume") {
-      threadParams = value.params;
-      reply({ thread: { id: session }, model: "fixture-codex" });
+      const id =
+        method === "thread/resume"
+          ? value.params.threadId
+          : threadSequence++ === 0
+            ? session
+            : randomUUID();
+      threads.set(id, value.params);
+      reply({ thread: { id }, model: "fixture-codex" });
+    } else if (method === "thread/unsubscribe") {
+      threads.delete(value.params.threadId);
+      reply({ status: "unsubscribed" });
     } else if (method === "turn/start") {
       turnParams = value.params;
+      session = turnParams.threadId;
+      threadParams = threads.get(session);
       reply({ turn: { id: turn } });
       break;
     } else if (method === "initialize")
