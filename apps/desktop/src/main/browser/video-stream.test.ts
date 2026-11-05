@@ -332,7 +332,7 @@ test(
 );
 
 test(
-  "missing native video dependencies preserve a usable JPEG browser",
+  "native video dependencies removed after enablement preserve a usable JPEG browser",
   { skip: !enabled, timeout: 60000 },
   async () => {
     const server = createServer((_request, response) =>
@@ -351,9 +351,9 @@ test(
         "TIDY_BROWSER_WINDOW_MANAGER_EXECUTABLE",
       ]) {
         const previous = process.env[key];
-        process.env[key] = "/missing-native-video-fixture";
         const service = new BrowserService(async () => {});
         await service.chooseStreaming(true);
+        process.env[key] = "/missing-native-video-fixture";
         const scope = { projectId: randomUUID(), threadId: randomUUID() };
         let jpeg = 0;
         let reason = "";

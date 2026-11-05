@@ -21,6 +21,7 @@ export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
 const hostCapabilities = [
   "browser-streaming-settings-v1",
+  "browser-streaming-labs-v1",
   "browser-streaming-v2",
   "browser-v2",
   "mobile-preview-v1",

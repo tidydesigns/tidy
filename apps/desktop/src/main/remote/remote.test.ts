@@ -1662,7 +1662,7 @@ test.skipIf(process.platform !== "linux")(
   "legacy browser viewers receive upgrade guidance before video protocol rejection",
   async () => {
     const f = await fixture();
-    await f.service.browser.chooseStreaming(true);
+    await f.service.store.processState.write("browser-streaming", { enabled: true });
     const watch = spyOn(f.service.browser, "watch");
     const clientId = randomUUID();
     const token = await f.sessions.issue(clientId);
@@ -2147,4 +2147,52 @@ test("browser streaming choices use authenticated host settings and reject inval
   expect(await f.service.store.processState.read("browser-streaming")).toEqual({ enabled: false });
   await expect(client.operation("browser-streaming-choice", { enabled: "true" })).rejects.toThrow();
   expect((await f.service.browser.streamingState()).enabled).toBe(false);
+});
+
+test("Labs reports host readiness without changing legacy strict settings responses", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const old = await client.operation("browser-streaming-state");
+  expect(
+    z.object({ enabled: z.boolean(), supported: z.boolean() }).strict().safeParse(old).success,
+  ).toBe(true);
+  const state = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-labs-state"),
+  );
+  const chosen = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-labs-choice", { enabled: false }),
+  );
+  expect(chosen.enabled).toBe(false);
+  expect(chosen.unavailableReason).toBe(state.unavailableReason);
+});
+
+test("Labs refuses unverified settings on older hosts while project work remains available", async () => {
+  const f = await fixture();
+  const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+  const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+    const frame = parse(...args);
+    return frame.type === "hello"
+      ? {
+          ...frame,
+          capabilities: frame.capabilities?.filter(
+            (value) => value !== "browser-streaming-labs-v1",
+          ),
+        }
+      : frame;
+  });
+  try {
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    await expect(client.operation("browser-streaming-labs-state")).rejects.toThrow(
+      "backend update",
+    );
+    await expect(
+      client.operation("browser-streaming-labs-choice", { enabled: true }),
+    ).rejects.toThrow("backend update");
+    expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
+    expect((await f.service.browser.streamingState()).enabled).toBe(false);
+  } finally {
+    frames.mockRestore();
+  }
 });

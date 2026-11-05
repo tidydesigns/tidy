@@ -128,8 +128,16 @@ export function createWorkspaceRequests<Context>(
   handle("mobile-frame", mobileFrameRequestSchema, (input) => service.mobile.frame(input));
   handle("mobile-input", mobileInputSchema, (input) => service.mobile.input(input));
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
-  handle("browser-streaming-state", z.undefined(), () => service.browser.streamingState());
-  handle("browser-streaming-choice", browserStreamingChoiceSchema, ({ enabled }) =>
+  handle("browser-streaming-state", z.undefined(), async () => {
+    const { enabled, supported } = await service.browser.streamingState();
+    return { enabled, supported };
+  });
+  handle("browser-streaming-choice", browserStreamingChoiceSchema, async ({ enabled }) => {
+    const state = await service.browser.chooseStreaming(enabled);
+    return { enabled: state.enabled, supported: state.supported };
+  });
+  handle("browser-streaming-labs-state", z.undefined(), () => service.browser.streamingState());
+  handle("browser-streaming-labs-choice", browserStreamingChoiceSchema, ({ enabled }) =>
     service.browser.chooseStreaming(enabled),
   );
   handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId, terminalId }) =>

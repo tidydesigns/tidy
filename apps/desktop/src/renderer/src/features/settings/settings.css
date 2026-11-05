@@ -104,34 +104,34 @@
   color: var(--color-muted-ink);
   font-size: 12px;
 }
-.settings-browser {
+.settings-labs {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.settings-browser .settings-appearance-row {
+.settings-labs .settings-appearance-row {
   flex-wrap: wrap;
   gap: 12px;
 }
-.settings-browser-machine {
+.settings-labs-machine {
   width: 208px;
   max-width: 100%;
   min-width: 0;
 }
-.settings-browser-machine > button {
+.settings-labs-machine > button {
   height: auto;
   min-height: 32px;
 }
-.settings-browser-machine-label,
-.settings-browser-machine [data-ph-private] {
+.settings-labs-machine-label,
+.settings-labs-machine [data-ph-private] {
   display: block;
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: start;
 }
-.settings-browser .completion-row > div {
+.settings-labs .completion-row > div {
   min-width: 0;
 }
-.settings-browser-error {
+.settings-labs-error {
   margin-top: 16px;
   color: var(--desktop-status-danger);
   font-size: 12px;

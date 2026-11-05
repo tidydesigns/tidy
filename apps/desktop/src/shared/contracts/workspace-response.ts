@@ -53,6 +53,8 @@ const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().opti
 export const workspaceResponseSchemas = {
   "browser-streaming-state": browserStreamingStateSchema,
   "browser-streaming-choice": browserStreamingStateSchema,
+  "browser-streaming-labs-state": browserStreamingStateSchema,
+  "browser-streaming-labs-choice": browserStreamingStateSchema,
   "mobile-state": mobileStateSchema,
   "mobile-command": mobileStateSchema,
   "mobile-frame": mobileFrameSchema.nullable(),

@@ -539,6 +539,15 @@ export class RemoteClient {
       !this.capabilities.includes("browser-streaming-settings-v1")
     )
       return Promise.reject(new Error("Browser streaming settings need a backend update."));
+    if (
+      ["browser-streaming-labs-state", "browser-streaming-labs-choice"].includes(name) &&
+      !this.capabilities.includes("browser-streaming-labs-v1")
+    )
+      return Promise.reject(
+        new Error(
+          "Labs streaming settings need a backend update. Update this host in Settings → Remote machines.",
+        ),
+      );
     if (!this.capabilities.includes("thread-worktrees")) {
       if (name === "project-thread-mode")
         return Promise.reject(new Error("Thread workspaces need a backend update."));

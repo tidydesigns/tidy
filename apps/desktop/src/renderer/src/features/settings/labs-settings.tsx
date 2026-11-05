@@ -15,45 +15,70 @@ function StreamingChoice({ machine, active }: { machine: string; active: boolean
   const [state, setState] = useState<BrowserStreamingState>();
   const [error, setError] = useState("");
   const revision = useRef(0);
+  const [pending, setPending] = useState(false);
+  const [reading, setReading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!active || !api) return;
     const version = ++revision.current;
+    setReading(true);
+    setPending(false);
     void api.state().then(
       (value) => {
         if (version === revision.current) {
           setState(value);
+          setReading(false);
           setError("");
         }
       },
       (cause: unknown) => {
-        if (version === revision.current)
+        if (version === revision.current) {
+          setState(undefined);
+          setReading(false);
           setError(cause instanceof Error ? cause.message : "Could not read browser settings.");
+        }
       },
     );
     return () => {
       revision.current++;
     };
-  }, [api, active]);
+  }, [api, active, attempt]);
+
+  const unavailable =
+    state?.unavailableReason ??
+    (state && !state.supported ? "Video streaming requires a Linux browser host." : undefined);
 
   function choose() {
-    if (!api || !state) return;
+    if (!api || !state || reading) return;
     const next = { ...state, enabled: !state.enabled };
     const version = ++revision.current;
     setState(next);
+    setPending(true);
     setError("");
     void api.choose({ enabled: next.enabled }).then(
       (value) => {
-        if (version === revision.current) setState(value);
+        if (version === revision.current) {
+          setState(value);
+          setPending(false);
+        }
       },
       (cause: unknown) => {
         if (version !== revision.current) return;
+        setPending(false);
+        setReading(true);
         setError(cause instanceof Error ? cause.message : "Could not change browser streaming.");
         void api.state().then(
           (value) => {
-            if (version === revision.current) setState(value);
+            if (version === revision.current) {
+              setState(value);
+              setReading(false);
+            }
           },
           () => {
-            if (version === revision.current) setState(undefined);
+            if (version === revision.current) {
+              setState(undefined);
+              setReading(false);
+            }
           },
         );
       },
@@ -64,46 +89,67 @@ function StreamingChoice({ machine, active }: { machine: string; active: boolean
     <>
       <div className="completion-row">
         <div>
-          <span>Voxl streaming</span>
-          <p>Experimental video streaming with JPEG fallback.</p>
+          <span>Browser video streaming</span>
+          <p>Voxl video streaming with JPEG fallback.</p>
         </div>
         <Button
           role="switch"
-          aria-label="Voxl streaming"
+          aria-label="Browser video streaming"
+          aria-describedby="labs-streaming-status"
+          aria-busy={pending || reading}
           aria-checked={state?.enabled ?? false}
-          disabled={!api || !state || (!state.supported && !state.enabled)}
+          disabled={
+            !api ||
+            !state ||
+            reading ||
+            ((!state.supported || Boolean(unavailable)) && !state.enabled)
+          }
           className="completion-switch disabled:cursor-default disabled:opacity-50"
           onClick={choose}
         >
           <span />
         </Button>
       </div>
-      <p className="thread-naming-note">
-        Applies to new browser sessions on this machine. Existing sessions keep their current mode.
-        Open the browser in a new thread to test the change.
+      <p id="labs-streaming-status" className="thread-naming-note" role="status">
+        {pending
+          ? state?.enabled
+            ? "Enabling…"
+            : "Disabling…"
+          : reading && api
+            ? "Checking host…"
+            : unavailable
+              ? `Unavailable. ${state?.enabled ? "Saved preference is on. " : ""}${unavailable}`
+              : state
+                ? state.enabled
+                  ? "Enabled for new browser sessions."
+                  : "Disabled. New browser sessions use JPEG."
+                : "Settings unavailable."}
       </p>
       <p className="thread-naming-note">
-        Requires a Linux host with Voxl, Xvfb, xrandr, Openbox and full Chrome installed. If video
-        is interrupted, JPEG keeps the browser usable while video reconnects.
+        Applies to new browser sessions on the selected machine. Existing sessions keep their mode.
+        Open a preview in a new thread to use the change. If video cannot run, the preview shows its
+        JPEG fallback status.
       </p>
-      {state && !state.supported && (
-        <p className="thread-naming-note">
-          Video streaming is unavailable on this host’s operating system.
-        </p>
-      )}
-      {!api && (
-        <p className="thread-naming-note">Browser streaming settings require the desktop app.</p>
-      )}
+      {!api && <p className="thread-naming-note">Experimental features require the desktop app.</p>}
       {error && (
-        <p className="settings-browser-error" role="alert">
+        <p className="settings-labs-error" role="alert">
           {error}
         </p>
+      )}
+      {(error || unavailable) && (
+        <Button
+          className="secondary-button"
+          disabled={reading || pending}
+          onClick={() => setAttempt((value) => value + 1)}
+        >
+          Check again
+        </Button>
       )}
     </>
   );
 }
 
-export function BrowserSettings({ active }: { active: boolean }) {
+export function LabsSettings({ active }: { active: boolean }) {
   const [machine, setMachine] = useState("local");
   const [machines, setMachines] = useState<WorkspaceMachine[]>([]);
   const [error, setError] = useState("");
@@ -122,7 +168,10 @@ export function BrowserSettings({ active }: { active: boolean }) {
           }
         },
         () => {
-          if (current && version === generation) setError("Could not refresh connected machines.");
+          if (current && version === generation) {
+            setMachines([]);
+            setError("Could not refresh connected machines.");
+          }
         },
       );
     };
@@ -138,7 +187,8 @@ export function BrowserSettings({ active }: { active: boolean }) {
   );
   const selected = machine === "local" || connected.some((item) => item.id === machine);
   return (
-    <section className="settings-browser" aria-label="Browser streaming settings">
+    <section className="settings-labs" aria-label="Experimental features">
+      <p className="thread-naming-note">Try unfinished features. They may change or break.</p>
       {(connected.length > 0 || machine !== "local") && (
         <div className="settings-appearance-row">
           <span>Machine</span>
@@ -146,9 +196,9 @@ export function BrowserSettings({ active }: { active: boolean }) {
             value={machine}
             label="Browser host machine"
             size="sm"
-            className="settings-browser-machine"
+            className="settings-labs-machine"
             renderOptionLabel={(option) => (
-              <span className="settings-browser-machine-label">{option.label}</span>
+              <span className="settings-labs-machine-label">{option.label}</span>
             )}
             options={[
               { value: "local", label: "This machine" },
@@ -165,7 +215,7 @@ export function BrowserSettings({ active }: { active: boolean }) {
         <p className="thread-naming-note">Reconnect this machine to change its browser settings.</p>
       )}
       {error && (
-        <p className="settings-browser-error" role="alert">
+        <p className="settings-labs-error" role="alert">
           {error}
         </p>
       )}

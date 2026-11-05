@@ -20,11 +20,18 @@ export class BrowserStreamingPreferences {
     }));
   }
 
-  choose(enabled: boolean) {
+  async current() {
+    await this.writing;
+    await this.initialize();
+    return this.enabled;
+  }
+
+  choose(enabled: boolean, verify?: () => Promise<void>) {
     const update = this.writing.then(async () => {
       await this.initialize();
       if (enabled && process.platform !== "linux")
         throw new Error("Video streaming currently requires a Linux browser host.");
+      if (enabled) await verify?.();
       await this.storage?.().write("browser-streaming", { enabled });
       this.enabled = enabled;
     });

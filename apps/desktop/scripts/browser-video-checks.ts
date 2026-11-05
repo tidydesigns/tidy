@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { BrowserStreamingPreferences } from "../src/main/browser/streaming-preferences";
 import { APP_URL } from "../src/main/app/renderer-security";
 import type { BrowserWindow } from "electron";
 import type { WorkspaceService } from "../src/main/workspace/workspace-service";
@@ -88,41 +89,93 @@ export async function checkBrowserVideo(options: {
     window.webContents.sendInputEvent({ type: "mouseDown", ...at, button: "left", clickCount });
     window.webContents.sendInputEvent({ type: "mouseUp", ...at, button: "left", clickCount });
   };
+  const openLabs = async () => {
+    await until(
+      () => evaluate('Boolean(document.querySelector(".settings-trigger"))'),
+      "settings ready",
+    );
+    await evaluate('document.querySelector(".settings-trigger").click()');
+    await until(
+      () => evaluate('Boolean(document.querySelector("[aria-controls=settings-labs-panel]"))'),
+      "browser settings page",
+    );
+    await evaluate('document.querySelector("[aria-controls=settings-labs-panel]").click()');
+    await until(
+      () =>
+        evaluate(
+          'Boolean(document.querySelector("button[aria-label^=\\"Browser host machine\\"]"))',
+        ),
+      "host selector",
+    );
+    await evaluate(
+      'document.querySelector("button[aria-label^=\\"Browser host machine\\"]").click()',
+    );
+    await until(
+      () =>
+        evaluate(
+          'Array.from(document.querySelectorAll("[role=menuitemradio]")).some(item=>item.textContent.includes("test@browser-host"))',
+        ),
+      "remote host option",
+    );
+    await evaluate(
+      'Array.from(document.querySelectorAll("[role=menuitemradio]")).find(item=>item.textContent.includes("test@browser-host")).click()',
+    );
+  };
   await window.loadURL(APP_URL);
-  await until(
-    () => evaluate('Boolean(document.querySelector(".settings-trigger"))'),
-    "settings ready",
-  );
-  await evaluate('document.querySelector(".settings-trigger").click()');
-  await until(
-    () => evaluate('Boolean(document.querySelector("[aria-controls=settings-browser-panel]"))'),
-    "browser settings page",
-  );
-  await evaluate('document.querySelector("[aria-controls=settings-browser-panel]").click()');
-  await until(
-    () =>
-      evaluate('Boolean(document.querySelector("button[aria-label^=\\"Browser host machine\\"]"))'),
-    "host selector",
-  );
-  await evaluate(
-    'document.querySelector("button[aria-label^=\\"Browser host machine\\"]").click()',
-  );
+  await openLabs();
+  const toggle = 'document.querySelector("#settings-labs-panel [role=switch]")';
+  await until(() => evaluate(`${toggle}&&!${toggle}.disabled`), "streaming toggle ready");
+  assert.equal((await service.browser.streamingState()).enabled, false);
+  const storage = service.store.processState;
+  const write = storage.write.bind(storage);
+  let release = () => {};
+  let saving = false;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  storage.write = async (key, value) => {
+    if (key === "browser-streaming") {
+      saving = true;
+      await held;
+    }
+    await write(key, value);
+  };
+  try {
+    await evaluate(`${toggle}.click()`);
+    await until(() => saving, "host preference write started");
+    assert.equal(
+      await evaluate(
+        `document.querySelector('#labs-streaming-status').textContent.includes('Enabling')`,
+      ),
+      true,
+    );
+    await evaluate('document.querySelector("[aria-controls=settings-appearance-panel]").click()');
+    await evaluate('document.querySelector("[aria-controls=settings-labs-panel]").click()');
+    await until(
+      () =>
+        evaluate(
+          `${toggle}.disabled&&document.querySelector('#labs-streaming-status').textContent.includes('Checking')`,
+        ),
+      "reopening Labs waits for pending persistence",
+    );
+  } finally {
+    release();
+    storage.write = write;
+  }
   await until(
     () =>
       evaluate(
-        'Array.from(document.querySelectorAll("[role=menuitemradio]")).some(item=>item.textContent.includes("test@browser-host"))',
+        `${toggle}.getAttribute('aria-checked')==='true'&&!${toggle}.disabled&&document.querySelector('#labs-streaming-status').textContent.includes('Enabled for new')`,
       ),
-    "remote host option",
+    "Labs confirms saved enablement after reopen",
   );
-  await evaluate(
-    'Array.from(document.querySelectorAll("[role=menuitemradio]")).find(item=>item.textContent.includes("test@browser-host")).click()',
-  );
-  const toggle = 'document.querySelector("#settings-browser-panel [role=switch]")';
-  await until(() => evaluate(`${toggle}&&!${toggle}.disabled`), "streaming toggle ready");
-  if (!(await service.browser.streamingState()).enabled) await evaluate(`${toggle}.click()`);
   await until(
     async () => (await service.browser.streamingState()).enabled,
     "video choice stored remotely",
+  );
+  assert.equal(
+    await new BrowserStreamingPreferences(() => service.store.processState).current(),
+    true,
   );
   await evaluate(
     `sessionStorage.setItem('tidy:navigation:machine',${JSON.stringify(JSON.stringify(options.machineId))});sessionStorage.setItem(${JSON.stringify(`tidy:navigation:${options.machineId}:mode`)},'"code"');sessionStorage.setItem(${JSON.stringify(`tidy:navigation:${options.machineId}:threads`)},${JSON.stringify(JSON.stringify({ [scope.projectId]: scope.threadId }))});true`,
@@ -462,7 +515,54 @@ export async function checkBrowserVideo(options: {
   );
   await moving();
   assert.equal(await inspect("document.querySelector('#name').value"), saved);
+  await openLabs();
+  await until(
+    () =>
+      evaluate(`${toggle}&&!${toggle}.disabled&&${toggle}.getAttribute('aria-checked')==='true'`),
+    "confirmed remote opt-in restored",
+  );
+  await evaluate(`${toggle}.click()`);
+  await until(
+    async () => !(await service.browser.streamingState()).enabled,
+    "Labs disables host streaming",
+  );
+  assert.equal(
+    await new BrowserStreamingPreferences(() => service.store.processState).current(),
+    false,
+  );
+  assert.equal(
+    service.browser.videoForScope(scope),
+    true,
+    "Changing the preference preserves the existing video session",
+  );
+  await evaluate('document.querySelector(".settings-back").click()');
+  const jpegScope = { ...scope, threadId: randomUUID() };
+  const thread = await service.readThread(scope.projectId, scope.threadId);
+  await service.store.writeThread({
+    ...thread,
+    id: jpegScope.threadId,
+    revision: 0,
+    title: "JPEG after disabling video",
+  });
+  await evaluate(
+    `sessionStorage.setItem(${JSON.stringify(`tidy:navigation:${options.machineId}:threads`)},${JSON.stringify(JSON.stringify({ [scope.projectId]: jpegScope.threadId }))});true`,
+  );
+  await window.loadURL(APP_URL);
+  await until(
+    () => evaluate('Boolean(document.querySelector(".chat-web-link"))'),
+    "new JPEG thread available",
+  );
+  await evaluate(
+    `(() => { window.fixtureJpegPaints=0;const draw=CanvasRenderingContext2D.prototype.drawImage;CanvasRenderingContext2D.prototype.drawImage=function(...args){if(this.canvas.classList.contains('browser-canvas')&&args[0] instanceof ImageBitmap)window.fixtureJpegPaints++;return draw.apply(this,args)};return true;})()`,
+  );
+  await evaluate('document.querySelector(".chat-web-link").click()');
+  await until(
+    () => evaluate("window.fixtureJpegPaints>5"),
+    "actual JPEG painting after Labs disable",
+  );
+  await moving();
+  assert.equal(service.browser.videoForScope(jpegScope), false);
   console.log(
-    "PASS authenticated remote renderer: decoded H264, hover/leave, native click/Unicode/drag, odd viewport resize, tab switching, screenshot, three encoder restarts, slow viewer isolation, automatic video recovery, disconnect without input replay",
+    "PASS authenticated remote renderer: decoded H264, hover/leave, native click/Unicode/drag, odd viewport resize, tab switching, screenshot, three encoder restarts, slow viewer isolation, automatic video recovery, disconnect without input replay, Labs disable persists and new session paints JPEG",
   );
 }

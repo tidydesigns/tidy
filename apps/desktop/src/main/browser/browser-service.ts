@@ -16,6 +16,7 @@ import {
 import { BrowserScreencast, type BrowserViewer } from "./screencast";
 import { BrowserVideoStream } from "./video-stream";
 import { BrowserStreamingPreferences } from "./streaming-preferences";
+import { browserStreamingUnavailable } from "./streaming-availability";
 import type { PrivateState } from "../platform/private-state";
 import type { BrowserStreamingState } from "../../shared/contracts/browser-streaming";
 import { BrowserRuntime } from "./runtime";
@@ -90,15 +91,20 @@ export class BrowserService {
   }
 
   async streamingState(): Promise<BrowserStreamingState> {
-    await this.streaming.initialize();
+    const enabled = await this.streaming.current();
+    const unavailableReason = await browserStreamingUnavailable();
     return {
-      enabled: this.streaming.enabled,
+      enabled,
       supported: process.platform === "linux",
+      ...(unavailableReason ? { unavailableReason } : {}),
     };
   }
 
   async chooseStreaming(enabled: boolean) {
-    await this.streaming.choose(enabled);
+    await this.streaming.choose(enabled, async () => {
+      const reason = await browserStreamingUnavailable();
+      if (reason) throw new Error(reason);
+    });
     return this.streamingState();
   }
 

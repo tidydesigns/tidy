@@ -112,10 +112,14 @@ The regular Bun suite skips the Node browser integration cases.
 
 ### Experimental video streaming
 
-In **Settings → Browser**, enable **Voxl streaming** for this machine or a connected
+In **Settings → Labs**, enable **Browser video streaming** for this machine or a connected
 remote machine. The choice is stored on that host and applies to new browser
 sessions. Existing sessions keep their current mode. Open the browser in a new
-thread to test the change without restarting the app.
+thread to test the change without restarting the app. Labs checks required host
+executables before accepting enablement, confirms saved changes, and reports
+unavailable prerequisites. Existing JPEG sessions are not converted to video.
+Older remote backends must be updated to use the Labs control; their existing
+preview sessions remain available.
 
 Set `TIDY_BROWSER_STREAMING=voxl` on the **browser host process** to try H.264
 streaming without a saved setting. A saved Settings choice takes precedence over

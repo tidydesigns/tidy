@@ -3,6 +3,7 @@ import { z } from "zod";
 export const browserStreamingChoiceSchema = z.object({ enabled: z.boolean() }).strict();
 export const browserStreamingStateSchema = browserStreamingChoiceSchema.extend({
   supported: z.boolean(),
+  unavailableReason: z.string().optional(),
 });
 export type BrowserStreamingState = z.infer<typeof browserStreamingStateSchema>;
 export type BrowserStreamingAPI = {
