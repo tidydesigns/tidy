@@ -6175,6 +6175,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const sender = makeThread({ count: 2 });
       sender.title = "Design coordinator";
       const recipient = makeThread({ count: 2 });
+      recipient.status = "completed";
+      recipient.messages[0].turn = { startedAt: timestamp, endedAt: timestamp };
+      recipient.messages.push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: "Review complete.",
+      });
       recipient.messageSources = { [recipient.messages[0].id]: { threadId: sender.id } };
       const task: ThreadTask = {
         id: crypto.randomUUID(),
@@ -6185,7 +6192,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         kind: "initial",
         harness: "codex",
         createdAt: timestamp,
-        originatingMessageId: recipient.messages[0].id,
+        originatingMessageId: recipient.messages[1].id,
       };
       const opened: string[] = [];
       const cancellations: string[][] = [];
@@ -6223,6 +6230,14 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       await until(
         () => Boolean(host.querySelector(`[aria-label="Stop ${task.label}"]`)),
         "Queued stop control",
+      );
+      check(
+        !host.querySelector(`[aria-label="Stop ${task.label}"]`)?.closest('[aria-hidden="true"]'),
+        "Completion hid an actionable assignment",
+      );
+      check(
+        host.querySelector(".turn-work-summary")?.getAttribute("aria-expanded") === "false",
+        "Completed source work did not fold",
       );
       required(
         host.querySelector<HTMLButtonElement>(`[aria-label="Stop ${task.label}"]`),
