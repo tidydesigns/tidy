@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { VideoPreview } from "../../../components/video-preview";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI } from "../../../../../shared/contracts/desktop";
 import { useVideoSource } from "./use-video-source";
@@ -55,22 +56,11 @@ export function ThreadVideo({
     <span className="thread-video" ref={host} role="group" aria-label={`Video: ${name}`}>
       <span className="thread-video-stage">
         {state.kind === "ready" ? (
-          <video
-            onTimeUpdate={(event) => {
-              position.current = event.currentTarget.currentTime;
-            }}
-            onLoadedMetadata={(event) => {
-              if (position.current > 0)
-                event.currentTarget.currentTime = Math.min(
-                  position.current,
-                  event.currentTarget.duration,
-                );
-            }}
+          <VideoPreview
+            key={state.url}
             src={state.url}
-            controls
-            playsInline
-            preload="metadata"
-            aria-label={name}
+            name={name}
+            position={position}
             onError={playbackFailed}
           />
         ) : (
