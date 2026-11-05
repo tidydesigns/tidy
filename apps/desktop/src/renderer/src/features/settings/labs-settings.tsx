@@ -88,7 +88,7 @@ function StreamingChoice({ machine, active }: { machine: string; active: boolean
   return (
     <>
       <div className="completion-row">
-        <div>
+        <div className="min-w-0">
           <span>Browser video streaming</span>
           <p>Voxl video streaming with JPEG fallback.</p>
         </div>
@@ -132,7 +132,7 @@ function StreamingChoice({ machine, active }: { machine: string; active: boolean
       </p>
       {!api && <p className="thread-naming-note">Experimental features require the desktop app.</p>}
       {error && (
-        <p className="settings-labs-error" role="alert">
+        <p className="mt-4 text-xs text-(--desktop-status-danger)" role="alert">
           {error}
         </p>
       )}
@@ -187,18 +187,21 @@ export function LabsSettings({ active }: { active: boolean }) {
   );
   const selected = machine === "local" || connected.some((item) => item.id === machine);
   return (
-    <section className="settings-labs" aria-label="Experimental features">
+    <section className="min-w-0 wrap-anywhere" aria-label="Experimental features">
       <p className="thread-naming-note">Try unfinished features. They may change or break.</p>
       {(connected.length > 0 || machine !== "local") && (
-        <div className="settings-appearance-row">
+        <div className="flex min-h-11 flex-wrap items-center justify-between gap-3 border-b border-border pb-6 text-sm font-medium">
           <span>Machine</span>
           <SelectMenu
             value={machine}
             label="Browser host machine"
             size="sm"
-            className="settings-labs-machine"
+            className="w-52 min-w-0 max-w-full [&_[data-ph-private]]:block [&_[data-ph-private]]:text-start [&_[data-ph-private]]:wrap-anywhere [&_[data-ph-private]]:whitespace-normal"
+            triggerClassName="h-auto! min-h-8"
             renderOptionLabel={(option) => (
-              <span className="settings-labs-machine-label">{option.label}</span>
+              <span className="block text-start wrap-anywhere whitespace-normal">
+                {option.label}
+              </span>
             )}
             options={[
               { value: "local", label: "This machine" },
@@ -215,7 +218,7 @@ export function LabsSettings({ active }: { active: boolean }) {
         <p className="thread-naming-note">Reconnect this machine to change its browser settings.</p>
       )}
       {error && (
-        <p className="settings-labs-error" role="alert">
+        <p className="mt-4 text-xs text-(--desktop-status-danger)" role="alert">
           {error}
         </p>
       )}

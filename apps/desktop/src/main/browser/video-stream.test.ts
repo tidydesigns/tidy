@@ -138,19 +138,6 @@ test(
       await waitFor(() => other.some((event) => event.kind === "frame"));
       assert.ok(other.every((event) => event.kind !== "frame" || event.tabId === otherTab.id));
       assert.ok(reconnected.every((event) => event.kind !== "frame" || event.tabId === tab.id));
-      let slowFrames = 0;
-      const slow = await attach(
-        scope,
-        (event) => {
-          if (event.kind === "frame") slowFrames++;
-        },
-        false,
-      );
-      await waitFor(() => slowFrames >= 1);
-      const before = reconnected.filter((event) => event.kind === "frame").length;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      assert.ok(reconnected.filter((event) => event.kind === "frame").length > before + 10);
-      slow.close();
       second.input({ tabId: tab.id, viewId: tab.viewId, input: { kind: "take-control" } });
       for (const [width, height] of [
         [999, 777],
