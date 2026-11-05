@@ -472,12 +472,12 @@ test("completed child events remain visible while task completion persistence re
     0,
   );
   failures.mockRestore();
-  await f.service.tasks.deliver();
+  await f.service.tasks.reconcile();
   expect((await f.service.tasks.store.get(String(task.task_id)))?.state).toBe("completed");
   expect(f.runs).toHaveLength(2);
 });
 
-test("a real workspace delegates, persists results, queues a parent continuation and revokes stopped tool access", async () => {
+test("a real workspace collects child results within the parent turn and revokes stopped tool access", async () => {
   const f = await fixture();
   const parent = await f.service.startThread({
     projectId: f.project.id,
@@ -501,20 +501,90 @@ test("a real workspace delegates, persists results, queues a parent continuation
     id: "result",
     text: "Inspection complete. No changes.",
   });
+  const waiting = call(tools, "task_read", { task_ids: [task.task_id], wait_ms: 2000 });
   f.runs[1].complete();
-  await until(async () => {
-    const thread = await f.service.readThread(f.project.id, parent.id);
-    return (thread.queuedMessages?.length ?? 0) === 1;
-  });
-  const result = await call(tools, "task_read", {});
+  const result = await waiting;
   expect(JSON.stringify(result)).toContain("Inspection complete");
   f.runs[0].complete();
-  await until(async () => f.runs.length === 3);
-  expect(f.runs[2].input.prompt).toContain("worker-reported data");
+  await until(
+    async () => (await f.service.readThread(f.project.id, parent.id)).status === "completed",
+  );
+  expect((await f.service.readThread(f.project.id, parent.id)).queuedMessages ?? []).toHaveLength(
+    0,
+  );
+  expect(f.runs).toHaveLength(2);
   await f.service.stopThread(f.project.id, parent.id);
   expect(
     await call(tools, "thread_read", { thread_id: parent.id }).catch((error: unknown) => error),
   ).toBeInstanceOf(Error);
+});
+
+test("late child completion preserves an idle parent and remains readable on its next turn", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Run an independent inspection",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const task = await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.runs.length === 2);
+  f.runs[0].complete();
+  await until(
+    async () => (await f.service.readThread(f.project.id, parent.id)).status === "completed",
+  );
+  f.runs[1].input.onUpdate({ type: "message", id: "result", text: "Independent result" });
+  f.runs[1].complete();
+  await until(
+    async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "completed",
+  );
+  await f.service.tasks.reconcile();
+  const idle = await f.service.readThread(f.project.id, parent.id);
+  expect(idle.status).toBe("completed");
+  expect(idle.queuedMessages ?? []).toHaveLength(0);
+  expect(f.runs).toHaveLength(2);
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: parent.id,
+    text: "Collect the inspection result",
+  });
+  await until(async () => f.runs.length === 3);
+  const resumedTools = await f.runs[2].input.agentTools!.open();
+  cleanups.push(async () => resumedTools.close());
+  const result = await call(resumedTools, "task_read", { task_ids: [task.task_id] });
+  expect(JSON.stringify(result)).toContain("Independent result");
+});
+
+test("stopping the parent revokes an MCP result wait without a continuation", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate an inspection",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const task = await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.runs.length === 2);
+  const subscriptions = spyOn(f.service.tasks.store, "subscribe");
+  cleanups.push(async () => subscriptions.mockRestore());
+  const waiting = call(tools, "task_read", { task_ids: [task.task_id], wait_ms: 20_000 }).catch(
+    (error: unknown) => error,
+  );
+  await until(async () => subscriptions.mock.calls.length > 0);
+  await f.service.stopThread(f.project.id, parent.id);
+  expect(await waiting).toBeInstanceOf(Error);
+  await f.service.tasks.reconcile();
+  expect((await f.service.readThread(f.project.id, parent.id)).status).toBe("stopped");
+  expect((await f.service.readThread(f.project.id, parent.id)).queuedMessages ?? []).toHaveLength(
+    0,
+  );
+  expect(f.runs).toHaveLength(2);
 });
 
 test("canvas edits through real MCP preserve exact versions and cannot access an unattached design", async () => {
@@ -855,7 +925,7 @@ test("committed canvas edits acknowledge without waiting for unrelated project r
   expect(parent.id).toBeTruthy();
 });
 
-test("startup recovery does not block host readiness on a slow parent continuation", async () => {
+test("startup recovery retains results without submitting parent continuations", async () => {
   const f = await fixture();
   const parent = await f.service.startThread({
     projectId: f.project.id,
@@ -881,22 +951,25 @@ test("startup recovery does not block host readiness on a slow parent continuati
     state: "completed",
     summary: "Recovered result",
   });
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  const send = f.service.sendMessage.bind(f.service);
-  const stalled = spyOn(f.service, "sendMessage").mockImplementation(async (...args) => {
-    entered.resolve();
-    await release.promise;
-    return send(...args);
-  });
-  cleanups.push(async () => {
-    release.resolve();
-    stalled.mockRestore();
-  });
-  const initialized = f.service.initializeOrchestration();
-  await entered.promise;
-  await initialized;
-  expect((await f.service.tasks.store.get(record.id))?.delivered).toBe(false);
+  const sends = spyOn(f.service, "sendMessage");
+  await f.service.initializeOrchestration();
+  await f.service.tasks.reconcile();
+  expect((await f.service.tasks.store.get(record.id))?.delivered).toBe(true);
+  expect(sends).not.toHaveBeenCalled();
+  expect(
+    (
+      await f.service.tasks.read(
+        {
+          projectId: f.project.id,
+          threadId: parent.id,
+          designIds: [],
+          writable: false,
+          signal: new AbortController().signal,
+        },
+        {},
+      )
+    ).tasks[0].summary,
+  ).toBe("Recovered result");
 });
 
 async function independentThreads() {

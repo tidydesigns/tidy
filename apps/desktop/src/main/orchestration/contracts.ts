@@ -60,6 +60,7 @@ export const taskDelegateSchema = z
   .strict();
 export const taskReadSchema = z
   .object({
+    wait_ms: z.number().int().min(0).max(20_000).default(0),
     task_ids: z.array(entityId).min(1).max(30).optional(),
     after: z.number().int().nonnegative().default(0),
     limit: pageSize,

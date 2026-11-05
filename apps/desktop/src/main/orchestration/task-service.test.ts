@@ -96,7 +96,7 @@ async function fixture() {
   return { store, service, scope, parent, host, threads, controller, launches: () => launches };
 }
 
-test("fast completion during submission releases execution slots and delivers one result", async () => {
+test("fast completion during submission releases execution slots without prompting the parent", async () => {
   const f = await fixture();
   f.host.startThread = async (input) => {
     const child: Thread = {
@@ -119,10 +119,10 @@ test("fast completion during submission releases execution slots and delivers on
       await f.store.list({ projectId: f.parent.projectId, parentThreadId: f.parent.id })
     ).tasks.every((task) => task.state === "completed"),
   );
-  await f.service.deliver();
-  expect(f.parent.queuedMessages).toHaveLength(5);
-  await f.service.deliver();
-  expect(f.parent.queuedMessages).toHaveLength(5);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
 });
 
 test("completion persistence failures release capacity and retry results without rerunning inference", async () => {
@@ -149,11 +149,11 @@ test("completion persistence failures release capacity and retry results without
   expect(f.parent.queuedMessages ?? []).toHaveLength(0);
   unavailable = false;
   await until(async () => (await f.store.get(tasks[0].task_id))?.state === "completed");
-  await f.service.deliver();
+  await f.service.reconcile();
   expect((await f.store.get(tasks[0].task_id))?.summary).toBe("Inspection complete");
-  expect(f.parent.queuedMessages).toHaveLength(1);
-  await f.service.deliver();
-  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
   expect(f.launches()).toBe(3);
 });
 
@@ -366,44 +366,43 @@ test("follow-up admission cannot expand the original child's permission grant", 
   ).toMatchObject({ code: "FORBIDDEN" });
 });
 
-test("failed result deliveries retry after recovery without another task completion", async () => {
+test("failed result finalization retries without sending a parent message", async () => {
   const f = await fixture();
-  const send = f.host.sendMessage;
+  const delivered = f.store.delivered.bind(f.store);
   let unavailable = true;
-  let attempts = 0;
-  f.host.sendMessage = async (...args) => {
-    attempts++;
-    if (unavailable) throw new Error("Queue full");
-    return send(...args);
-  };
+  const failures = spyOn(f.store, "delivered").mockImplementation(async (id) => {
+    if (unavailable) throw new Error("Storage unavailable");
+    return delivered(id);
+  });
+  cleanups.push(async () => failures.mockRestore());
+  const sends = spyOn(f.host, "sendMessage");
   const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
   await until(async () => f.launches() === 1);
   const child = f.threads.get(task.child_thread_id)!;
   child.status = "completed";
   await f.service.finished(child);
-  await f.service.deliver();
-  expect((await f.store.get(task.task_id))?.deliveryError).toContain("delivery is pending");
+  await f.service.reconcile();
+  expect((await f.store.get(task.task_id))?.deliveryError).toContain("finalization is pending");
   unavailable = false;
   await until(async () => (await f.store.get(task.task_id))?.delivered === true);
-  expect(attempts).toBeGreaterThan(1);
-  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect(sends).not.toHaveBeenCalled();
   expect((await f.store.get(task.task_id))?.deliveryError).toBeUndefined();
 });
 
-test("result delivery holds the original parent permissions across restart-style retries", async () => {
+test("results remain readable after parent settings change without executing a continuation", async () => {
   const f = await fixture();
+  const sends = spyOn(f.host, "sendMessage");
   const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
   await until(async () => f.launches() === 1);
   f.parent.settings = { permissionMode: "auto" };
   const child = f.threads.get(task.child_thread_id)!;
   child.status = "completed";
   await f.service.finished(child);
-  await f.service.deliver();
-  expect(f.parent.queuedMessages).toBeUndefined();
-  expect((await f.store.get(task.task_id))?.deliveryError).toContain("permissions changed");
-  f.parent.settings = { permissionMode: "default" };
-  await f.service.deliver();
-  expect(f.parent.queuedMessages).toHaveLength(1);
+  await f.service.reconcile();
+  expect((await f.service.read(f.scope, { task_ids: [task.task_id] })).tasks[0].state).toBe(
+    "completed",
+  );
+  expect(sends).not.toHaveBeenCalled();
 });
 
 test("cancellation before the launch read settles cannot strand cancel_requested work", async () => {
@@ -520,4 +519,112 @@ test("delegation preserves effort only for an unchanged harness and model", asyn
     });
     expect((await f.store.get(result.task_id))?.settings.effort).toBe(expected);
   }
+});
+
+test("batched result waits wake on completion without database polling or parent prompts", async () => {
+  const f = await fixture();
+  const tasks = await Promise.all(
+    ["First", "Second"].map((prompt) =>
+      f.service.delegate(f.scope, { request_id: randomUUID(), prompt }),
+    ),
+  );
+  await until(async () => f.launches() === 2);
+  const reads = spyOn(f.store, "list");
+  const sends = spyOn(f.host, "sendMessage");
+  const waiting = f.service.read(f.scope, {
+    task_ids: tasks.map((task) => task.task_id),
+    wait_ms: 2000,
+  });
+  await until(async () => reads.mock.calls.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(reads).toHaveBeenCalledTimes(1);
+  const child = f.threads.get(tasks[1].child_thread_id)!;
+  child.status = "completed";
+  child.messages = [{ id: randomUUID(), role: "assistant", text: "Second result" }];
+  await f.service.finished(child);
+  const result = await waiting;
+  expect(result.tasks.find((task) => task.task_id === tasks[1].task_id)).toMatchObject({
+    state: "completed",
+    summary: "Second result",
+    result_source: "worker_reported",
+  });
+  expect(sends).not.toHaveBeenCalled();
+  expect(f.parent.messages).toHaveLength(0);
+});
+
+test("wait timeout returns live state without cancelling the child", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const stop = spyOn(f.host, "stopThread");
+  const result = await f.service.read(f.scope, { task_ids: [task.task_id], wait_ms: 20 });
+  expect(result.tasks[0].state).toBe("running");
+  expect(stop).not.toHaveBeenCalled();
+});
+
+test("wait subscription precedes the initial read so completion cannot be missed", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const list = f.store.list.bind(f.store);
+  let first = true;
+  const reads = spyOn(f.store, "list").mockImplementation(async (input) => {
+    const stale = await list(input);
+    if (first) {
+      first = false;
+      await f.store.transition({
+        id: task.task_id,
+        state: "completed",
+        summary: "Racing completion",
+      });
+    }
+    return stale;
+  });
+  cleanups.push(async () => reads.mockRestore());
+  const result = await f.service.read(f.scope, { task_ids: [task.task_id], wait_ms: 2000 });
+  expect(result.tasks[0].summary).toBe("Racing completion");
+  expect(reads).toHaveBeenCalledTimes(2);
+});
+
+test("waits respect ownership, cursors, cancellation and subscription cleanup", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  const result = await f.service.read(f.scope, { task_ids: [task.task_id] });
+  const unchanged = await f.service.read(f.scope, { after: result.cursor, wait_ms: 10 });
+  expect(unchanged.tasks).toHaveLength(0);
+  const foreign = await f.service.read(
+    { ...f.scope, threadId: randomUUID() },
+    { task_ids: [task.task_id], wait_ms: 10 },
+  );
+  expect(foreign.tasks).toHaveLength(0);
+  const subscribe = f.store.subscribe.bind(f.store);
+  let activeSubscriptions = 0;
+  const subscriptions = spyOn(f.store, "subscribe").mockImplementation((listener) => {
+    activeSubscriptions++;
+    const unsubscribe = subscribe(listener);
+    return () => {
+      activeSubscriptions--;
+      unsubscribe();
+    };
+  });
+  cleanups.push(async () => subscriptions.mockRestore());
+  const waiting = f.service.read(f.scope, { after: result.cursor, wait_ms: 2000 });
+  await until(async () => activeSubscriptions === 1);
+  f.controller.abort(new Error("Turn ended"));
+  await expect(waiting).rejects.toThrow("Turn ended");
+  expect(activeSubscriptions).toBe(0);
+});
+
+test("closing the scheduler releases result waits", async () => {
+  const f = await fixture();
+  const subscribed = spyOn(f.store, "subscribe");
+  const waiting = f.service.read(f.scope, { wait_ms: 2000 });
+  await until(async () => subscribed.mock.calls.length === 1);
+  const closing = f.service.close();
+  await expect(waiting).rejects.toThrow("Assignments are closing");
+  await closing;
 });
