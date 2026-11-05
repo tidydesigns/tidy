@@ -68,13 +68,17 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
     assert.equal(recording.maskAttributeFn("href","/private?token=secret"),"");
     // Exercise the installed recorder's serialization and callback contract.
     const {Window}=await import("happy-dom");
-    const replayWindow=new Window({url:"https://site.example/"});
+    const replayWindow=new Window({url:"https://site.example/",settings:{disableCSSFileLoading:true}});
     // Bun's VM-backed Window does not populate these browser globals.
     Object.assign(replayWindow,{Object,Array});
     replayWindow.document.body.innerHTML='<main class="replay-css-fixture">Website</main>';
     const style=replayWindow.document.createElement("style");
     replayWindow.document.head.append(style);
     style.sheet.insertRule(".replay-css-fixture { color: rgb(12, 34, 56); }");
+    const late=replayWindow.document.createElement("link");
+    late.rel="stylesheet";
+    late.href="/late-fixture.css";
+    replayWindow.document.head.append(late);
     const globals=new Map();
     for(const key of new Set(["window","document","Node","Element","HTMLElement","MutationObserver","CSSStyleSheet","CSSStyleDeclaration","ShadowRoot",...Object.getOwnPropertyNames(replayWindow).filter(key=>/^(HTML|SVG)/.test(key))])) {
       globals.set(key,Object.getOwnPropertyDescriptor(globalThis,key));
@@ -95,6 +99,13 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
       const visit=node=>{nodes.push(node);for(const child of node.childNodes??[])visit(child)};
       visit(full.data.node);
       assert.ok(nodes.some(node=>node.tagName==="style"&&node.attributes?._cssText?.includes(".replay-css-fixture")),"serialized stylesheet retains its embedded CSS");
+      assert.ok(nodes.some(node=>node.tagName==="link"&&node.attributes?.rel==="stylesheet"&&!node.attributes?.href),"pending stylesheet is identified without recording its URL");
+      const lateSheet=new replayWindow.CSSStyleSheet();
+      lateSheet.insertRule(".late-css-fixture { color: red; }");
+      Object.defineProperty(late,"sheet",{value:lateSheet});
+      late.dispatchEvent(new replayWindow.Event("load"));
+      await settle();
+      assert.ok(snapshots.some(event=>event.type===3&&event.data.attributes?.some(change=>change.attributes?._cssText?.includes(".late-css-fixture"))),"late stylesheet emits embedded CSS after loading");
     } finally {
       stopRecording?.();
       await replayWindow.happyDOM.close();

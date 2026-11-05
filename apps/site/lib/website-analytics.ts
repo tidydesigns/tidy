@@ -228,6 +228,7 @@ async function initialize() {
           // rrweb embeds captured CSS here; redacting it removes all replay styling.
           if (name === "_cssText" && element?.matches("style, link[rel='stylesheet']"))
             return value;
+          if (name === "rel" && value === "stylesheet" && element?.matches("link")) return value;
           if (name === "class" || (name === "data-theme" && ["light", "dark"].includes(value)))
             return value;
           if (name === "style") return value.replace(/url\([^)]*\)/gi, "none");
