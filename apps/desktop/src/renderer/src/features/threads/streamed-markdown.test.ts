@@ -63,6 +63,9 @@ describe("streamed Markdown sections", () => {
     const html = render("A paragraph.\n\n    incomplete code");
     expect(html).toContain("A paragraph.");
     expect(html).not.toContain("incomplete code");
+    expect(render("- Item\n\n      complete code\n\n  Following paragraph\n\n")).toContain(
+      "complete code",
+    );
   });
 
   test("keeps document-wide link definitions available to earlier sections", () => {
@@ -113,4 +116,23 @@ test("exposed list items do not expose a later unfinished fenced item", () => {
   const html = render(text + "\n  const next = 2;", true, exposed);
   expect(html).toContain("<li>First item</li>");
   expect(html).not.toContain("const hidden");
+});
+
+test("exposed list items retain their text while a new code fence remains unfinished", () => {
+  for (const marker of ["```", "~~~"]) {
+    const prefix = "- Visible item\n\n";
+    let exposed = 0;
+    const onExpose = (offset: number) => {
+      exposed = Math.max(exposed, offset);
+    };
+    expect(render(prefix, true, exposed, onExpose)).toContain("Visible item");
+    const retained = exposed;
+    const text = prefix + `  ${marker}ts\n  const pending = 1;\n\n`;
+    const html = render(text, true, exposed, onExpose);
+    expect(html).toContain("Visible item");
+    expect(html).not.toContain("const pending");
+    expect(exposed).toBe(retained);
+    expect(render(text + `  ${marker}`, true, exposed)).toContain("const pending");
+    expect(render(text, false)).toContain("const pending");
+  }
 });

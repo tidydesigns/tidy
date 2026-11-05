@@ -3651,6 +3651,21 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Completed turn lost its duration",
       );
       check(!host.querySelector(".working-matrix"), "Completed turn kept its loader");
+      threads[a.id] = {
+        ...threads[a.id],
+        messages: [
+          { ...a.messages[0], turn: { startedAt } },
+          { id: crypto.randomUUID(), role: "assistant", text: "Review complete." },
+        ],
+        toolActivities: [{ ...tool, status: "completed", endedAt: timestamp }],
+      };
+      render({ selected: a.id });
+      const untimed = required(host.querySelector(".turn-status-time"), "Untimed status");
+      check(Boolean(host.querySelector(".turn-work-summary")), "Untimed work lost its disclosure");
+      check(
+        untimed.textContent === "Interrupted" && untimed.getAttribute("aria-hidden") !== "true",
+        "Untimed interruption was hidden from assistive technology",
+      );
     },
   );
 

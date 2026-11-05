@@ -97,7 +97,7 @@ export const TurnStatus = memo(function TurnStatus({
         className="turn-status-time"
         role="timer"
         aria-live="off"
-        aria-hidden={Boolean(disclosure)}
+        aria-hidden={Boolean(disclosure) && (timed || !message.turn)}
       >
         {timed && startedAt ? (
           <>

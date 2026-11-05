@@ -82,12 +82,27 @@ export function remarkCompleteBlocks({
     const codeReady = tail.type === "code" && closedFence(tail, text);
     const separated = /\r?\n[ \t]*\r?\n[ \t]*$/u.test(text);
     if (tail.type === "list") {
-      const items = tail.children.filter(
-        (item, index) =>
-          index < tail.children.length - 1 ||
-          (item.position?.start.offset ?? text.length) < minimum ||
-          (separated && item.children.at(-1)?.type === "paragraph"),
-      );
+      const items = tail.children
+        .filter(
+          (item, index) =>
+            index < tail.children.length - 1 ||
+            (item.position?.start.offset ?? text.length) < minimum ||
+            (separated && item.children.at(-1)?.type === "paragraph"),
+        )
+        .map((item) =>
+          item === tail.children.at(-1)
+            ? {
+                ...item,
+                children: item.children.filter(
+                  (child, index) =>
+                    index < item.children.length - 1 ||
+                    child.type !== "code" ||
+                    closedFence(child, text),
+                ),
+              }
+            : item,
+        )
+        .filter((item) => item.children.length > 0);
       if (items.length) ready.push({ ...tail, children: items });
     } else if (
       exposed ||
@@ -105,7 +120,7 @@ export function remarkCompleteBlocks({
     const last = ready.at(-1);
     onExpose?.(
       (last?.type === "list"
-        ? last.children.at(-1)?.position?.end.offset
+        ? last.children.at(-1)?.children.at(-1)?.position?.end.offset
         : last?.position?.end.offset) ?? 0,
     );
   };
