@@ -3,7 +3,7 @@ import type { HarnessSettings } from "../../shared/contracts/harness-settings";
 import type { ApprovalDecision } from "../../shared/contracts/permissions";
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SkillInvocation } from "./harness-skills";
-import type { HarnessTransport, ProtocolMessage } from "./harness-transport";
+import type { HarnessChannel, ProtocolMessage } from "./harness-transport";
 
 export type ProcessRegistration = {
   environment: Record<string, string>;
@@ -43,7 +43,7 @@ export type TurnInput = {
 };
 export type AdapterContext = {
   input: SessionContext;
-  transport: HarnessTransport;
+  transport: HarnessChannel;
   emit(update: HarnessUpdate): void;
   complete(error?: Error): void;
   accepted(): void;

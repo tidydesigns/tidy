@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { appendFileSync, existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 const record = z.record(z.string(), z.unknown());
@@ -11,7 +12,7 @@ if (existsSync("record-startup"))
     "session-startups.jsonl",
     JSON.stringify({ pid: process.pid, args: process.argv.slice(2) }) + "\n",
   );
-const sessionId = acp ? "ses_fixture" : "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
+let sessionId = acp ? "ses_fixture" : "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
 function cost(amount: number) {
   send({
@@ -59,8 +60,13 @@ function finish(cancelled = false) {
       },
     });
 }
-function background(state: "started" | "progress" | "finished", id: string, ownerTurn = turnId) {
-  const ownerSession = id.startsWith("foreign-") ? "ses_other" : sessionId;
+function background(
+  state: "started" | "progress" | "finished",
+  id: string,
+  ownerTurn = turnId,
+  session = sessionId,
+) {
+  const ownerSession = id.startsWith("foreign-") ? "ses_other" : session;
   if (acp)
     send({
       method: "session/update",
@@ -176,8 +182,10 @@ for await (const line of createInterface({ input: process.stdin })) {
         },
       });
     else send({ id: value.id, error: { code: -32601, message: "Live permissions unsupported" } });
-  } else if (method === "thread/start" || method === "thread/resume")
+  } else if (method === "thread/start" || method === "thread/resume") {
+    sessionId = method === "thread/start" ? randomUUID() : String(object(value.params).threadId);
     reply(value, { thread: { id: sessionId } });
+  } else if (method === "thread/unsubscribe") reply(value, { status: "unsubscribed" });
   else if (method === "session/new" || method === "session/load") {
     if (method === "session/load" && existsSync("replay-cost")) cost(0.25);
     if (method === "session/load")
@@ -233,6 +241,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     turnId = `turn-${sequence}`;
     promptId = value.id;
     const params = object(value.params);
+    if (!claude && !acp) sessionId = String(params.threadId);
     // Fixture commands belong to the user's request, not injected tool instructions.
     const content = claude ? object(value.message).content : (params.input ?? params.prompt);
     const texts = (Array.isArray(content) ? content : [content]).flatMap((part) => {
@@ -339,13 +348,16 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (prompt.includes("background")) {
       const id = `${prompt.includes("foreign") ? "foreign" : prompt.includes("agent") ? "agent" : "background"}-${sequence}`;
       const ownerTurn = turnId;
-      background("started", id, ownerTurn);
-      if (claude) background("started", `${id}-secondary`, ownerTurn);
+      const ownerSession = sessionId;
+      const backgroundEvent = (state: "started" | "progress" | "finished", taskId: string) =>
+        background(state, taskId, ownerTurn, ownerSession);
+      backgroundEvent("started", id);
+      if (claude) backgroundEvent("started", `${id}-secondary`);
       if (!prompt.includes("silent")) {
-        const progress = setInterval(() => background("progress", id, ownerTurn), 50);
+        const progress = setInterval(() => backgroundEvent("progress", id), 50);
         setTimeout(() => {
           clearInterval(progress);
-          background("finished", id, ownerTurn);
+          backgroundEvent("finished", id);
           if (claude) {
             send({
               type: "system",
@@ -354,7 +366,7 @@ for await (const line of createInterface({ input: process.stdin })) {
               task_id: `${id}-secondary`,
               status: "completed",
             });
-            background("progress", id, ownerTurn);
+            backgroundEvent("progress", id);
           }
         }, 500);
       }

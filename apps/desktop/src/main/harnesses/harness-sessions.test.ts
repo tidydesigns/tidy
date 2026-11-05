@@ -633,7 +633,9 @@ for (const harness of harnessIdSchema.options) {
       expect(() => process.kill(pid, 0)).not.toThrow();
       expect(updates).toHaveLength(previous);
       await sessions.start("background", { ...context, prompt: "continue", onUpdate() {} }).done;
-      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(
+        harness === "codex" ? 1 : 2,
+      );
       await expect(
         sessions.start("background", { ...context, prompt: "fail-turn", onUpdate() {} }).done,
       ).rejects.toThrow("Turn failed");
@@ -797,7 +799,7 @@ test("an unresponsive interrupt closes the connection before a later turn can us
   }
 });
 
-test("idle expiry, settings changes and crashes recreate connections without replaying a prompt", async () => {
+test("settings changes reuse the Codex server while idle expiry and crashes recreate it without replaying a prompt", async () => {
   const cwd = await mkdtemp(join(directory, "recovery-"));
   const sessions = new HarnessSessions({ idleLimit: 2, idleMs: 25 });
   const context = { projectId: "project", harness: "codex" as const, executable, cwd };
@@ -806,12 +808,16 @@ test("idle expiry, settings changes and crashes recreate connections without rep
   try {
     await send("first");
     await send("model change", "other");
-    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    const changed = await events(cwd);
+    expect(new Set(changed.map((event) => event.pid)).size).toBe(1);
+    expect(
+      changed.filter((event) => event.method === "thread/start").at(-1)?.value.params,
+    ).toMatchObject({ model: "other" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await expect(send("crash", "other")).rejects.toThrow();
     await send("recover", "other");
     const recorded = await events(cwd);
-    expect(new Set(recorded.map((event) => event.pid)).size).toBe(4);
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(3);
     expect(recorded.filter((event) => event.method === "turn/start")).toHaveLength(4);
   } finally {
     await sessions.clear();
@@ -1098,7 +1104,9 @@ for (const harness of harnessIdSchema.options) {
       }).done;
       expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
       await sessions.start("other", { ...context, prompt: "other", onUpdate() {} }).done;
-      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(
+        harness === "codex" ? 1 : 2,
+      );
       await sessions.prepare({ kind: "thread", id: "first", context: { ...context, sessionId } });
       const prepared = await events(cwd);
       const prompts = prepared.filter(
@@ -1108,10 +1116,12 @@ for (const harness of harnessIdSchema.options) {
           event.type === "user",
       );
       expect(prompts).toHaveLength(2);
-      expect(new Set(prepared.map((event) => event.pid)).size).toBe(3);
+      expect(new Set(prepared.map((event) => event.pid)).size).toBe(harness === "codex" ? 1 : 3);
       await sessions.start("first", { ...context, sessionId, prompt: "continue", onUpdate() {} })
         .done;
-      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(3);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(
+        harness === "codex" ? 1 : 3,
+      );
     } finally {
       await sessions.clear();
     }

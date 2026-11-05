@@ -15,6 +15,7 @@ import {
   HarnessPermissionChangeError,
   HarnessRequestError,
   HarnessTransport,
+  type HarnessChannel,
 } from "./harness-transport";
 import { plainToolText } from "./tool-events";
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
@@ -118,7 +119,7 @@ export function harnessArguments(input: SessionContext) {
 
 export class HarnessSession {
   private state: State = { kind: "idle" };
-  private transport: HarnessTransport;
+  private transport: HarnessChannel;
   private mcp?: SessionContext["mcp"];
   private adapter: HarnessAdapter;
   private metadata = new Map<"session" | "model", HarnessUpdate>();
@@ -138,19 +139,22 @@ export class HarnessSession {
   readonly ready: Promise<void>;
   readonly done: Promise<void>;
 
-  constructor({
-    harness,
-    executable,
-    cwd,
-    additionalDirectories,
-    sessionId,
-    settings,
-    superviseParent,
-    environment,
-    onSpawn,
-    onExit,
-    mcp,
-  }: SessionContext) {
+  constructor(
+    {
+      harness,
+      executable,
+      cwd,
+      additionalDirectories,
+      sessionId,
+      settings,
+      superviseParent,
+      environment,
+      onSpawn,
+      onExit,
+      mcp,
+    }: SessionContext,
+    channel?: HarnessChannel,
+  ) {
     const input = {
       harness,
       executable,
@@ -163,28 +167,30 @@ export class HarnessSession {
     };
     this.sessionId = input.sessionId;
     this.mcp = mcp;
-    this.transport = new HarnessTransport({
-      ...input,
-      args: harnessArguments(input),
-      protocol: input.harness === "claude" ? "claude" : "jsonrpc",
-      onSpawn,
-      onExit: () => {
-        mcp?.close();
-        onExit?.();
-      },
-      env: {
-        ...harnessEnvironment(harness),
-        ...environment,
-        ...(mcp ? { TIDY_AGENT_MCP_TOKEN: mcp.token } : {}),
-        ...(input.harness === "opencode" && input.settings?.permissionMode !== "provider-auto"
-          ? {
-              OPENCODE_CONFIG_CONTENT: JSON.stringify({
-                permission: input.settings?.permissionMode === "auto" ? "allow" : "ask",
-              }),
-            }
-          : {}),
-      },
-    });
+    this.transport =
+      channel ??
+      new HarnessTransport({
+        ...input,
+        args: harnessArguments(input),
+        protocol: input.harness === "claude" ? "claude" : "jsonrpc",
+        onSpawn,
+        onExit: () => {
+          mcp?.close();
+          onExit?.();
+        },
+        env: {
+          ...harnessEnvironment(harness),
+          ...environment,
+          ...(mcp ? { TIDY_AGENT_MCP_TOKEN: mcp.token } : {}),
+          ...(input.harness === "opencode" && input.settings?.permissionMode !== "provider-auto"
+            ? {
+                OPENCODE_CONFIG_CONTENT: JSON.stringify({
+                  permission: input.settings?.permissionMode === "auto" ? "allow" : "ask",
+                }),
+              }
+            : {}),
+        },
+      });
     this.done = this.transport.done;
     const context: AdapterContext = {
       input,
@@ -404,34 +410,16 @@ export class HarnessSession {
       if (error instanceof HarnessNotSubmittedError) turn.delivery = "not-submitted";
       if (error instanceof HarnessRequestError && turn.delivery !== "accepted")
         turn.delivery = "rejected";
+      const submitted = turn.delivery === "unknown" || turn.delivery === "accepted";
       this.finish(error instanceof Error ? error : new Error("The harness could not start."));
-      this.close();
+      this.close(submitted);
     });
     return {
       get deliveryState() {
         return turn.delivery;
       },
       done: turn.completion.promise,
-      stop: () => {
-        if (this.state.kind !== "running" || this.state.turn !== turn) return;
-        this.state = { kind: "cancelling", turn, acknowledged: false, completed: false };
-        this.clearApprovals();
-        turn.cancellation = setTimeout(() => this.close(), 2000);
-        turn.cancellation.unref();
-        void this.ready
-          .then(() => {
-            if (this.state.kind !== "cancelling" || this.state.turn !== turn) return;
-            if (turn.delivery === "not-submitted") this.close();
-            else return this.adapter.interrupt();
-          })
-          .then(() => {
-            if (this.state.kind === "cancelling" && this.state.turn === turn) {
-              this.state.acknowledged = true;
-              if (this.state.completed) this.finish();
-            }
-          })
-          .catch(() => this.close());
-      },
+      stop: () => this.stop(),
       steer: async (message) => {
         try {
           await submission;
@@ -453,12 +441,47 @@ export class HarnessSession {
       },
     };
   }
-  close() {
+  private stop() {
+    if (this.state.kind !== "running") return;
+    const turn = this.state.turn;
+    this.state = { kind: "cancelling", turn, acknowledged: false, completed: false };
+    this.clearApprovals();
+    turn.cancellation = setTimeout(() => this.close(), 2000);
+    turn.cancellation.unref();
+    void this.ready
+      .then(() => {
+        if (this.state.kind !== "cancelling" || this.state.turn !== turn) return;
+        if (turn.delivery === "not-submitted") this.close();
+        else return this.adapter.interrupt();
+      })
+      .then(() => {
+        if (this.state.kind === "cancelling" && this.state.turn === turn) {
+          this.state.acknowledged = true;
+          if (this.state.completed) this.finish();
+        }
+      })
+      .catch(() => this.close());
+  }
+  async stopAndClose() {
+    const turn =
+      this.state.kind === "running" || this.state.kind === "cancelling"
+        ? this.state.turn
+        : undefined;
+    this.stop();
+    if (turn) await turn.completion.promise.catch(() => {});
+    this.close();
+    await this.done;
+  }
+  close(force = false) {
     if (this.state.kind === "closed") return;
+    force ||=
+      this.hasBackgroundWork ||
+      ((this.state.kind === "running" || this.state.kind === "cancelling") &&
+        this.state.turn.delivery !== "not-submitted");
     if (this.state.kind === "cancelling") this.state.acknowledged = true;
     this.finish(new Error("The harness session closed."));
     this.state = { kind: "closed" };
-    this.transport.close();
+    this.transport.close(force);
     this.mcp?.close();
   }
 }

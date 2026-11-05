@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { runSkillSelectionTests } from "./skill-selection";
 import { runDesignPreviewTests, runPreviewBoundsTests } from "./design-preview";
 import { runLocalCanvasPreviewTests } from "./local-canvas-preview";
@@ -3318,6 +3319,325 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       flushSync(() => update(""));
       await until(() => results().length === 3, "Clear search restores all results");
       check(results()[1].dataset.searchResult === second.id, "Clearing search changed order");
+    },
+  );
+
+  await run(
+    "virtual sidebar bounds mounted rows and preserves keyboard traversal",
+    async (root) => {
+      const summaries = Array.from({ length: 1000 }, (_, index) =>
+        summarizeThread({
+          ...makeThread({ count: 1 }),
+          title: `Thread ${index + 1}`,
+        }),
+      );
+      const listProject = crypto.randomUUID();
+      flushSync(() =>
+        root.render(
+          <div style={{ display: "flex", height: 360, width: 280 }}>
+            <ThreadSidebar
+              projectId={listProject}
+              threads={summaries}
+              search=""
+              renderThread={(thread, controls) => (
+                <ThreadCard
+                  thread={thread}
+                  selected={false}
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                  orderControls={controls}
+                />
+              )}
+            />
+          </div>,
+        ),
+      );
+      await until(() => host.querySelectorAll("[data-thread-id]").length > 0, "Virtual rows mount");
+      check(host.querySelectorAll("[data-thread-id]").length < 40, "Full sidebar mounted");
+      const list = required(host.querySelector<HTMLElement>(".sidebar-list"), "Virtual list");
+      const scroll = required(list.parentElement, "Virtual viewport");
+      const rows = () => [...list.querySelectorAll<HTMLElement>("[data-thread-id]")];
+      const lastMounted = required(rows().at(-1), "Overscan row");
+      const index = Number(lastMounted.dataset.index);
+      const lastAction = required(
+        lastMounted.querySelector<HTMLElement>(".thread-done"),
+        "Done action",
+      );
+      lastAction.focus({ preventScroll: true });
+      const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+      flushSync(() => lastAction.dispatchEvent(tab));
+      check(tab.defaultPrevented, "Tab escaped the virtual list before its final row");
+      const next = required(document.activeElement, "Next focus");
+      check(
+        next.closest<HTMLElement>("[data-thread-id]")?.dataset.index === String(index + 1),
+        "Tab skipped an unmounted row",
+      );
+      check(
+        next.classList.contains("thread-select"),
+        "Tab did not enter the next row's first action",
+      );
+      flushSync(() =>
+        next.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Tab",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      check(
+        document.activeElement === lastAction,
+        "Reverse Tab lost the previous row's final action",
+      );
+      scroll.scrollTop = scroll.scrollHeight;
+      scroll.dispatchEvent(new Event("scroll"));
+      await until(
+        () => Boolean(list.querySelector('[data-index="999"]')),
+        "Final row can be reached",
+      );
+      check(lastAction.isConnected, "Scrolling unmounted the focused row");
+      check(rows().length < 40, "Focus retention mounted the full list");
+      const finalRow = required(list.querySelector<HTMLElement>('[data-index="999"]'), "Final row");
+      check(
+        finalRow.getAttribute("aria-posinset") === "1000" &&
+          finalRow.getAttribute("aria-setsize") === "1000",
+        "Accessible list positions are incomplete",
+      );
+      const finalAction = required(
+        finalRow.querySelector<HTMLElement>(".thread-done"),
+        "Final action",
+      );
+      finalAction.focus();
+      const exit = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+      finalAction.dispatchEvent(exit);
+      check(!exit.defaultPrevented, "Final row trapped keyboard focus");
+      const fontSize = document.documentElement.style.fontSize;
+      try {
+        document.documentElement.style.fontSize = "32px";
+        await settle();
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event("scroll"));
+        await until(
+          () => Boolean(list.querySelector('[data-index="0"]')),
+          "Zoomed first row is reachable",
+        );
+        scroll.scrollTop = scroll.scrollHeight;
+        scroll.dispatchEvent(new Event("scroll"));
+        await until(
+          () => Boolean(list.querySelector('[data-index="999"]')),
+          "Zoomed last row is reachable",
+        );
+        check(rows().length < 40, "Zoom mounted the full list");
+      } finally {
+        document.documentElement.style.fontSize = fontSize;
+      }
+    },
+  );
+
+  await run(
+    "virtual sidebar preserves keyboard order and a dragged row through scrolling",
+    async (root) => {
+      const summaries = Array.from({ length: 1000 }, (_, index) =>
+        summarizeThread({
+          ...makeThread({ count: 1 }),
+          title: `Ordered ${index}`,
+        }),
+      );
+      const listProject = crypto.randomUUID();
+      flushSync(() =>
+        root.render(
+          <div style={{ display: "flex", height: 360, width: 280 }}>
+            <ThreadSidebar
+              projectId={listProject}
+              threads={summaries}
+              search=""
+              renderThread={(thread, controls) => (
+                <ThreadCard
+                  thread={thread}
+                  selected={false}
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                  orderControls={controls}
+                />
+              )}
+            />
+          </div>,
+        ),
+      );
+      await settle();
+      const list = required(host.querySelector<HTMLElement>(".sidebar-list"), "Ordered list");
+      const scroll = required(list.parentElement, "Ordered viewport");
+      let row = required(list.querySelector<HTMLElement>("[data-thread-id]"), "First row");
+      const button = required(row.querySelector<HTMLElement>(".thread-select"), "First select");
+      button.focus();
+      flushSync(() =>
+        button.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            altKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      check(
+        list.querySelector('[data-index="1"]')?.getAttribute("data-thread-id") === summaries[0].id,
+        "Keyboard order did not persist",
+      );
+      row = required(button.closest<HTMLElement>("[data-thread-id]"), "Moved row");
+      list.setPointerCapture = () => {};
+      const pointer = { bubbles: true, pointerId: 7, isPrimary: true, button: 0 };
+      const y = row.getBoundingClientRect().top + 20;
+      flushSync(() => {
+        button.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, clientY: y }));
+        window.dispatchEvent(new PointerEvent("pointermove", { ...pointer, clientY: y + 6 }));
+      });
+      scroll.scrollTop = 2000;
+      scroll.dispatchEvent(new Event("scroll"));
+      await settle();
+      check(
+        row.isConnected && row.classList.contains("thread-dragging"),
+        "Scrolling discarded the dragged row",
+      );
+      check(
+        list.querySelectorAll("[data-thread-id]").length < 40,
+        "Dragging mounted the full list",
+      );
+      flushSync(() => window.dispatchEvent(new PointerEvent("pointercancel", pointer)));
+      await settle();
+      const stored = z
+        .array(z.string())
+        .parse(JSON.parse(localStorage.getItem(`tidy:thread-order:${listProject}`) ?? "[]"));
+      check(
+        stored[1] === summaries[0].id && stored.length === 1000,
+        "Cancelling drag did not restore keyboard order",
+      );
+    },
+  );
+
+  await run(
+    "virtual done history mounts only while expanded and retains bounded rows",
+    async (root) => {
+      const summaries = Array.from({ length: 1000 }, (_, index) =>
+        summarizeThread({
+          ...makeThread({ count: 1 }),
+          title: `Finished ${index}`,
+          doneAt: timestamp,
+        }),
+      );
+      flushSync(() =>
+        root.render(
+          <div style={{ display: "flex", height: 360, width: 280 }}>
+            <ThreadSidebar
+              projectId={crypto.randomUUID()}
+              threads={summaries}
+              search=""
+              renderThread={(thread) => <button>{thread.title}</button>}
+            />
+          </div>,
+        ),
+      );
+      await settle();
+      check(
+        host.querySelectorAll("[data-thread-id]").length === 0,
+        "Collapsed history mounted its rows",
+      );
+      const toggle = required(host.querySelector("summary"), "Done toggle");
+      toggle.click();
+      await until(
+        () => host.querySelectorAll("[data-thread-id]").length > 0,
+        "Done history expands",
+      );
+      check(
+        host.querySelectorAll("[data-thread-id]").length < 40,
+        "Expanded history mounted every row",
+      );
+      const scroll = required(
+        host.querySelector<HTMLElement>(".done-thread-list"),
+        "Done viewport",
+      );
+      scroll.scrollTop = scroll.scrollHeight;
+      scroll.dispatchEvent(new Event("scroll"));
+      await until(
+        () => Boolean(scroll.querySelector('[data-index="999"]')),
+        "Final done thread is reachable",
+      );
+      toggle.click();
+      await until(
+        () => host.querySelectorAll("[data-thread-id]").length === 0,
+        "Done rows release on collapse",
+      );
+    },
+  );
+
+  await run(
+    "thread cards keep status and completion actions separate without hover",
+    async (root) => {
+      const threads = ["running", "failed", "completed", "idle"].map((status) =>
+        summarizeThread({
+          ...makeThread({ count: 1 }),
+          title: "Review internationalisation and typography in the shared design system",
+          status:
+            status === "failed"
+              ? "failed"
+              : status === "completed"
+                ? "completed"
+                : status === "idle"
+                  ? "idle"
+                  : "running",
+        }),
+      );
+      const size = document.documentElement.style.fontSize;
+      try {
+        flushSync(() =>
+          root.render(
+            <div style={{ width: 280 }}>
+              {threads.map((thread) => (
+                <ThreadCard
+                  key={thread.id}
+                  thread={thread}
+                  selected={false}
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                />
+              ))}
+            </div>,
+          ),
+        );
+        for (const fontSize of ["16px", "32px"]) {
+          document.documentElement.style.fontSize = fontSize;
+          await settle();
+          for (const row of host.querySelectorAll(".thread-item")) {
+            const action = required(
+              row.querySelector(".thread-done"),
+              "Completion action",
+            ).getBoundingClientRect();
+            const status = row.querySelector(".thread-card-status")?.getBoundingClientRect();
+            if (status)
+              check(
+                !(
+                  status.left < action.right &&
+                  action.left < status.right &&
+                  status.top < action.bottom &&
+                  action.top < status.bottom
+                ),
+                "Status overlaps completion action",
+              );
+          }
+        }
+      } finally {
+        document.documentElement.style.fontSize = size;
+      }
     },
   );
 
