@@ -59,6 +59,13 @@ test("website consent defers the SDK, rejects stale receipts, isolates purposes 
     chooseConsent({analytics:true,replay:true,diagnostics:false});await settle();
     assert.equal(events.filter(event=>event.event==="$pageview").length,pageviews);
     assert.equal(instances.at(-1).config.session_recording.sampleRate,0.2);
+    const recording=instances.at(-1).config.session_recording;
+    assert.equal(recording.inlineStylesheet,true);
+    const css="body { color: red; }";
+    const stylesheet={matches:selector=>selector==="style, link[rel='stylesheet']"};
+    assert.equal(recording.maskAttributeFn("_cssText",css,stylesheet),css);
+    assert.equal(recording.maskAttributeFn("_cssText",css,{matches:()=>false}),"");
+    assert.equal(recording.maskAttributeFn("href","/private?token=secret"),"");
     const mask=instances.at(-1).config.session_recording.maskCapturedNetworkRequestFn;
     assert.equal(mask({method:"POST",name:"https://site.example/private?secret=private"}),null);
     assert.deepEqual(mask({name:"https://site.example/?secret=private#private"}),{name:"https://site.example/",startTime:0,duration:0,entryType:"navigation"});

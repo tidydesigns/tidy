@@ -224,7 +224,10 @@ async function initialize() {
             ? "[hidden]"
             : text,
         maskAllElementAttributes: false,
-        maskAttributeFn: (name, value) => {
+        maskAttributeFn: (name, value, element) => {
+          // rrweb embeds captured CSS here; redacting it removes all replay styling.
+          if (name === "_cssText" && element?.matches("style, link[rel='stylesheet']"))
+            return value;
           if (name === "class" || (name === "data-theme" && ["light", "dark"].includes(value)))
             return value;
           if (name === "style") return value.replace(/url\([^)]*\)/gi, "none");
@@ -238,6 +241,7 @@ async function initialize() {
         recordCrossOriginIframes: false,
         captureJsonLd: false,
         collectFonts: false,
+        inlineStylesheet: true,
         recordHeaders: false,
         recordBody: false,
         maskCapturedNetworkRequestFn: (request) =>
