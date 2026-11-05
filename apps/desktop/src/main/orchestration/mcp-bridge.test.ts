@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { z } from "zod";
 import { request as httpRequest } from "node:http";
+import { fileURLToPath } from "node:url";
 import { AgentMcpBridge } from "./mcp-bridge";
 import { CloudComputeBusyError } from "../cloud/cloud-compute";
 import { TaskStoreError } from "./task-store";
@@ -538,3 +539,104 @@ test("canvas worker saturation is a retryable MCP error", async () => {
     result: { isError: true, structuredContent: { error: { code: "BUSY", retryable: true } } },
   });
 });
+
+test("result settlement follows response validation and flush", async () => {
+  for (const valid of [true, false]) {
+    const settled = Promise.withResolvers<boolean>();
+    const bridge = new AgentMcpBridge({
+      tools: () => [
+        {
+          name: "result_read",
+          description: "Read a result",
+          inputSchema: z.object({}),
+          outputSchema: z.object({ value: z.string() }),
+          invoke: async () => (valid ? { value: "Result" } : { value: 1 }),
+          settle: async (delivered) => {
+            settled.resolve(delivered);
+          },
+        },
+      ],
+    });
+    bridges.push(bridge);
+    const connection = await bridge.session({
+      projectId: "project",
+      threadId: "thread",
+      designIds: [],
+      writable: false,
+      authorize: async () => {},
+    });
+    const result = await payload(
+      await request(connection, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "result_read", arguments: {} },
+      }),
+    );
+    expect(Boolean(result.result.isError)).toBe(!valid);
+    expect(await settled.promise).toBe(valid);
+  }
+});
+
+test("native transport releases disconnected result calls and closes after late invocation", async () => {
+  const script = String.raw`
+    import assert from 'node:assert/strict';
+    import {request as httpRequest} from 'node:http';
+    import {z} from 'zod';
+    import {AgentMcpBridge} from './src/main/orchestration/mcp-bridge.ts';
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const settled = Promise.withResolvers();
+  let settlements = 0;
+  const bridge = new AgentMcpBridge({
+    tools: () => [
+      {
+        name: "result_read",
+        description: "Read a result",
+        inputSchema: z.object({}),
+        invoke: async () => {
+          entered.resolve();
+          await release.promise;
+          return { value: "Result" };
+        },
+        settle: async (delivered) => {
+          settlements++;
+          settled.resolve(delivered);
+        },
+      },
+    ],
+  });
+
+  const connection = await bridge.session({
+    projectId: "project",
+    threadId: "thread",
+    designIds: [],
+    writable: false,
+    authorize: async () => {},
+  });
+  const client = httpRequest(connection.url, { method: "POST", headers: {
+    Authorization: 'Bearer ' + connection.token, "Content-Type": "application/json", Accept: "application/json, text/event-stream",
+  } });
+  client.on("error", () => {});
+  client.end(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "result_read", arguments: {} } }));
+  await entered.promise;
+  client.destroy();
+  assert.equal(await settled.promise, false);
+  release.resolve();
+  assert.equal(settlements, 1);
+    await bridge.close();
+  `;
+  const child = Bun.spawn(["node", "--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: fileURLToPath(new URL("../../..", import.meta.url)),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const timeout = setTimeout(() => child.kill(), 10000);
+  try {
+    const [code, errors] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(errors).not.toContain("Error:");
+    expect(code).toBe(0);
+  } finally {
+    clearTimeout(timeout);
+  }
+}, 15000);

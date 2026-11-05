@@ -85,7 +85,7 @@ async function fixture() {
       await input.authorize();
       const thread = await host.readThread(input.projectId, input.threadId);
       thread.queuedMessages = (thread.queuedMessages ?? []).filter(
-        (message) => message.id !== input.messageId || message.text !== input.text,
+        (message) => message.id !== input.messageId || !input.texts.includes(message.text),
       );
     },
     async sendMessage(input, guard) {
@@ -776,4 +776,129 @@ test("cancelling a completed task disposes its still-queued notification", async
   });
   await f.service.reconcile();
   expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+});
+
+test("a failed batch result handoff restores every removed completion notification", async () => {
+  const f = await fixture();
+  const tasks = await Promise.all(
+    ["First", "Second"].map((prompt) =>
+      f.service.delegate(f.scope, { request_id: randomUUID(), prompt }),
+    ),
+  );
+  await until(async () => f.launches() === 2);
+  for (const task of tasks) {
+    const child = f.threads.get(task.child_thread_id)!;
+    child.status = "completed";
+    await f.service.finished(child);
+  }
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(2);
+  const remove = f.host.removeResultMessage.bind(f.host);
+  let removals = 0;
+  f.host.removeResultMessage = async (input) => {
+    if (++removals === 2) throw new Error("Queue persistence failed");
+    await remove(input);
+  };
+  const result = await f.service
+    .read(f.scope, { task_ids: tasks.map((task) => task.task_id) })
+    .catch((error: unknown) => error);
+  expect(result).toBeInstanceOf(Error);
+  f.host.removeResultMessage = remove;
+  await f.service.reconcile();
+  expect(new Set(f.parent.queuedMessages?.map((message) => message.id))).toEqual(
+    new Set(tasks.map((task) => task.task_id)),
+  );
+  expect(f.parent.queuedMessages).toHaveLength(2);
+});
+
+test("a prepared result stays pending and restores its notification after a rejected handoff", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  const observation = f.service.resultDelivery(f.scope);
+  await f.service.read(f.scope, { task_ids: [task.task_id] }, observation);
+  expect((await f.store.get(task.task_id))?.delivered).toBe(false);
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  await observation.settle(false);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+});
+
+test("a flushed result is acknowledged even when its owning turn ends immediately afterward", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  const delivery = f.service.resultDelivery(f.scope);
+  await f.service.read(f.scope, { task_ids: [task.task_id] }, delivery);
+  f.controller.abort(new Error("Turn completed after receiving its result"));
+  await delivery.settle(true);
+  await f.service.reconcile();
+  expect((await f.store.get(task.task_id))?.delivered).toBe(true);
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+});
+
+test("acknowledgement storage failure after a flushed response retains a single fallback notification", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  const delivery = f.service.resultDelivery(f.scope);
+  const result = await f.service.read(f.scope, { task_ids: [task.task_id] }, delivery);
+  expect(result.tasks[0].state).toBe("completed");
+  const unavailable = spyOn(f.store, "delivered").mockRejectedValue(
+    new Error("Storage unavailable"),
+  );
+  cleanups.push(async () => unavailable.mockRestore());
+  await delivery.settle(true);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect((await f.store.get(task.task_id))?.delivered).toBe(false);
+  unavailable.mockRestore();
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect((await f.store.get(task.task_id))?.delivered).toBe(true);
+});
+
+test("failed child notifications include the error when no summary was produced", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "failed";
+  child.error = "Worker could not read the requested file";
+  child.messages = [];
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages?.[0].text).toContain(child.error);
+});
+
+test("failed notifications preserve partial work and bound long error details to the queue budget", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "failed";
+  child.messages = [
+    { id: randomUUID(), role: "assistant", text: "Partial findings: " + "x".repeat(16000) },
+  ];
+  child.error = "Worker file access failed: " + "y".repeat(16000);
+  await f.service.finished(child);
+  await f.service.reconcile();
+  const message = f.parent.queuedMessages![0];
+  const { queuedMessageSchema } = await import("../../shared/contracts/message-queue");
+  expect(queuedMessageSchema.safeParse(message).success).toBe(true);
+  expect(message.text).toContain("Error: Worker file access failed");
+  expect(message.text).toContain("Error truncated");
+  expect(message.text).toContain("x".repeat(100));
 });

@@ -497,7 +497,7 @@ export class WorkspaceService {
           const next = queue.filter(
             (message) =>
               message.id !== input.messageId ||
-              message.text !== input.text ||
+              !input.texts.includes(message.text) ||
               !message.executionConstraint,
           );
           if (next.length === queue.length) return;

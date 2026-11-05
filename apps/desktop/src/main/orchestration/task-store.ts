@@ -464,6 +464,11 @@ export class TaskStore {
     await this.ready();
     await this.call("delivery-failed", { id, message });
   }
+  async reopenDelivery(id: string) {
+    uuid.parse(id);
+    await this.ready();
+    await this.call("reopen-delivery", { id });
+  }
   async delivered(id: string) {
     uuid.parse(id);
     await this.ready();

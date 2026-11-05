@@ -57,7 +57,7 @@ async function fixture() {
       const thread = await documents.readThread(input.projectId, input.threadId);
       const queue = thread.queuedMessages ?? [];
       const next = queue.filter(
-        (message) => message.id !== input.messageId || message.text !== input.text,
+        (message) => message.id !== input.messageId || !input.texts.includes(message.text),
       );
       if (next.length !== queue.length) {
         thread.queuedMessages = next;
@@ -97,10 +97,17 @@ async function fixture() {
     signal: new AbortController().signal,
   };
   const tools = orchestrationTools({ scope, tasks, canvas, host });
-  const call = (name: string, input: unknown) => {
+  const call = async (name: string, input: unknown) => {
     const tool = tools.find((tool) => tool.name === name);
     if (!tool) throw new Error(`Unknown tool ${name}`);
-    return tool.invoke(input);
+    let delivered = false;
+    try {
+      const result = await tool.invoke(input);
+      delivered = true;
+      return result;
+    } finally {
+      await tool.settle?.(delivered);
+    }
   };
   async function addThread(overrides: Partial<Thread> = {}) {
     const thread: Thread = { ...parent, id: randomUUID(), title: "Related design", ...overrides };

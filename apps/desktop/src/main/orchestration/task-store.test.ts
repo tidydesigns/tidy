@@ -882,3 +882,25 @@ test("the finite tombstone safety cap never evicts used IDs or uncertain receipt
       .catch((error: unknown) => error),
   ).toMatchObject({ code: "CAPACITY" });
 });
+
+test("unacknowledged result handoffs survive storage restart without losing their identity", async () => {
+  const { store, directory, input } = await fixture();
+  const task = await store.create(input);
+  expect(await store.reopenDelivery(task.id).catch((error: unknown) => error)).toMatchObject({
+    code: "INVALID_STATE",
+  });
+  await store.transition({ id: task.id, state: "running" });
+  await store.transition({ id: task.id, state: "completed", summary: "Durable findings" });
+  await store.delivered(task.id);
+  await store.reopenDelivery(task.id);
+  await store.close();
+  const restarted = new TaskStore(join(directory, "private"));
+  stores.push(restarted);
+  await restarted.initialize();
+  expect((await restarted.pendingDeliveries()).map((record) => record.id)).toContain(task.id);
+  expect(
+    await restarted.forRequest(input.projectId, input.parentThreadId, input.requestId),
+  ).toMatchObject({ id: task.id, summary: "Durable findings", delivered: false });
+  await restarted.delivered(task.id);
+  expect(await restarted.pendingDeliveries()).toHaveLength(0);
+});

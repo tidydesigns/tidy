@@ -211,6 +211,13 @@ function dispatch(kind, input) {
     if (task.deliveryError !== input.message) save({ ...task, deliveryError: input.message });
     return null;
   });
+  if (kind === 'reopen-delivery') return transaction(() => {
+    const task = get(input.id);
+    if (!task) fail('NOT_FOUND', 'Assignment not found.');
+    if (!terminal.has(task.state)) fail('INVALID_STATE', 'An active assignment has no result to deliver.');
+    if (!task.archived && task.delivered) save({ ...task, delivered: false });
+    return null;
+  });
   if (kind === 'delivered') return transaction(() => {
     const task = get(input.id);
     if (!task) fail('NOT_FOUND', 'Assignment not found.');
