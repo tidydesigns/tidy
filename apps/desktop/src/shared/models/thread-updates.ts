@@ -45,6 +45,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     designIds: thread.designIds,
     status: thread.status,
     activity: thread.activity,
+    recovery: thread.recovery,
     pendingApprovalCount: thread.pendingApprovals?.length,
     error: thread.error,
     errorKind: thread.errorKind,
@@ -92,6 +93,7 @@ export function applyThreadPatch(previous: Thread, patch: ThreadPatch): Thread {
     ...patch.thread,
     error: patch.thread.error,
     errorKind: patch.thread.errorKind,
+    recovery: patch.thread.recovery,
     messages: merge(previous.messages, patch.messages),
     toolActivities: nextTools,
   };

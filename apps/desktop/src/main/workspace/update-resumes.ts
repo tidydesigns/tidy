@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { skillIdSchema } from "../../shared/contracts/skills";
 import { readLocalFile } from "../platform/local-files";
@@ -8,10 +10,18 @@ const entrySchema = z.object({
   projectId: z.uuid(),
   threadId: z.uuid(),
   signature: z.string().regex(/^[a-f0-9]{64}$/),
+  previousSignature: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   automaticQueue: z.boolean(),
+  reason: z.enum(["update", "restart", "provider"]).optional(),
+  attempt: z.number().int().nonnegative().optional(),
+  retryAt: z.string().datetime().optional(),
+  background: z.boolean().optional(),
   submission: z
     .object({
-      state: z.enum(["not-submitted", "unknown", "rejected"]),
+      state: z.enum(["not-submitted", "unknown", "rejected", "accepted"]),
       messageId: z.uuid(),
       skillId: skillIdSchema.optional(),
     })
@@ -19,7 +29,7 @@ const entrySchema = z.object({
 });
 export type UpdateResume = z.infer<typeof entrySchema>;
 
-/** Only a planned update writes this private journal. Portable thread JSON cannot request execution. */
+/** Native execution writes this private journal. Portable thread JSON cannot request execution. */
 export class UpdateResumes {
   private changes: Promise<unknown> = Promise.resolve();
   private path: string;
@@ -59,6 +69,31 @@ export class UpdateResumes {
         .max(1000)
         .parse([...previous.filter((entry) => !ids.has(entry.threadId)), ...entries]);
       await writePrivateJSON(this.path, value, { durable: true });
+    });
+  }
+
+  /** Authorize both sides of the atomic thread rename if the process dies between writes. */
+  checkpoint(entry: UpdateResume) {
+    return this.change(async () => {
+      const entries = await this.read().catch(async (error: unknown) => {
+        if (!(error instanceof SyntaxError || error instanceof z.ZodError)) throw error;
+        // Retain corrupt bytes for diagnosis; only the current native snapshot can rebuild intent.
+        await rename(this.path, `${this.path}.corrupt-${randomUUID()}`);
+        return [];
+      });
+      const previous = entries.find((item) => item.threadId === entry.threadId);
+      const next = entrySchema.parse({
+        ...entry,
+        previousSignature: entry.previousSignature ?? previous?.signature,
+      });
+      await writePrivateJSON(
+        this.path,
+        z
+          .array(entrySchema)
+          .max(1000)
+          .parse([...entries.filter((item) => item.threadId !== entry.threadId), next]),
+        { durable: true },
+      );
     });
   }
 

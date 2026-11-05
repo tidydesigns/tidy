@@ -2,6 +2,7 @@ import { worktreePreferencesSchema, worktreeStorageSchema } from "./worktree-set
 import { repositorySearchSchema } from "./repository-search";
 import { mobileStateSchema, mobileFrameSchema } from "./mobile";
 import { harnessUsageSchema } from "./harness-usage";
+import { harnessUpdatesSchema } from "./harness-updates";
 import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
 import { chatImageSchema } from "./chat-images";
@@ -95,6 +96,8 @@ export const workspaceResponseSchemas = {
   "harness-usage": harnessUsageSchema,
   "codex-usage": codexUsageSchema,
   "codex-reset": resetResultSchema,
+  "backend-harness-update-state": harnessUpdatesSchema,
+  "backend-install-harness-update": harnessUpdatesSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),
   "read-video-chunk": videoChunkSchema,

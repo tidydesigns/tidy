@@ -54,6 +54,8 @@ const contextKey = (input: ManagedContext) =>
   ]);
 
 export class HarnessSessions {
+  onBackgroundWorkChanged?: (threadId: string, projectId: string, active: boolean) => void;
+  onBackgroundWorkLost?: (threadId: string, projectId: string) => void;
   private entries = new Map<string, Entry>();
   private retiring = new Set<Promise<void>>();
   private acquiring = new Set<{ id: string; context: ManagedContext; invalidated: boolean }>();
@@ -170,6 +172,12 @@ export class HarnessSessions {
   }
   private activity(entry: Entry) {
     if (this.entries.get(entry.id) !== entry || !entry.session.idle) return;
+    if (entry.background !== entry.session.hasBackgroundWork)
+      this.onBackgroundWorkChanged?.(
+        entry.id,
+        entry.context.projectId,
+        entry.session.hasBackgroundWork,
+      );
     if (
       !entry.timer ||
       entry.background !== entry.session.hasBackgroundWork ||
@@ -308,7 +316,12 @@ export class HarnessSessions {
           const current = entry;
           current.session.onActivity = () => this.activity(current);
           void current.session.done.then(() => {
-            for (const [key, item] of this.entries) if (item === current) this.retire(key, item);
+            for (const [key, item] of this.entries)
+              if (item === current) {
+                const background = current.background || current.session.hasBackgroundWork;
+                this.retire(key, item);
+                if (background) this.onBackgroundWorkLost?.(key, current.context.projectId);
+              }
           });
         }
         clearTimeout(entry.timer);

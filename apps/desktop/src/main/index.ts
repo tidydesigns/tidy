@@ -47,7 +47,7 @@ import { CloudService } from "./cloud/cloud-service";
 import { PrivateState } from "./platform/private-state";
 import { AppUpdates } from "./app/app-updates";
 import { HarnessUpdates } from "./harnesses/harness-updates";
-import { invalidateHarnessDetails } from "./harnesses/harness-details";
+import { RemoteHarnessUpdates } from "./harnesses/remote-harness-updates";
 import {
   APP_SCHEME,
   rendererURL,
@@ -78,7 +78,7 @@ let service: WorkspaceService | undefined;
 let analytics: DesktopAnalytics | undefined;
 let quitting: symbol | "quit" | undefined;
 let updates: AppUpdates | undefined;
-let harnessUpdates: HarnessUpdates | undefined;
+let harnessUpdates: HarnessUpdates | RemoteHarnessUpdates | undefined;
 let cloud: CloudService | undefined;
 const appIcon = app.isPackaged
   ? process.platform === "linux"
@@ -338,13 +338,9 @@ app
       },
     });
     const store = service.store;
-    harnessUpdates = new HarnessUpdates({
-      installDisabledReason: ownsInitialService
-        ? undefined
-        : "Agent updates are unavailable while attached to a background backend. Once its agents finish, stop that backend and reopen Tidy to update agents.",
-      reserve: (id, options) => service!.reserveHarnessUpdate(id, options),
-      installed: invalidateHarnessDetails,
-    });
+    harnessUpdates = ownsInitialService
+      ? service.harnessUpdates
+      : new RemoteHarnessUpdates(localClient!);
     registerHarnessUpdateIPC(harnessUpdates, entryURL);
     registerCommunityIPC(entryURL);
     harnessUpdates.start();
@@ -446,12 +442,10 @@ app
       native: autoUpdater,
       fetch: net.fetch.bind(net),
       async prepareInstall() {
-        if (!ownsInitialService)
-          throw new Error(
-            "Once background agents finish, stop the background backend and reopen Tidy to install this update.",
-          );
-        if (harnessUpdates?.busy) throw new Error("Wait for harness updates to finish.");
-        const resumeWorkspace = await service!.prepareUpdate();
+        if (harnessUpdates?.state.some((entry) => entry.status === "installing"))
+          throw new Error("Wait for the active CLI installation to finish.");
+        // An attached backend owns its processes independently and survives this desktop restart.
+        const resumeWorkspace = ownsInitialService ? await service!.prepareUpdate() : () => {};
         const update = Symbol("update");
         if (!quitting) quitting = update;
         return () => {

@@ -81,6 +81,13 @@ const messageSchema = z.object({
   videos: z.array(videoArtifactSchema).max(4).optional(),
 });
 export const storedThreadSchema = z.object({
+  recovery: z
+    .object({
+      reason: z.enum(["update", "restart", "provider"]),
+      attempt: z.number().int().nonnegative(),
+      retryAt: z.string().datetime().optional(),
+    })
+    .optional(),
   revision: z.number().int().min(0).default(0),
   id,
   projectId: id,

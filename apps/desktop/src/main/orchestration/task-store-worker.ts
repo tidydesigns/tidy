@@ -63,17 +63,9 @@ function dispatch(kind, input) {
     statement('UPDATE operation_receipts SET updated_at = ? WHERE updated_at IS NULL').run(new Date().toISOString());
     database.exec('CREATE TABLE IF NOT EXISTS thread_receivers (project_id TEXT NOT NULL, thread_id TEXT NOT NULL, grant_id TEXT NOT NULL, PRIMARY KEY(project_id, thread_id));');
     if (!statement("PRAGMA table_info(thread_receivers)").all().some(column => column.name === 'project_scope')) database.exec('ALTER TABLE thread_receivers ADD COLUMN project_scope TEXT');
-    if (input.recover) transaction(() => {
-      while (true) {
-        const rows = statement("SELECT record FROM tasks WHERE state IN ('queued', 'running', 'cancel_requested') LIMIT 100").all();
-        if (!rows.length) break;
-        for (const row of rows) {
-          const task = decode(row);
-          save({ ...task, state: 'interrupted', error: 'The workspace backend stopped during this assignment. Inspect its changes before retrying.', delivered: false, updatedAt: new Date().toISOString(), sequence: nextSequence() });
-        }
-      }
-    });
-    return { receivers: statement('SELECT project_id AS projectId, thread_id AS threadId, grant_id AS grantId, project_scope AS projectScope FROM thread_receivers').all(), lineage: statement('SELECT task_children.project_id AS projectId, task_children.child_thread_id AS childThreadId, owners.parent_thread_id AS parentThreadId FROM task_children JOIN (SELECT id, parent_thread_id FROM tasks UNION ALL SELECT id, parent_thread_id FROM task_tombstones) AS owners ON owners.id = task_children.task_id').all() };
+    // Unfinished records are durable scheduler intent. Only TaskService may
+    // reconcile them against the existing conversation and current grants.
+    return { executions: statement("SELECT id, project_id AS projectId, json_extract(record, '$.childThreadId') AS childThreadId FROM tasks WHERE state IN ('running','cancel_requested')").all(), receivers: statement('SELECT project_id AS projectId, thread_id AS threadId, grant_id AS grantId, project_scope AS projectScope FROM thread_receivers').all(), lineage: statement('SELECT task_children.project_id AS projectId, task_children.child_thread_id AS childThreadId, owners.parent_thread_id AS parentThreadId FROM task_children JOIN (SELECT id, parent_thread_id FROM tasks UNION ALL SELECT id, parent_thread_id FROM task_tombstones) AS owners ON owners.id = task_children.task_id').all() };
   }
   if (kind === 'incoming-sources') {
     const candidates = new Map(input.candidates.map(candidate => [candidate.messageId, candidate.textHash]));
@@ -191,6 +183,11 @@ function dispatch(kind, input) {
     if (input.error !== undefined) task.error = input.error;
     return save(task);
   });
+  if (kind === 'unfinished') {
+    const owner = input.projectId ? ' AND project_id = ? AND parent_thread_id = ?' : '';
+    const rows = statement("SELECT rowid AS position, record FROM tasks WHERE rowid > ? AND state IN ('queued','running','cancel_requested')" + owner + " ORDER BY rowid LIMIT 100").all(input.after, ...(input.projectId ? [input.projectId, input.parentThreadId] : []));
+    return { tasks: rows.map(decode), cursor: rows.length ? rows[rows.length - 1].position : input.after };
+  }
   if (kind === 'pending') return statement("SELECT record FROM tasks WHERE delivered = 0 AND state IN ('completed','failed','cancelled','interrupted') AND sequence > ? ORDER BY sequence LIMIT 100").all(input.after).map(decode);
   if (kind === 'read-receipt') {
     if (statement('SELECT key FROM receipt_tombstones WHERE key = ?').get(input.key)) fail('RECEIPT_EXPIRED', 'This edit receipt expired after the 30-day retention window. Inspect the design; this request cannot be replayed or undone automatically.');

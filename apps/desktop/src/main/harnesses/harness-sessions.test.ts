@@ -207,6 +207,11 @@ for (const harness of harnessIdSchema.options) {
         });
         await ready.promise;
         expect(service.activeRunCount).toBe(1);
+        if (background) {
+          await service.resumeUpdatedThreads();
+          expect(service.activeRunCount).toBe(1);
+          expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+        }
         const before = await service.readThread(project.id, thread.id);
         await service.prepareUpdate();
         expect(service.activeRunCount).toBe(0);
@@ -241,6 +246,51 @@ for (const harness of harnessIdSchema.options) {
     }, 10_000);
   }
 }
+
+test("a crashed retained background agent resumes automatically without restarting healthy background work", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "background-crash-"));
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  spyOn(service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(20);
+  let completions = 0;
+  const initial = Promise.withResolvers<void>();
+  const resumed = Promise.withResolvers<void>();
+  const unsubscribe = service.subscribe((event) => {
+    if (event.type === "thread" && event.thread.status === "completed") {
+      completions++;
+      if (completions === 1) initial.resolve();
+      else resumed.resolve();
+    }
+  });
+  try {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "background silent",
+      designIds: [],
+    });
+    await initial.promise;
+    const pid = (await events(cwd))[0].pid;
+    process.kill(pid, "SIGKILL");
+    await resumed.promise;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+    const saved = await store.readThread(project.id, thread.id);
+    expect(saved.messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(await store.updateResumes.list()).toEqual([]);
+  } finally {
+    unsubscribe();
+    await service.close();
+  }
+}, 10_000);
 
 for (const harness of harnessIdSchema.options) {
   test(`${harness} rejects incompatible settings before persisting them and continues background work on the same session`, async () => {

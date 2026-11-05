@@ -191,12 +191,12 @@ test("restart recovers unfinished work without replay and preserves undelivered 
   const restarted = new TaskStore(join(directory, "private"));
   stores.push(restarted);
   await restarted.initialize();
-  expect((await restarted.get(queued.id))?.state).toBe("interrupted");
-  expect((await restarted.get(running.id))?.state).toBe("interrupted");
+  expect((await restarted.get(queued.id))?.state).toBe("queued");
+  expect((await restarted.get(running.id))?.state).toBe("running");
   expect((await restarted.get(complete.id))?.summary).toBe("Verified artifact");
-  expect(await restarted.pendingDeliveries()).toHaveLength(3);
+  expect(await restarted.pendingDeliveries()).toHaveLength(1);
   await restarted.delivered(complete.id);
-  expect(await restarted.pendingDeliveries()).toHaveLength(2);
+  expect(await restarted.pendingDeliveries()).toHaveLength(0);
   expect((await restarted.get(complete.id))?.delivered).toBe(true);
 });
 test("cancellation wins over late completion and terminal results cannot be overwritten", async () => {
@@ -333,7 +333,7 @@ test("child lineage survives restart and one child cannot belong to two assignme
   const lineage = await restarted.forChild(input.projectId, input.childThreadId);
   expect(lineage?.id).toBe(task.id);
   expect(lineage?.depth).toBe(input.depth);
-  expect(lineage?.state).toBe("interrupted");
+  expect(lineage?.state).toBe("queued");
 });
 
 test("canvas receipts persist pending and completed outcomes across restart with strict bounds", async () => {
@@ -407,7 +407,7 @@ test("receipt retention rejects new keys at capacity but permits completion upda
   expect(await store.readReceipt(existing)).toEqual({ kind: "complete" });
 });
 
-test("follow-up runs preserve canonical child ownership and interrupt safely across restart", async () => {
+test("follow-up runs preserve canonical child ownership and queued intent across restart", async () => {
   const { directory, store, input } = await fixture();
   const initial = await store.create(input);
   await store.transition({ id: initial.id, state: "running" });
@@ -430,9 +430,9 @@ test("follow-up runs preserve canonical child ownership and interrupt safely acr
   await restarted.initialize();
   expect((await restarted.forChild(input.projectId, input.childThreadId))?.id).toBe(initial.id);
   expect((await restarted.get(initial.id))?.summary).toBe("Original result");
-  expect((await restarted.get(followup.id))?.state).toBe("interrupted");
+  expect((await restarted.get(followup.id))?.state).toBe("queued");
   expect((await restarted.create(followupInput)).id).toBe(followup.id);
-  expect((await restarted.get(followup.id))?.state).toBe("interrupted");
+  expect((await restarted.get(followup.id))?.state).toBe("queued");
 });
 
 test("private lineage and receiver grants survive restart without reparenting ordinary recipients", async () => {
@@ -532,7 +532,7 @@ test("a failed storage worker recovers on later calls without interrupting live 
   await store.close();
   const replacement = new TaskStore(join(directory, "private"));
   stores.push(replacement);
-  expect((await replacement.get(task.id))?.state).toBe("interrupted");
+  expect((await replacement.get(task.id))?.state).toBe("running");
 });
 
 test("a lost committed mutation fails once and is reconciled by its original request ID", async () => {
@@ -903,4 +903,31 @@ test("unacknowledged result handoffs survive storage restart without losing thei
   ).toMatchObject({ id: task.id, summary: "Durable findings", delivered: false });
   await restarted.delivered(task.id);
   expect(await restarted.pendingDeliveries()).toHaveLength(0);
+});
+
+test("restart retains cancellation intent and unfinished pagination survives state changes", async () => {
+  const { store, directory, input } = await fixture();
+  const records = [];
+  for (let index = 0; index < 105; index++) {
+    const task = await store.create({
+      ...input,
+      requestId: randomUUID(),
+      childThreadId: randomUUID(),
+    });
+    await store.transition({ id: task.id, state: "running" });
+    if (index === 0) await store.transition({ id: task.id, state: "cancel_requested" });
+    records.push(task);
+  }
+  await store.close();
+  const restarted = new TaskStore(join(directory, "private"));
+  stores.push(restarted);
+  const first = await restarted.unfinished();
+  expect(first.tasks).toHaveLength(100);
+  expect(first.tasks[0].state).toBe("cancel_requested");
+  expect(await restarted.pendingDeliveries()).toEqual([]);
+  for (const task of first.tasks) await restarted.transition({ id: task.id, state: "cancelled" });
+  const second = await restarted.unfinished(first.cursor);
+  expect(second.tasks.map((task) => task.id)).toEqual(records.slice(100).map((task) => task.id));
+  expect((await restarted.unfinished(second.cursor)).tasks).toEqual([]);
+  expect((await restarted.get(records[0].id))?.state).toBe("cancelled");
 });

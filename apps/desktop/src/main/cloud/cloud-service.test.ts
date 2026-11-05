@@ -424,7 +424,8 @@ for (const access of [
       await service.assertProjectAccess(workspace.project.id);
     } else {
       expect(launches).toHaveLength(1);
-      expect(resumed.status).not.toBe("running");
+      // Running intent may wait for restored access; no provider is launched across this boundary.
+      expect(resumed.recovery?.retryAt).toBeDefined();
       expect(resumed.error).toContain("Couldn’t resume");
       await expect(service.assertProjectAccess(workspace.project.id)).rejects.toThrow();
     }

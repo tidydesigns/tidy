@@ -21,6 +21,7 @@ export type TaskHost = {
   readThread(projectId: string, threadId: string): Promise<Thread>;
   startThread(input: Parameters<DesktopAPI["startThread"]>[0]): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
+  /** Stop only this task's turn, including a matching retry wait/checkpoint. */
   stopTaskTurn?(projectId: string, threadId: string, taskId: string): Promise<boolean>;
   sendMessage(
     input: Parameters<DesktopAPI["sendMessage"]>[0],
@@ -38,6 +39,14 @@ export type TaskHost = {
     texts: readonly string[];
     authorize(): Promise<void>;
   }): Promise<void>;
+  /** Continue the existing turn without creating another user message. Recheck
+   * authorize immediately before provider submission, including after awaits. */
+  resumeThread?(
+    projectId: string,
+    threadId: string,
+    authorize?: () => Promise<void>,
+  ): Promise<Thread>;
+  /** Includes provider retry waits, not just live processes. */
   isThreadRunning?(projectId: string, threadId: string): boolean;
   listThreads(projectId: string): Promise<ThreadSummary[]>;
 };
@@ -108,9 +117,18 @@ export class TaskService {
   private byChild = new Map<string, TaskRecord>();
   private messageOffsets = new Map<string, number>();
   private startedMessages = new Set<string>();
+  private waiting = new Set<string>();
   private commands: Promise<unknown> = Promise.resolve();
   private commandCount = 0;
   private launches = new Set<Promise<void>>();
+  private retryFlights = new Map<string, Promise<Thread | undefined>>();
+  private retryAdmissions = new Map<
+    string,
+    {
+      resolve(thread?: Thread): void;
+      reject(error: unknown): void;
+    }
+  >();
   private completions = new Map<string, Parameters<TaskStore["transition"]>[0]>();
   private reconciliationDirty = false;
   private closed = false;
@@ -122,6 +140,12 @@ export class TaskService {
   private reconciliationRetry?: ReturnType<typeof setTimeout>;
   private reconciliationRetryMs = 1000;
   private reconciliationRetryNeeded = false;
+  private paused = false;
+  private recovery?: Promise<void>;
+  private recoveryRetry?: ReturnType<typeof setTimeout>;
+  private retryAt = new Map<string, number>();
+  private retryAttempts = new Map<string, number>();
+  private executionRetry?: ReturnType<typeof setTimeout>;
   constructor(
     readonly store: TaskStore,
     private host: TaskHost,
@@ -242,9 +266,154 @@ export class TaskService {
       });
     }
   }
+  /** Call after orchestration storage and parent recovery have initialized.
+   * Repeated calls reconcile durable intent without launching another turn. */
+  recover(): Promise<void> {
+    if (this.closed || this.paused) return Promise.resolve();
+    if (this.recovery) return this.recovery;
+    const recovery = this.serialize(async () => {
+      let after = 0;
+      while (!this.closed && !this.paused) {
+        const page = await this.store.unfinished(after);
+        for (const task of page.tasks) {
+          if (this.completions.has(task.id)) continue;
+          if (!this.active.has(task.id)) this.pending.set(task.id, task);
+          else if (
+            this.waiting.has(task.id) &&
+            !this.retryFlights.has(`${task.projectId}:${task.childThreadId}`) &&
+            this.host.isThreadRunning &&
+            !this.host.isThreadRunning(task.projectId, task.childThreadId)
+          ) {
+            // A host retry wait ended without a provider completion event.
+            // Release the old waiter and re-admit through this scheduler.
+            this.pending.set(task.id, task);
+            this.settled.get(task.id)?.();
+          }
+        }
+        if (page.tasks.length < 100) break;
+        after = page.cursor;
+      }
+    })
+      .catch((error: unknown) => {
+        if (!this.closed && !this.paused) {
+          clearTimeout(this.recoveryRetry);
+          this.recoveryRetry = setTimeout(() => {
+            void this.recover().catch(() => {});
+          }, 1000);
+          this.recoveryRetry.unref();
+        }
+        throw error;
+      })
+      .finally(() => {
+        this.recovery = undefined;
+        this.drain();
+      });
+    this.recovery = recovery;
+    return recovery.then(() => this.reconcile());
+  }
+
+  /** Called by the host's provider retry timer. Active tasks retain their slot;
+   * durable running tasks re-enter admission. Undefined means no eligible task,
+   * admission is paused, or the retry was queued behind other scheduler work.
+   * This intentionally bypasses isThreadRunning's retry-wait check; the host
+   * must still avoid resubmitting an already-live provider turn. */
+  retryThread(projectId: string, threadId: string): Promise<Thread | undefined> {
+    if (this.closed || this.paused || !this.host.resumeThread) return Promise.resolve(undefined);
+    const key = `${projectId}:${threadId}`;
+    const existing = this.retryFlights.get(key);
+    if (existing) return existing;
+    const flight = this.retryManagedThread(projectId, threadId).finally(() => {
+      if (this.retryFlights.get(key) === flight) this.retryFlights.delete(key);
+    });
+    this.retryFlights.set(key, flight);
+    return flight;
+  }
+
+  private async retryManagedThread(
+    projectId: string,
+    threadId: string,
+  ): Promise<Thread | undefined> {
+    const current = this.byChild.get(threadId);
+    let task = current?.projectId === projectId ? await this.store.get(current.id) : undefined;
+    if (!task) {
+      let after = 0;
+      while (!this.paused && !this.closed) {
+        const page = await this.store.unfinished(after);
+        task = page.tasks.find(
+          (item) =>
+            item.projectId === projectId &&
+            item.childThreadId === threadId &&
+            item.state === "running",
+        );
+        if (task || page.tasks.length < 100) break;
+        after = page.cursor;
+      }
+    }
+    if (this.paused || this.closed || task?.state !== "running" || this.completions.has(task.id))
+      return;
+    if (this.active.has(task.id) && this.byChild.get(threadId)?.id === task.id) {
+      try {
+        const child = await this.host.readThread(projectId, threadId);
+        const result = await this.continueExisting(task, child, true);
+        if (this.paused || this.closed) return;
+        const latest = await this.store.get(task.id);
+        if (latest?.state === "cancel_requested") {
+          await this.stopCancelledExecution(latest);
+          await this.store.transition({ id: task.id, state: "cancelled" });
+          this.settled.get(task.id)?.();
+          void this.reconcile().catch(() => {});
+          return;
+        }
+        if (latest?.state === "running" && result.status !== "running") await this.finished(result);
+        return result;
+      } catch (error) {
+        if (this.paused || this.closed) return;
+        try {
+          await this.handleExecutionError(task, error);
+        } catch (storageError) {
+          if (!this.paused && !this.closed) this.retry(task);
+          throw storageError;
+        }
+        throw error;
+      }
+    }
+    const ready = Promise.withResolvers<Thread | undefined>();
+    // Queued retries can outlive this call; their eventual failure is handled
+    // by launch even when no caller waits for the admission result.
+    void ready.promise.catch(() => {});
+    this.retryAdmissions.set(task.id, { resolve: ready.resolve, reject: ready.reject });
+    this.pending.set(task.id, task);
+    this.drain();
+    return this.active.has(task.id) ? ready.promise : undefined;
+  }
+
+  /** Quiesce scheduler admission and finish delivery before stopping providers.
+   * Provider shutdown belongs to the host; stopped callbacks while paused must
+   * not turn durable restart intent into cancellation or failure. */
+  async pauseForRestart(): Promise<void> {
+    this.paused = true;
+    clearTimeout(this.executionRetry);
+    clearTimeout(this.recoveryRetry);
+    clearTimeout(this.reconciliationRetry);
+    for (const ready of this.retryAdmissions.values()) ready.resolve();
+    this.retryAdmissions.clear();
+    await this.commands;
+    for (const settle of this.settled.values()) settle();
+    await Promise.allSettled([...this.launches, ...this.retryFlights.values()]);
+    await this.reconciling?.catch(() => {});
+  }
+
+  /** Unpause first; the host must resume parents, then call recover() to
+   * re-admit children and deliver results under their restored parent grants. */
+  resumeAfterRestartFailure(): void {
+    if (this.closed) return;
+    this.paused = false;
+  }
+
   isManagedExecution(projectId: string, threadId: string) {
     return (
       Boolean(this.store.parentThreadId(projectId, threadId)) ||
+      this.store.isManagedExecution(projectId, threadId) ||
       this.byChild.get(threadId)?.projectId === projectId
     );
   }
@@ -276,7 +445,8 @@ export class TaskService {
     try {
       const task = await this.serialize(async () => {
         await this.access(scope);
-        if (this.closed) throw new AgentOperationError("UNAVAILABLE", "Assignments are closing.");
+        if (this.closed || this.paused)
+          throw new AgentOperationError("UNAVAILABLE", "Assignments are paused for restart.");
         const parent = await this.host.readThread(scope.projectId, scope.threadId);
         const inherited = await this.store.forChild(scope.projectId, parent.id);
         const depth = (inherited?.depth ?? 0) + 1;
@@ -383,7 +553,8 @@ export class TaskService {
     await this.access(scope);
     const result = await this.serialize(async () => {
       await this.access(scope);
-      if (this.closed) throw new AgentOperationError("UNAVAILABLE", "Assignments are closing.");
+      if (this.closed || this.paused)
+        throw new AgentOperationError("UNAVAILABLE", "Assignments are paused for restart.");
       const owned = await this.store.forChild(scope.projectId, request.thread_id);
       const external = !owned;
       if (owned && owned.parentThreadId !== scope.threadId)
@@ -466,10 +637,13 @@ export class TaskService {
     const target = await this.host.readThread(task.projectId, task.childThreadId);
     const owner = await this.store.forChild(task.projectId, task.childThreadId);
     const latest = await this.store.get(task.id);
-    if (this.closed || latest?.state !== "running")
+    if (this.closed || this.paused || latest?.state !== "running")
       throw new AgentOperationError("FORBIDDEN", "This follow-up is no longer active.");
     if (
       target.doneAt ||
+      target.harness !== task.harness ||
+      effectivePermissionMode(target.harness, target.settings?.permissionMode) !==
+        task.settings.permissionMode ||
       target.designIds.some((id) => !task.designIds.includes(id) || !parent.designIds.includes(id))
     )
       throw new AgentOperationError("FORBIDDEN", "The target design access changed.");
@@ -486,27 +660,100 @@ export class TaskService {
       throw new AgentOperationError("FORBIDDEN", "The parent permission boundary changed.");
   }
 
+  private async authorizeExecution(task: TaskRecord) {
+    await this.host.assertProjectAccess(task.projectId);
+    const parent = await this.host.assertCanStartTask(task.projectId, task.parentThreadId);
+    const latest = await this.store.get(task.id);
+    if (this.closed || this.paused || latest?.state !== "running")
+      throw new AgentOperationError("FORBIDDEN", "This assignment is no longer active.");
+    const grant = task.parentGrant;
+    if (
+      !grant ||
+      parent.doneAt ||
+      parent.status === "stopped" ||
+      parent.harness !== grant.harness ||
+      effectivePermissionMode(parent.harness, parent.settings?.permissionMode) !==
+        grant.permissionMode ||
+      task.designIds.some((id) => !parent.designIds.includes(id)) ||
+      inheritedPermissionMode(parent, task.harness) !== task.settings.permissionMode
+    )
+      throw new AgentOperationError("FORBIDDEN", "The parent assignment grant changed.");
+    return parent;
+  }
+
+  private async authorizeResume(task: TaskRecord) {
+    await this.authorizeExecution(task);
+    const child = await this.host.readThread(task.projectId, task.childThreadId);
+    if (
+      child.doneAt ||
+      child.harness !== task.harness ||
+      effectivePermissionMode(child.harness, child.settings?.permissionMode) !==
+        task.settings.permissionMode ||
+      child.designIds.some((id) => !task.designIds.includes(id))
+    )
+      throw new AgentOperationError("FORBIDDEN", "The child assignment grant changed.");
+    if (task.kind === "followup" || task.kind === "message") {
+      await this.authorizeFollowup(task);
+      const lastUser = child.messages.filter((message) => message.role === "user").at(-1);
+      const queued = child.queuedMessages?.some((message) => message.id === task.id);
+      if (!queued && lastUser?.id !== task.id)
+        throw new AgentOperationError("FORBIDDEN", "The recipient has moved to another turn.");
+    } else {
+      const owner = await this.store.forChild(task.projectId, task.childThreadId);
+      if (owner?.id !== task.id)
+        throw new AgentOperationError("FORBIDDEN", "The child assignment ownership changed.");
+    }
+    // Cancellation/pause may have arrived while reading the target or its grant.
+    await this.authorizeExecution(task);
+  }
+
+  private retry(task: TaskRecord) {
+    const attempts = (this.retryAttempts.get(task.id) ?? 0) + 1;
+    this.retryAttempts.set(task.id, attempts);
+    this.retryAt.set(task.id, Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(attempts - 1, 5)));
+    this.pending.set(task.id, task);
+    this.settled.get(task.id)?.();
+  }
+
   private drain() {
-    if (this.closed) return;
+    if (this.closed || this.paused || this.recovery) return;
+    clearTimeout(this.executionRetry);
+    this.executionRetry = undefined;
+    let wakeAt = Infinity;
+    const continuingChildren = new Set(
+      [...this.pending.values()]
+        .filter((task) => task.state !== "queued")
+        .map((task) => task.childThreadId),
+    );
     for (const [id, task] of this.pending) {
+      const eligibleAt = this.retryAt.get(id) ?? 0;
+      if (eligibleAt > Date.now()) {
+        wakeAt = Math.min(wakeAt, eligibleAt);
+        continue;
+      }
       if (this.active.size >= TASK_LIMITS.active_tasks) break;
       if (this.completions.size + this.active.size >= TASK_LIMITS.queued_tasks) break;
       if ([...this.active.values()].some((active) => active.childThreadId === task.childThreadId))
         continue;
+      if (task.state === "queued" && continuingChildren.has(task.childThreadId)) continue;
       if (
         [...this.active.values()].filter((item) => item.projectId === task.projectId).length >=
         TASK_LIMITS.project_tasks
       )
         continue;
       if (
+        task.state === "queued" &&
         (task.kind === "message" || task.kind === "followup") &&
         this.host.isThreadRunning?.(task.projectId, task.childThreadId)
       )
         continue;
       this.pending.delete(id);
+      this.retryAt.delete(id);
       this.active.set(id, task);
       const launch = this.launch(task)
-        .catch(() => {})
+        .catch(() => {
+          if (!this.closed && !this.paused) this.retry(task);
+        })
         .finally(() => {
           this.active.delete(id);
           this.launches.delete(launch);
@@ -514,76 +761,93 @@ export class TaskService {
         });
       this.launches.add(launch);
     }
+    if (Number.isFinite(wakeAt)) {
+      this.executionRetry = setTimeout(() => this.drain(), Math.max(1, wakeAt - Date.now()));
+      this.executionRetry.unref();
+    }
   }
 
   private async launch(task: TaskRecord) {
+    const retryAdmission = this.retryAdmissions.get(task.id);
+    this.retryAdmissions.delete(task.id);
     this.byChild.set(task.childThreadId, task);
     const completion = Promise.withResolvers<void>();
     this.settled.set(task.id, completion.resolve);
     try {
       const latest = await this.store.get(task.id);
-      if (!latest || latest.state !== "queued" || this.closed) {
-        if (latest?.state === "cancel_requested")
-          await this.store.transition({ id: task.id, state: "cancelled" });
+      if (this.closed || this.paused || !latest || terminal.has(latest.state)) return;
+      if (latest.state === "cancel_requested") {
+        await this.stopCancelledExecution(latest);
+        await this.store.transition({ id: task.id, state: "cancelled" });
+        void this.reconcile().catch(() => {});
         return;
       }
       await this.host.assertProjectAccess(task.projectId);
-      const parent = await this.host.readThread(task.projectId, task.parentThreadId);
-      if (parent.doneAt || parent.status === "stopped" || parent.status === "interrupted")
-        throw new AgentOperationError(
-          "FORBIDDEN",
-          "The parent stopped before this assignment could start.",
-        );
+      if (this.closed || this.paused) return;
       await this.store.transition({ id: task.id, state: "running" });
-      const admitted = await this.store.get(task.id);
-      if (admitted?.state !== "running" || this.closed) {
-        if (admitted?.state === "cancel_requested")
-          await this.store.transition({ id: task.id, state: "cancelled" });
-        return;
-      }
-      const authorizedParent = await this.host.assertCanStartTask(
-        task.projectId,
-        task.parentThreadId,
-      );
-      if (task.designIds.some((id) => !authorizedParent.designIds.includes(id)))
-        throw new AgentOperationError(
-          "FORBIDDEN",
-          "The parent design access changed before assignment launch.",
-        );
-      if (inheritedPermissionMode(authorizedParent, task.harness) !== task.settings.permissionMode)
-        throw new AgentOperationError(
-          "FORBIDDEN",
-          "The parent permission boundary changed before assignment launch.",
-        );
+      const authorizedParent = await this.authorizeExecution(task);
+      let child: Thread | undefined;
+      // A queued initial task has never crossed the durable running transition.
+      // All subsequent attempts must inspect the existing child before starting.
+      if (latest.state !== "queued" || task.kind === "followup" || task.kind === "message")
+        try {
+          child = await this.host.readThread(task.projectId, task.childThreadId);
+        } catch (error) {
+          // Only a confirmed absent initial child can be created. Other read
+          // failures must never cause another initial prompt or child creation.
+          if (
+            (error as NodeJS.ErrnoException).code !== "ENOENT" ||
+            task.kind === "message" ||
+            task.kind === "followup"
+          )
+            throw error;
+        }
+      let result: Thread;
       if (task.kind === "followup" || task.kind === "message") {
-        const child = await this.host.readThread(task.projectId, task.childThreadId);
-        this.messageOffsets.set(task.id, child.messages.length);
-      }
-      const result =
-        task.kind === "followup" || task.kind === "message"
-          ? await this.host.sendMessage(
-              {
-                projectId: task.projectId,
-                threadId: task.childThreadId,
-                messageId: task.id,
-                text: task.prompt,
-              },
-              {
-                harness: task.harness,
-                permissionMode: effectivePermissionMode(task.harness, task.settings.permissionMode),
-                authorize: () => this.authorizeFollowup(task),
-                onStarted: () => this.startedMessages.add(task.id),
-              },
-            )
-          : await this.host.startThread({
+        if (!child) throw new AgentOperationError("NOT_FOUND", "Assignment target is missing.");
+        const offset = child.messages.findIndex((message) => message.id === task.id);
+        const queued = child.queuedMessages?.some((message) => message.id === task.id);
+        this.messageOffsets.set(task.id, offset < 0 ? child.messages.length : offset);
+        if (offset >= 0 || queued) this.startedMessages.add(task.id);
+        if (offset < 0 && !queued) {
+          if (retryAdmission) return;
+          await this.authorizeFollowup(task);
+          result = await this.host.sendMessage(
+            {
               projectId: task.projectId,
               threadId: task.childThreadId,
-              executionProjectId: authorizedParent.executionProjectId,
+              messageId: task.id,
+              text: task.prompt,
+            },
+            {
               harness: task.harness,
-              settings: task.settings,
-              designIds: task.designIds,
-              prompt: task.prompt,
-            });
+              permissionMode: effectivePermissionMode(task.harness, task.settings.permissionMode),
+              authorize: async () => {
+                await this.authorizeExecution(task);
+                await this.authorizeFollowup(task);
+              },
+              onStarted: () => this.startedMessages.add(task.id),
+            },
+          );
+        } else result = await this.continueExisting(task, child, Boolean(retryAdmission));
+      } else if (child) {
+        result = await this.continueExisting(task, child, Boolean(retryAdmission));
+      } else {
+        if (retryAdmission) return;
+        if (latest.state !== "queued") await this.authorizeExecution(task);
+        result = await this.host.startThread({
+          projectId: task.projectId,
+          threadId: task.childThreadId,
+          executionProjectId: authorizedParent.executionProjectId,
+          harness: task.harness,
+          settings: task.settings,
+          designIds: task.designIds,
+          prompt: task.prompt,
+          messageId: task.id,
+        });
+      }
+      if (this.closed || this.paused) return;
+      retryAdmission?.resolve(result);
       try {
         await this.host.assertCanStartTask(task.projectId, task.parentThreadId);
       } catch {
@@ -593,26 +857,96 @@ export class TaskService {
       else {
         const afterStart = await this.store.get(task.id);
         if (afterStart?.state === "cancel_requested") await this.stopExecution(task);
-        if (afterStart && !terminal.has(afterStart.state)) await completion.promise;
+        if (afterStart && !terminal.has(afterStart.state) && !this.paused && !this.closed) {
+          this.waiting.add(task.id);
+          await completion.promise;
+        }
       }
     } catch (error) {
-      if (!this.completions.has(task.id)) {
-        const latest = await this.store.get(task.id);
-        if (latest && !terminal.has(latest.state))
-          await this.store.transition({
-            id: task.id,
-            state: "failed",
-            error: error instanceof Error ? error.message.slice(0, 16_000) : "Assignment failed.",
-          });
-      }
-      await this.reconcile();
+      if (this.paused || this.closed) retryAdmission?.resolve();
+      else retryAdmission?.reject(error);
+      await this.handleExecutionError(task, error);
     } finally {
+      retryAdmission?.resolve();
       this.settled.delete(task.id);
       this.byChild.delete(task.childThreadId);
       this.messageOffsets.delete(task.id);
       this.startedMessages.delete(task.id);
+      this.waiting.delete(task.id);
     }
   }
+  private async handleExecutionError(task: TaskRecord, error: unknown) {
+    if (this.closed || this.paused) return;
+    if (!this.completions.has(task.id)) {
+      const latest = await this.store.get(task.id).catch(() => undefined);
+      if (latest?.state === "cancel_requested") {
+        await this.stopCancelledExecution(latest);
+        await this.store.transition({ id: task.id, state: "cancelled" });
+      } else if (
+        (!latest || !terminal.has(latest.state)) &&
+        (!(error instanceof AgentOperationError) ||
+          error.code === "UNAVAILABLE" ||
+          error.code === "BUSY") &&
+        (this.host.resumeThread ||
+          error instanceof TaskStoreError ||
+          error instanceof AgentOperationError)
+      ) {
+        this.retry(latest ?? task);
+        return;
+      } else if (latest && !terminal.has(latest.state)) {
+        await this.store.transition({
+          id: task.id,
+          state: "failed",
+          error: error instanceof Error ? error.message.slice(0, 16_000) : "Assignment failed.",
+        });
+        // Revoke this exact retry checkpoint as well as scheduler admission.
+        // Otherwise an ordinary recipient could enter generic recovery later.
+        await this.stopCancelledExecution(latest);
+      }
+    }
+    this.settled.get(task.id)?.();
+    await this.reconcile();
+  }
+
+  private async continueExisting(
+    task: TaskRecord,
+    child: Thread,
+    retryWait = false,
+  ): Promise<Thread> {
+    await this.authorizeResume(task);
+    if (!retryWait && this.host.isThreadRunning?.(task.projectId, task.childThreadId))
+      return { ...child, status: "running" };
+    if (
+      child.status === "completed" &&
+      !child.queuedMessages?.some((message) => message.id === task.id)
+    )
+      return child;
+    if (!this.host.resumeThread)
+      throw new AgentOperationError(
+        "UNAVAILABLE",
+        "This host cannot resume interrupted assignments.",
+      );
+    const resumed = await this.host.resumeThread(task.projectId, task.childThreadId, () =>
+      this.authorizeResume(task),
+    );
+    if (
+      resumed.status === "stopped" ||
+      resumed.queuedMessages?.some((message) => message.id === task.id)
+    )
+      throw new AgentOperationError("UNAVAILABLE", "Assignment continuation is still pending.");
+    return resumed;
+  }
+
+  private async stopCancelledExecution(task: TaskRecord) {
+    // An ordinary recipient may already be doing unrelated work. Stop only
+    // the exact task turn; never fall back to stopping that entire thread.
+    if (task.kind === "message" || task.kind === "followup") {
+      await this.host.stopTaskTurn?.(task.projectId, task.childThreadId, task.id);
+    } else if (this.host.isThreadRunning?.(task.projectId, task.childThreadId)) {
+      await this.host.stopThread(task.projectId, task.childThreadId);
+    }
+  }
+
   private settled = new Map<string, () => void>();
 
   private async stopExecution(task: TaskRecord) {
@@ -623,12 +957,45 @@ export class TaskService {
   }
 
   async finished(thread: Thread) {
+    if (this.paused || this.closed) return;
     const task = this.byChild.get(thread.id);
     if (!task || thread.status === "running" || thread.status === "idle") {
       this.drain();
       return;
     }
-    if (task.kind === "message" && !this.startedMessages.has(task.id)) return;
+    if ((task.kind === "message" || task.kind === "followup") && !this.startedMessages.has(task.id))
+      return;
+    if (
+      (thread.status === "interrupted" ||
+        (thread.status === "failed" &&
+          (!thread.errorKind ||
+            [
+              "unavailable",
+              "rate-limit",
+              "connection",
+              "timeout",
+              "harness",
+              "interrupted",
+              "session",
+              "unknown",
+              "storage",
+            ].includes(thread.errorKind)))) &&
+      this.host.resumeThread &&
+      !thread.doneAt
+    ) {
+      const latest = await this.store.get(task.id).catch(() => undefined);
+      if (this.paused || this.closed) return;
+      if (!latest || latest.state === "running") {
+        if (
+          !this.host.isThreadRunning?.(task.projectId, task.childThreadId) &&
+          !this.retryAt.has(task.id)
+        )
+          this.retry(latest ?? task);
+        return;
+      }
+    }
+    this.retryAt.delete(task.id);
+    this.retryAttempts.delete(task.id);
     const state =
       thread.status === "completed"
         ? "completed"
@@ -662,9 +1029,11 @@ export class TaskService {
   }
 
   private async persistCompletion(id: string) {
+    if (this.paused || this.closed) return;
     const completion = this.completions.get(id);
     if (!completion) return;
     const latest = await this.store.get(id);
+    if (this.paused || this.closed) return;
     if (!latest) throw new TaskStoreError("NOT_FOUND", "Assignment completion is unavailable.");
     if (!terminal.has(latest.state)) await this.store.transition(completion);
     this.completions.delete(id);
@@ -754,7 +1123,12 @@ export class TaskService {
       throw new AgentOperationError("NOT_FOUND", "Assignment not found in this thread.");
     const exactTask = task.kind === "message" || task.kind === "followup";
     const siblings = new Map(
-      [task, ...this.pending.values(), ...this.active.values()]
+      [
+        task,
+        ...(exactTask ? [] : await this.unfinishedForParent(scope.projectId, scope.threadId)),
+        ...this.pending.values(),
+        ...this.active.values(),
+      ]
         .filter(
           (item) =>
             item.projectId === task.projectId &&
@@ -785,8 +1159,11 @@ export class TaskService {
     const ownsRecipientTurn = child?.messages.some(
       (message) => message.id === task.id && message.turn && !message.turn.endedAt,
     );
+    const ownsRetryWait =
+      Boolean(this.host.isThreadRunning?.(task.projectId, task.childThreadId)) &&
+      child?.messages.filter((message) => message.role === "user").at(-1)?.id === task.id;
     const stopTarget = exactTask
-      ? shouldStop && ownsActiveRun && ownsRecipientTurn
+      ? shouldStop && ((ownsActiveRun && ownsRecipientTurn) || ownsRetryWait)
       : shouldStop || child?.status === "running";
     const stopRequested = stopTarget ? await this.stopExecution(task) : false;
     void this.reconcile().catch(() => {});
@@ -829,32 +1206,49 @@ export class TaskService {
     }
   }
 
+  private async unfinishedForParent(projectId: string, parentThreadId: string) {
+    const tasks: TaskRecord[] = [];
+    let after = 0;
+    while (true) {
+      const page = await this.store.unfinished(after, { projectId, parentThreadId });
+      tasks.push(...page.tasks);
+      if (page.tasks.length < 100) return tasks;
+      after = page.cursor;
+    }
+  }
+
   async cancelParent(projectId: string, threadId: string) {
-    const tasks = [...this.pending.values(), ...this.active.values()].filter(
-      (task) => task.projectId === projectId && task.parentThreadId === threadId,
-    );
-    await Promise.all(
-      tasks.map(async (task) => {
-        const next = await this.requestCancellation(task);
-        if (terminal.has(next.state)) return;
-        this.pending.delete(task.id);
-        if (this.active.has(task.id)) {
-          const target = await this.host
-            .readThread(projectId, task.childThreadId)
-            .catch(() => undefined);
-          if (
-            task.kind !== "message" ||
-            target?.messages.some(
-              (message) => message.id === task.id && message.turn && !message.turn.endedAt,
+    if (this.paused || this.closed) return;
+    const tasks = await this.unfinishedForParent(projectId, threadId);
+    if (this.paused || this.closed) return;
+    // Recovered queues can exceed one storage-worker admission window.
+    for (let offset = 0; offset < tasks.length; offset += 16)
+      await Promise.all(
+        tasks.slice(offset, offset + 16).map(async (task) => {
+          const next = await this.requestCancellation(task);
+          if (terminal.has(next.state)) return;
+          this.pending.delete(task.id);
+          if (this.active.has(task.id)) {
+            const target = await this.host
+              .readThread(projectId, task.childThreadId)
+              .catch(() => undefined);
+            if (
+              task.kind !== "message" ||
+              target?.messages.some(
+                (message) => message.id === task.id && message.turn && !message.turn.endedAt,
+              )
             )
-          )
-            await this.stopExecution(task);
-        } else await this.store.transition({ id: task.id, state: "cancelled" });
-      }),
-    );
+              await this.stopExecution(task);
+          } else {
+            await this.stopCancelledExecution(task);
+            await this.store.transition({ id: task.id, state: "cancelled" });
+          }
+        }),
+      );
   }
 
   reconcile() {
+    if (this.closed || this.paused) return Promise.resolve();
     this.reconciliationDirty = true;
     clearTimeout(this.reconciliationRetry);
     this.reconciliationRetry = undefined;
@@ -862,7 +1256,7 @@ export class TaskService {
       do {
         this.reconciliationDirty = false;
         await this.finalizePendingResults();
-      } while (this.reconciliationDirty && !this.closed);
+      } while (this.reconciliationDirty && !this.closed && !this.paused);
     })()
       .catch((error: unknown) => {
         this.reconciliationRetryNeeded = true;
@@ -870,7 +1264,7 @@ export class TaskService {
       })
       .finally(() => {
         this.reconciling = undefined;
-        if (this.reconciliationRetryNeeded && !this.closed) {
+        if (this.reconciliationRetryNeeded && !this.closed && !this.paused) {
           this.reconciliationRetry = setTimeout(() => {
             this.reconciliationRetry = undefined;
             void this.reconcile().catch(() => {});
@@ -884,7 +1278,7 @@ export class TaskService {
     return this.reconciling;
   }
   private async finalizePendingResults() {
-    if (this.closed) return;
+    if (this.closed || this.paused) return;
     this.reconciliationRetryNeeded = false;
     for (const id of this.completions.keys()) {
       try {
@@ -894,16 +1288,19 @@ export class TaskService {
       }
     }
     let after = 0;
-    while (!this.closed) {
+    while (!this.closed && !this.paused) {
       const pending = await this.store.pendingDeliveries(after);
       if (!pending.length) break;
       for (const task of pending) {
+        if (this.closed || this.paused) return;
         try {
           await this.withResult(task.id, async () => {
             const latest = await this.store.get(task.id);
-            if (!latest || latest.delivered || this.awaited(latest) || this.closed) return;
+            if (!latest || latest.delivered || this.awaited(latest) || this.closed || this.paused)
+              return;
             await this.host.assertProjectAccess(task.projectId);
             const parent = await this.host.readThread(task.projectId, task.parentThreadId);
+            if (this.closed || this.paused) return;
             if (
               latest.state === "cancelled" ||
               parent.doneAt ||
@@ -919,11 +1316,13 @@ export class TaskService {
                 "Result delivery requires the original parent permission grant. Read the result manually.",
               );
             const authorize = async () => {
-              if (this.closed || this.awaited(latest))
+              if (this.closed || this.paused || this.awaited(latest))
                 throw new AgentOperationError("BUSY", "The parent is collecting this result.");
               await this.host.assertProjectAccess(task.projectId);
               const current = await this.host.readThread(task.projectId, task.parentThreadId);
               if (
+                this.closed ||
+                this.paused ||
                 current.doneAt ||
                 ["stopped", "interrupted"].includes(current.status) ||
                 current.harness !== grant.harness ||
@@ -955,7 +1354,7 @@ export class TaskService {
           });
         } catch (error) {
           const current = await this.store.get(task.id);
-          if (current?.delivered || this.awaited(task) || this.closed) continue;
+          if (current?.delivered || this.awaited(task) || this.closed || this.paused) continue;
           this.reconciliationRetryNeeded = true;
           await this.store.deliveryFailed(
             task.id,
@@ -971,16 +1370,13 @@ export class TaskService {
   }
 
   async close() {
+    const executions = [...this.active.values()];
+    await this.pauseForRestart();
     this.closed = true;
     this.shutdown.abort(new Error("Assignments are closing."));
-    clearTimeout(this.reconciliationRetry);
     this.pending.clear();
     try {
-      await Promise.allSettled([...this.active.values()].map((task) => this.stopExecution(task)));
-      for (const settle of this.settled.values()) settle();
-      await this.commands;
-      await Promise.allSettled(this.launches);
-      await this.reconciling?.catch(() => {});
+      await Promise.allSettled(executions.map((task) => this.stopExecution(task)));
     } finally {
       await this.store.close();
     }

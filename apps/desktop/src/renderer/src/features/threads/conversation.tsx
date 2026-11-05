@@ -3,6 +3,7 @@ import { MessageCopyButton } from "./message-copy-button";
 import { ThreadVideo } from "./video/thread-video";
 import { videoMimeType } from "../../../../shared/contracts/video-preview";
 import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
+import { ThreadRecoveryNotice } from "./thread-recovery-notice";
 import { codeFontClassName } from "../../styles/code-ui";
 import { VideoArtifact } from "./video-artifact";
 import {
@@ -908,7 +909,8 @@ export const Conversation = memo(function Conversation({
               </Button>
             </div>
           )}
-          {thread?.error && (
+          <ThreadRecoveryNotice recovery={thread?.recovery} />
+          {thread?.error && thread.recovery?.reason !== "provider" && (
             <HarnessFailureSummary
               error={thread.error}
               kind={thread.errorKind}

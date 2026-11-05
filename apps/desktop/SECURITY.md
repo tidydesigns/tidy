@@ -224,6 +224,15 @@ installing state. Recovery releases only its own update reservation and cannot
 reopen harness admission or cancel an ordinary quit that began during preparation.
 Native error details remain outside the renderer.
 
+Native runs authorize durable recovery in private app state before crossing the provider
+submission boundary. Fingerprints cover the authorized thread and execution paths; the
+journal retains both sides of an atomic thread rename. Project JSON cannot create restart
+intent. Stop cancels that intent. Capacity/transport retries keep the existing user message,
+recheck cloud access and task grants, and preserve backoff across restarts. Recovery does
+not replay approvals. Verified private process tokens and birth identities guard orphan
+retirement; ambiguous ownership blocks a replacement process. CLI maintenance requests
+accept only an allowlisted provider ID, never a command, path or version from a renderer.
+
 Run from the repository root:
 
 ```sh

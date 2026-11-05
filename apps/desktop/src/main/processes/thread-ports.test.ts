@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { z } from "zod";
@@ -11,8 +12,15 @@ import { PrivateState } from "../platform/private-state";
 import { startHarness } from "../harnesses/harnesses";
 import { HarnessSessions } from "../harnesses/harness-sessions";
 import { HarnessTransport } from "../harnesses/harness-transport";
-import { parseLinuxListeners, parseLinuxProcess, parseLsofListeners } from "./port-scanner";
+import {
+  inspectOwnedProcess,
+  inspectProcessIdentity,
+  parseLinuxListeners,
+  parseLinuxProcess,
+  parseLsofListeners,
+} from "./port-scanner";
 
+const executeFixture = promisify(execFile);
 const children: ChildProcess[] = [];
 const detachedPids: number[] = [];
 const directories: string[] = [];
@@ -410,4 +418,325 @@ test("process identity parsing preserves names containing parentheses", () => {
     identity: "42:98765",
     name: "a (worker)",
   });
+});
+
+async function retirementFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "tidy-retire-agent-"));
+  directories.push(directory);
+  const state = new PrivateState(directory);
+  await state.initialize();
+  return {
+    directory,
+    state,
+    manager: new ThreadPorts(state),
+    projectId: randomUUID(),
+    threadId: randomUUID(),
+  };
+}
+
+test.skipIf(!supported)(
+  "retirement stops all verified roots, coalesces calls and preserves other threads",
+  async () => {
+    const f = await retirementFixture();
+    const first = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const a = await server(first.environment);
+    first.onSpawn(a.child.pid!);
+    const second = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const b = await server(second.environment);
+    second.onSpawn(b.child.pid!);
+    const otherThreadId = randomUUID();
+    const unrelated = await f.manager.register({ projectId: f.projectId, threadId: otherThreadId });
+    const c = await server(unrelated.environment);
+    unrelated.onSpawn(c.child.pid!);
+    await f.manager.flush();
+    const owners = z
+      .array(z.object({ rootIdentity: z.string() }))
+      .parse(await f.state.read("thread-port-owners"));
+    expect(owners).toHaveLength(3);
+    const restored = new ThreadPorts(f.state);
+    const retiring = restored.retireAgent(f);
+    expect(restored.retireAgent(f)).toBe(retiring);
+    await expect(
+      restored.register({ projectId: f.projectId, threadId: f.threadId }),
+    ).rejects.toThrow("being retired");
+    await retiring;
+    await Promise.all([childExit(a.child), childExit(b.child)]);
+    expect(a.child.signalCode).toBe("SIGTERM");
+    expect(b.child.signalCode).toBe("SIGTERM");
+    expect(c.child.signalCode).toBeNull();
+    await restored.retireAgent(f);
+  },
+);
+
+for (const fault of [
+  "missing birth identity",
+  "wrong birth identity",
+  "wrong private token",
+] as const) {
+  test.skipIf(!supported)(`retirement refuses ${fault} without signaling the fixture`, async () => {
+    const f = await retirementFixture();
+    const token = randomUUID();
+    const root = await server({ TIDY_THREAD_OWNER: token });
+    const identity = await inspectProcessIdentity(root.child.pid!);
+    await f.state.write("thread-port-owners", [
+      {
+        token: fault === "wrong private token" ? randomUUID() : token,
+        projectId: f.projectId,
+        threadId: f.threadId,
+        rootPid: root.child.pid,
+        ...(fault === "missing birth identity"
+          ? {}
+          : {
+              rootIdentity:
+                fault === "wrong birth identity" ? `${root.child.pid}:different-birth` : identity,
+            }),
+      },
+    ]);
+    await expect(f.manager.retireAgent(f)).rejects.toThrow();
+    expect(root.child.signalCode).toBeNull();
+    expect(await inspectProcessIdentity(root.child.pid!)).toBe(identity);
+  });
+}
+
+test.skipIf(!supported)(
+  "an independent same-token server makes retirement refuse, without killing either process",
+  async () => {
+    const f = await retirementFixture();
+    const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const root = await server(registration.environment);
+    const independent = await server(registration.environment);
+    registration.onSpawn(root.child.pid!);
+    await f.manager.flush();
+    await expect(f.manager.retireAgent(f)).rejects.toThrow("unverified process");
+    expect(root.child.signalCode).toBeNull();
+    expect(independent.child.signalCode).toBeNull();
+    // Refusal resumed the root, rather than leaving an application server frozen in SIGSTOP.
+    const { stdout } = await executeFixture("/bin/ps", [
+      "-p",
+      String(root.child.pid),
+      "-o",
+      "stat=",
+    ]);
+    expect(stdout.trim().startsWith("T")).toBe(false);
+  },
+);
+
+test.skipIf(!supported)(
+  "a dead root does not authorize killing detached same-token actors",
+  async () => {
+    const f = await retirementFixture();
+    const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const root = await server(registration.environment);
+    const detached = await server(registration.environment);
+    registration.onSpawn(root.child.pid!);
+    await f.manager.flush();
+    root.child.kill("SIGKILL");
+    await childExit(root.child);
+    await expect(new ThreadPorts(f.state).retireAgent(f)).rejects.toThrow("unverified process");
+    expect(detached.child.signalCode).toBeNull();
+  },
+);
+
+const orphanFixtures = new Map<number, string>();
+afterEach(async () => {
+  for (const [pid, identity] of orphanFixtures) {
+    if ((await inspectProcessIdentity(pid)) === identity) process.kill(pid, "SIGKILL");
+  }
+  orphanFixtures.clear();
+});
+async function rememberFixture(pid: number) {
+  const identity = await inspectProcessIdentity(pid);
+  if (!identity) throw new Error("Fixture exited before it was recorded.");
+  orphanFixtures.set(pid, identity);
+}
+
+async function fixtureMessage(child: ChildProcess): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Fixture did not become ready.")), 3000);
+    child.once("message", (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+test.skipIf(!supported)(
+  "untagged descendants block recovery and verified roots are resumed on refusal",
+  async () => {
+    const f = await retirementFixture();
+    const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const root = spawn(
+      "node",
+      [
+        "-e",
+        `
+const { spawn } = require('node:child_process');
+const environment = { ...process.env }; delete environment.TIDY_THREAD_OWNER;
+const child = spawn(process.execPath, ['-e', "process.send(process.pid); setInterval(() => {}, 1000);"], {env:environment, stdio:['ignore','ignore','ignore','ipc']});
+child.once('message', pid => process.send({child:pid}));
+setInterval(() => { if (process.connected) process.send({tick:true}); }, 250);
+`,
+      ],
+      {
+        env: { ...process.env, ...registration.environment },
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      },
+    );
+    children.push(root);
+    const ready = z.object({ child: z.number() }).parse(await fixtureMessage(root));
+    await rememberFixture(ready.child);
+    registration.onSpawn(root.pid!);
+    await f.manager.flush();
+    await expect(f.manager.retireAgent(f)).rejects.toThrow("descendant ownership");
+    const tick = z.object({ tick: z.literal(true) }).parse(await fixtureMessage(root));
+    expect(tick.tick).toBe(true);
+    expect(root.signalCode).toBeNull();
+    expect(await inspectProcessIdentity(ready.child)).not.toBeNull();
+  },
+  15000,
+);
+
+test.skipIf(!supported)(
+  "crashed launcher recovery retires an unsupervised orphan and its detached worker, escalating to SIGKILL",
+  async () => {
+    const f = await retirementFixture();
+    const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const signals = join(f.directory, "signals.txt");
+    const workerFile = join(f.directory, "worker.cjs");
+    const agentFile = join(f.directory, "agent.cjs");
+    await writeFile(
+      workerFile,
+      `
+process.on('SIGTERM', () => require('node:fs').appendFileSync(${JSON.stringify(signals)}, 'worker\\n'));
+require('node:net').createServer().listen(0, '127.0.0.1', () => process.send({worker:process.pid}));
+`,
+    );
+    await writeFile(
+      agentFile,
+      `
+const worker = require('node:child_process').spawn(process.execPath, [${JSON.stringify(workerFile)}], {detached:true, stdio:['ignore','ignore','ignore','ipc']});
+worker.once('message', value => { process.send({root:process.pid,...value}); worker.disconnect(); worker.unref(); });
+process.on('SIGTERM', () => require('node:fs').appendFileSync(${JSON.stringify(signals)}, 'root\\n'));
+setInterval(() => {}, 1000);
+`,
+    );
+    const launcher = spawn(
+      "node",
+      [
+        "-e",
+        `
+const agent = require('node:child_process').spawn(process.execPath, [${JSON.stringify(agentFile)}], {detached:true, stdio:['ignore','ignore','ignore','ipc']});
+agent.once('message', value => process.send(value));
+setInterval(() => {}, 1000);
+`,
+      ],
+      {
+        env: { ...process.env, ...registration.environment },
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      },
+    );
+    children.push(launcher);
+    const ready = z
+      .object({ root: z.number(), worker: z.number() })
+      .parse(await fixtureMessage(launcher));
+    await rememberFixture(ready.root);
+    await rememberFixture(ready.worker);
+    registration.onSpawn(ready.root, false);
+    await f.manager.flush();
+    launcher.kill("SIGKILL");
+    await childExit(launcher);
+    const orphan = await inspectOwnedProcess(
+      ready.root,
+      new Set([registration.environment.TIDY_THREAD_OWNER]),
+    );
+    expect(orphan?.parentPid).not.toBe(launcher.pid);
+    expect(orphan?.identity).toBe(orphanFixtures.get(ready.root));
+    const restored = new ThreadPorts(new PrivateState(f.directory));
+    await restored.retireAgent(f);
+    expect(await inspectProcessIdentity(ready.root)).toBeNull();
+    expect(await inspectProcessIdentity(ready.worker)).toBeNull();
+    expect((await readFile(signals, "utf8")).trim().split("\n").sort()).toEqual(["root", "worker"]);
+  },
+  20000,
+);
+
+test.skipIf(!supported)(
+  "an empty ownership registry after cleanup has no agent to retire",
+  async () => {
+    await new ThreadPorts().retireAgent({ projectId: randomUUID(), threadId: randomUUID() });
+  },
+);
+
+test("unsupported platforms refuse agent retirement", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
+  try {
+    Object.defineProperty(process, "platform", { ...descriptor, value: "win32" });
+    await expect(
+      new ThreadPorts().retireAgent({ projectId: randomUUID(), threadId: randomUUID() }),
+    ).rejects.toThrow("not supported");
+  } finally {
+    Object.defineProperty(process, "platform", descriptor);
+  }
+});
+
+test.skipIf(!supported)(
+  "a reused root PID does not authorize signaling an unrelated fixture",
+  async () => {
+    const f = await retirementFixture();
+    const replacement = await server();
+    const identity = await inspectProcessIdentity(replacement.child.pid!);
+    await f.state.write("thread-port-owners", [
+      {
+        token: randomUUID(),
+        projectId: f.projectId,
+        threadId: f.threadId,
+        rootPid: replacement.child.pid,
+        rootIdentity: `${replacement.child.pid}:old-birth`,
+      },
+    ]);
+    await f.manager.retireAgent(f);
+    expect(replacement.child.signalCode).toBeNull();
+    expect(await inspectProcessIdentity(replacement.child.pid!)).toBe(identity);
+  },
+);
+
+test.skipIf(!supported)(
+  "binding a warm registration cannot overwrite queued birth-identity persistence",
+  async () => {
+    const f = await retirementFixture();
+    const registration = await f.manager.register({ projectId: f.projectId, threadId: null });
+    const root = await server(registration.environment);
+    registration.onSpawn(root.child.pid!);
+    await registration.bind(f.threadId);
+    await f.manager.flush();
+    const owners = z
+      .array(z.object({ threadId: z.string(), rootIdentity: z.string() }))
+      .parse(await f.state.read("thread-port-owners"));
+    expect(owners[0]).toEqual({
+      threadId: f.threadId,
+      rootIdentity: (await inspectProcessIdentity(root.child.pid!))!,
+    });
+    await new ThreadPorts(f.state).retireAgent(f);
+    await childExit(root.child);
+    expect(root.child.signalCode).toBe("SIGTERM");
+  },
+);
+
+test.skipIf(!supported)("retirement fences registrations already waiting for a prune", async () => {
+  const f = await retirementFixture();
+  const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+  const root = await server(registration.environment);
+  registration.onSpawn(root.child.pid!);
+  await f.manager.flush();
+  const registering = f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+  await Promise.resolve();
+  const retiring = f.manager.retireAgent(f);
+  await expect(registering).rejects.toThrow("being retired");
+  await retiring;
+  await childExit(root.child);
+  expect(root.child.signalCode).toBe("SIGTERM");
 });

@@ -8,13 +8,37 @@ import {
   type HarnessUpdateState,
 } from "../../../../shared/contracts/harness-updates";
 
-/** Namespace persisted availability dismissals by provider. */
-const dismissedKey = (id: string) => `tidy:harness-update-dismissed:${id}`;
-/** Keep queued and installing dismissals together, allowing a new outcome to surface again. */
+const snoozeDuration = 24 * 60 * 60_000;
+const dismissedKey = (id: string) => `tidy:harness-update-snoozed:${id}`;
+/** A changed release, installed version or outcome should surface independently. */
 const noticeKey = (entry: HarnessUpdateState) =>
-  `${entry.latestVersion}:${entry.status === "installing" || entry.status === "queued" ? "busy" : entry.status}`;
-/** Read the dismissed release without making unavailable browser storage a rendering failure. */
-function dismissedVersion(id: string) {
+  `${entry.installedVersion}:${entry.latestVersion}:${entry.status === "installing" || entry.status === "queued" ? "busy" : entry.status}`;
+type Snooze = { key: string; until: number };
+type RequestError = { release: string; message: string };
+const releaseKey = (entry: HarnessUpdateState) =>
+  `${entry.installedVersion}:${entry.latestVersion}`;
+
+/** Ignore old permanent dismissals and malformed/unbounded browser storage. */
+export function harnessUpdateSnoozed(
+  entry: HarnessUpdateState,
+  stored: string | null,
+  now: number,
+) {
+  try {
+    const value = JSON.parse(stored ?? "null") as Snooze | null;
+    return Boolean(
+      value &&
+      value.key === noticeKey(entry) &&
+      Number.isFinite(value.until) &&
+      value.until > now &&
+      value.until <= now + snoozeDuration,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function storedSnooze(id: string) {
   try {
     return localStorage.getItem(dismissedKey(id));
   } catch {
@@ -23,75 +47,132 @@ function dismissedVersion(id: string) {
 }
 
 /** A single quiet notice keeps each provider and its progress in the same row. */
-export function HarnessUpdateNotices({ api }: { api: DesktopAPI | undefined }) {
+export function HarnessUpdateNotices({
+  api,
+}: {
+  api: Pick<DesktopAPI, "harnessUpdates" | "onHarnessUpdates" | "installHarnessUpdate"> | undefined;
+}) {
   const [entries, setEntries] = useState<HarnessUpdateState[]>([]);
-  const [dismissed, setDismissed] = useState<Record<string, string>>({});
+  const [dismissed, setDismissed] = useState<Record<string, Snooze>>({});
+  const [now, setNow] = useState(Date.now);
   const [pending, setPending] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, RequestError>>({});
   const [completed, setCompleted] = useState<Record<string, string>>({});
-  const previous = useRef(new Map<string, string>());
+  const previous = useRef(new Map<string, HarnessUpdateState>());
   const panel = useRef<HTMLElement | null>(null);
+  const pendingRequests = useRef(new Set<string>());
   const progressFocus = useRef<string | null>(null);
   useEffect(() => {
     if (!api) return;
     let active = true;
-    let received = false;
+    let revision = 0;
+    let loading = false;
+    let retry: number;
     const receive = (value: HarnessUpdateState[]) => {
       if (!active) return;
       for (const entry of value) {
-        if (entry.status === "updated" && previous.current.get(entry.id) === "installing")
+        if (
+          entry.status === "updated" &&
+          (["queued", "installing"].includes(previous.current.get(entry.id)?.status ?? "") ||
+            pendingRequests.current.has(entry.id))
+        )
           setCompleted((current) => ({ ...current, [entry.id]: entry.latestVersion }));
-        previous.current.set(entry.id, entry.status);
       }
       setErrors((current) => {
         const next = { ...current };
-        for (const entry of value) if (entry.status !== "available") delete next[entry.id];
+        for (const id of Object.keys(next)) {
+          const entry = value.find((entry) => entry.id === id);
+          if (!entry || entry.status !== "available" || next[id].release !== releaseKey(entry))
+            delete next[id];
+        }
         return next;
       });
+      previous.current = new Map(value.map((entry) => [entry.id, entry]));
       setEntries(value);
     };
     const unsubscribe = api.onHarnessUpdates((value) => {
-      received = true;
+      revision++;
       receive(value);
     });
-    void api
-      .harnessUpdates()
-      .then((value) => {
-        if (!received) receive(value);
-      })
-      .catch(() => {});
+    // Reconnect reads recover a lost initial IPC response without adding a discovery endpoint.
+    const read = () => {
+      if (!active || loading) return;
+      loading = true;
+      window.clearTimeout(retry);
+      const requested = revision;
+      void api
+        .harnessUpdates()
+        .then((value) => {
+          if (requested === revision) receive(value);
+        })
+        .catch(() => {
+          if (active) retry = window.setTimeout(read, 60_000);
+        })
+        .finally(() => {
+          loading = false;
+        });
+    };
+    const resume = () => {
+      setNow(Date.now());
+      if (!document.hidden) read();
+    };
+    read();
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       active = false;
+      window.clearTimeout(retry);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
       unsubscribe();
     };
   }, [api]);
 
+  useEffect(() => {
+    // Schedule only the next snooze expiry; idle renderers need no polling clock.
+    const expirations = entries.flatMap((entry) => {
+      const stored = storedSnooze(entry.id);
+      const persisted = harnessUpdateSnoozed(entry, stored, now)
+        ? (JSON.parse(stored!) as Snooze).until
+        : 0;
+      return [persisted, dismissed[entry.id]?.until ?? 0].filter((until) => until > now);
+    });
+    if (!expirations.length) return;
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.max(0, Math.min(...expirations) - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [entries, dismissed, now]);
+
   const notices = entries
     .map((entry): HarnessUpdateState =>
-      errors[entry.id] ? { ...entry, status: "error", message: errors[entry.id] } : entry,
+      errors[entry.id]?.release === releaseKey(entry) &&
+      ["available", "error"].includes(entry.status)
+        ? { ...entry, status: "error", message: errors[entry.id].message }
+        : entry,
     )
     .filter((entry) => {
       if (entry.status === "current") return false;
       if (entry.status === "updated" && completed[entry.id] !== entry.latestVersion) return false;
       return (
-        dismissed[entry.id] !== noticeKey(entry) &&
-        !(entry.status === "available" && dismissedVersion(entry.id) === entry.latestVersion)
+        !(dismissed[entry.id]?.key === noticeKey(entry) && dismissed[entry.id].until > now) &&
+        !harnessUpdateSnoozed(entry, storedSnooze(entry.id), now)
       );
     });
   const allComplete = notices.length > 0 && notices.every((entry) => entry.status === "updated");
   useEffect(() => {
     if (!allComplete) return;
     // Keep the batch together until it finishes, then quietly clear its confirmations.
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: number;
     const clear = () => {
       if (document.hidden || panel.current?.matches(":hover, :focus-within")) {
         timer = window.setTimeout(clear, 1000);
         return;
       }
-      setDismissed((current) => ({
-        ...current,
-        ...Object.fromEntries(entries.map((entry) => [entry.id, noticeKey(entry)])),
-      }));
+      setCompleted({});
     };
     timer = window.setTimeout(clear, 5000);
     return () => window.clearTimeout(timer);
@@ -111,18 +192,18 @@ export function HarnessUpdateNotices({ api }: { api: DesktopAPI | undefined }) {
         <span>Harness updates</span>
         <Button
           className="harness-update-dismiss"
-          aria-label="Dismiss harness updates"
+          aria-label="Remind me tomorrow about harness updates"
+          title="Remind me tomorrow"
           onClick={() => {
-            setDismissed((current) => ({
-              ...current,
-              ...Object.fromEntries(notices.map((entry) => [entry.id, noticeKey(entry)])),
-            }));
+            const until = Date.now() + snoozeDuration;
+            const snoozes = Object.fromEntries(
+              notices.map((entry) => [entry.id, { key: noticeKey(entry), until }]),
+            );
+            setDismissed((current) => ({ ...current, ...snoozes }));
             for (const entry of notices) {
-              if (entry.status === "available") {
-                try {
-                  localStorage.setItem(dismissedKey(entry.id), entry.latestVersion);
-                } catch {}
-              }
+              try {
+                localStorage.setItem(dismissedKey(entry.id), JSON.stringify(snoozes[entry.id]));
+              } catch {}
             }
           }}
         >
@@ -138,13 +219,18 @@ export function HarnessUpdateNotices({ api }: { api: DesktopAPI | undefined }) {
           const starting = isPending && !["queued", "installing", "updated"].includes(entry.status);
           const updated = entry.status === "updated";
           const error = entry.status === "error";
-          const detail = queued
-            ? entry.waitReason === "installer"
-              ? "Next in line"
-              : "After its active responses"
-            : updated
+          const checkError = entry.status === "check-error";
+          const detail = checkError
+            ? entry.installedVersion
               ? `Version ${entry.installedVersion}`
-              : `${entry.installedVersion} → ${entry.latestVersion}`;
+              : "Version unavailable"
+            : queued
+              ? entry.waitReason === "installer"
+                ? "Next in line"
+                : "After its active responses"
+              : updated
+                ? `Version ${entry.installedVersion}`
+                : `${entry.installedVersion} → ${entry.latestVersion}`;
           return (
             <li
               key={entry.id}
@@ -169,7 +255,9 @@ export function HarnessUpdateNotices({ api }: { api: DesktopAPI | undefined }) {
                           ? "Updated"
                           : error
                             ? "Update failed"
-                            : "Update available"}
+                            : checkError
+                              ? "Update check unavailable"
+                              : "Update available"}
                 </span>
               </div>
               {starting || installing || queued || updated ? (
@@ -197,34 +285,59 @@ export function HarnessUpdateNotices({ api }: { api: DesktopAPI | undefined }) {
                   className="harness-update-install"
                   aria-label={`${error ? "Retry updating" : "Update"} ${name}`}
                   onClick={(event) => {
-                    if (!api || pending[entry.id]) return;
+                    if (!api || pendingRequests.current.has(entry.id)) return;
+                    pendingRequests.current.add(entry.id);
                     if (event.currentTarget === document.activeElement)
                       progressFocus.current = entry.id;
                     setPending((current) => ({ ...current, [entry.id]: true }));
-                    setErrors((current) => ({ ...current, [entry.id]: "" }));
-                    setDismissed((current) => ({ ...current, [entry.id]: "" }));
+                    setErrors((current) => {
+                      const next = { ...current };
+                      delete next[entry.id];
+                      return next;
+                    });
+                    setDismissed((current) => {
+                      const next = { ...current };
+                      delete next[entry.id];
+                      return next;
+                    });
                     try {
                       localStorage.removeItem(dismissedKey(entry.id));
                     } catch {}
                     void api
                       .installHarnessUpdate(entry.id)
                       .catch(() => {
+                        // A lost reply cannot replace confirmed progress or a different release.
+                        const current = previous.current.get(entry.id);
+                        if (
+                          !current ||
+                          releaseKey(current) !== releaseKey(entry) ||
+                          ["queued", "installing", "updated"].includes(current.status)
+                        )
+                          return;
                         setErrors((current) => ({
                           ...current,
-                          [entry.id]: "Couldn’t start the update. Try again.",
+                          [entry.id]: {
+                            release: releaseKey(entry),
+                            message: "Couldn’t start the update. Try again.",
+                          },
                         }));
                       })
-                      .finally(() => setPending((current) => ({ ...current, [entry.id]: false })));
+                      .finally(() => {
+                        pendingRequests.current.delete(entry.id);
+                        setPending((current) => ({ ...current, [entry.id]: false }));
+                      });
                   }}
                 >
                   {error ? "Retry" : "Update"}
                 </Button>
               ) : null}
-              {error || !entry.canInstall ? (
+              {error ||
+              (!entry.canInstall && !checkError && (!entry.checkError || entry.message)) ? (
                 <p className="harness-update-error" role={error ? "alert" : undefined}>
                   {entry.message ?? "Use your package manager to update."}
                 </p>
               ) : null}
+              {entry.checkError ? <p className="harness-update-error">{entry.checkError}</p> : null}
             </li>
           );
         })}

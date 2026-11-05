@@ -19,6 +19,7 @@ import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates"
 
 test("versions compare numerically and unrecognized/prerelease/command text is never installable", () => {
   expect(parseHarnessVersion("codex-cli 0.162.1\n")).toBe("0.162.1");
+  expect(parseHarnessVersion("opencode 2.1.0\n")).toBe("2.1.0");
   expect(parseHarnessVersion("2.1.308 (Claude Code)")).toBe("2.1.308");
   expect(newerHarnessVersion("1.10.0", "1.9.9")).toBe(true);
   expect(newerHarnessVersion("1.9.9", "1.10.0")).toBe(false);
@@ -252,5 +253,65 @@ else if (process.argv[2] === 'update') {
   } finally {
     await updater.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Homebrew discovery keeps its metadata source even without an available updater", async () => {
+  const installation = await inspectHarnessInstallation("claude", {
+    locate: async () => "/opt/homebrew/Caskroom/claude-code/2.1.308/claude",
+    run: async () => "2.1.308 (Claude Code)",
+    find: async () => null,
+  });
+  expect(installation?.brew).toEqual({ kind: "cask", name: "claude-code" });
+  expect(installation?.command).toBeUndefined();
+  const urls: string[] = [];
+  await latestHarnessVersion(installation!, (async (url) => {
+    urls.push(String(url));
+    return Response.json({ version: "2.1.309" });
+  }) as typeof fetch);
+  expect(urls).toEqual(["https://formulae.brew.sh/api/cask/claude-code.json"]);
+});
+
+test("unreadable or malformed Claude channel settings cannot silently select latest", async () => {
+  for (const read of [
+    async () => Buffer.from("{"),
+    async () => Buffer.from('{"autoUpdatesChannel":"unknown"}'),
+    async () => {
+      throw Object.assign(new Error("private"), { code: "EACCES" });
+    },
+  ]) {
+    await expect(
+      inspectHarnessInstallation("claude", {
+        locate: async () => "/home/user/.local/share/claude/versions/2.1.308",
+        run: async () => "2.1.308 (Claude Code)",
+        read,
+      }),
+    ).rejects.toThrow();
+  }
+  const result = await inspectHarnessInstallation("claude", {
+    locate: async () => "/home/user/.local/share/claude/versions/2.1.308",
+    run: async () => "2.1.308 (Claude Code)",
+    read: async () => {
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    },
+  });
+  expect(result?.channel).toBe("latest");
+});
+
+test("invalid package-manager roots and prefixes never authorize a global replacement", async () => {
+  for (const [root, prefix] of [
+    ["", "/global"],
+    ["relative", "/global"],
+    ["/global/lib/node_modules", ""],
+  ]) {
+    const result = await inspectHarnessInstallation("codex", {
+      locate: async () => "/global/lib/node_modules/@openai/codex/bin/codex.js",
+      find: async (name) => (name === "npm" ? "/tools/npm" : null),
+      run: async ({ args }) =>
+        args[0] === "--version" ? "1.2.3" : args[0] === "root" ? root : prefix,
+      canonical: async (path) => path,
+      read: async () => Buffer.from('{"name":"@openai/codex"}'),
+    });
+    expect(result?.command).toBeUndefined();
   }
 });

@@ -31,6 +31,7 @@ const hostCapabilities = [
   "terminal-tabs-v1",
   "repository-search",
   "agent-orchestration",
+  "harness-updates",
 ];
 export function createRemoteHost({
   service,
@@ -103,6 +104,7 @@ export function createRemoteHost({
   };
   const tickets = new Map<string, { clientId: string; token: string; expires: number }>();
   const requests = createWorkspaceRequests<RemoteRequest>(service, {
+    harnessMaintenance: true,
     chooseProject: async ({ projectPath }) => {
       if (!projectPath) throw new Error("Choose a folder on the remote machine.");
       return projectPath;
@@ -166,12 +168,13 @@ export function createRemoteHost({
             });
         }
         const blockers = [
-          service.activeRunCount > 0 ? `active agent runs: ${service.activeRunCount}` : null,
           service.mobile.activeCount > 0 ? `device previews: ${service.mobile.activeCount}` : null,
           service.terminal.activeCount > 0
             ? `open terminals: ${service.terminal.activeCount}`
             : null,
-          inflight > 0 ? `requests in progress: ${inflight}` : null,
+          service.harnessUpdates.state.some((entry) => entry.status === "installing")
+            ? "CLI installation in progress"
+            : null,
         ].filter((value) => value !== null);
         if (blockers.length)
           return send(409, {
@@ -179,6 +182,15 @@ export function createRemoteHost({
           });
         if (!draining) {
           draining = true;
+          try {
+            await service.prepareUpdate();
+          } catch {
+            draining = false;
+            return send(503, {
+              error:
+                "The backend could not finish pausing its work. Recovery checkpoints were retained; retry shortly.",
+            });
+          }
           setTimeout(shutdown, 100);
         }
         return send(200, { stopping: true });

@@ -301,3 +301,61 @@ export function scanOwnedProcesses(owners: ReadonlySet<string>): Promise<OwnedPr
   if (process.platform === "darwin") return macProcesses(owners);
   throw new Error("Local process inspection is not supported on this computer.");
 }
+
+/** Include untagged descendants so recovery cannot mistake a filtered ownership scan for absence. */
+export async function scanProcessDescendants(roots: readonly OwnedProcess[]) {
+  type Identity = Omit<OwnedProcess, "owner">;
+  let processes: Identity[];
+  if (process.platform === "linux") {
+    const entries = await readdir("/proc");
+    const result = await batches(
+      entries.filter((entry) => /^\d+$/.test(entry)),
+      async (entry) => {
+        try {
+          const stat = await readFile(`/proc/${entry}/stat`, "utf8");
+          if (stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ")) return null;
+          return parseLinuxProcess(Number(entry), stat);
+        } catch (error) {
+          if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? ""))
+            return null;
+          throw new Error("Could not inspect the previous agent's descendants.");
+        }
+      },
+    );
+    processes = result.filter((entry) => entry !== null);
+  } else if (process.platform === "darwin") {
+    const table = await ps(["-axo", "pid=,ppid=,lstart=,stat=,comm="]);
+    processes = table
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        const match = /^\s*(\d+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\S+)\s+(.+)$/.exec(
+          line,
+        );
+        if (!match) throw new Error("Could not inspect the previous agent's descendants.");
+        if (match[4].startsWith("Z")) return [];
+        return [
+          {
+            pid: Number(match[1]),
+            parentPid: Number(match[2]),
+            identity: `${match[1]}:${match[3]}`,
+            name: match[5].slice(0, 120),
+          },
+        ];
+      });
+  } else {
+    throw new Error("Agent retirement is not supported on this computer.");
+  }
+  const identities = new Map(processes.map((entry) => [entry.pid, entry.identity]));
+  const ids = new Set(
+    roots.filter((root) => identities.get(root.pid) === root.identity).map((root) => root.pid),
+  );
+  const rootIds = new Set(ids);
+  for (let round = 0; round < 64; round++) {
+    const previous = ids.size;
+    for (const entry of processes) if (ids.has(entry.parentPid)) ids.add(entry.pid);
+    if (ids.size === previous)
+      return processes.filter((entry) => ids.has(entry.pid) && !rootIds.has(entry.pid));
+  }
+  throw new Error("Could not bound the previous agent's process tree.");
+}

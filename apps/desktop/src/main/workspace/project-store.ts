@@ -40,7 +40,7 @@ import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
 import { ThreadWorktrees } from "../repository/thread-worktrees";
 import { threadModeSchema, type ThreadMode } from "../../shared/contracts/thread-workspace";
-import { UpdateResumes } from "./update-resumes";
+import { UpdateResumes, type UpdateResume } from "./update-resumes";
 import { QueueAuthority } from "./queue-authority";
 import { ProjectIdentity } from "./project-identity";
 import type { QueuedMessage } from "../../shared/contracts/message-queue";
@@ -120,6 +120,24 @@ export class ProjectStore {
   >();
   private authority: ThreadAuthority;
   readonly updateResumes: UpdateResumes;
+  private runningCheckpoints = new Map<
+    string,
+    () => Omit<UpdateResume, "signature" | "projectId" | "threadId">
+  >();
+  private runSnapshots = new Map<string, Thread>();
+
+  /** Only a native run can authorize automatic execution after a crash. */
+  trackRun(
+    threadId: string,
+    checkpoint: () => Omit<UpdateResume, "signature" | "projectId" | "threadId">,
+  ) {
+    this.runningCheckpoints.set(threadId, checkpoint);
+  }
+
+  untrackRun(threadId: string) {
+    this.runningCheckpoints.delete(threadId);
+    this.runSnapshots.delete(threadId);
+  }
   readonly worktrees: ThreadWorktrees;
   readonly worktreePreferences: WorktreePreferencesStore;
   readonly worktreeStorage: WorktreeStorage;
@@ -535,6 +553,22 @@ export class ProjectStore {
 
   /** Hash large transcripts off the native event loop, using privately authorized session state. */
   updateResumeSignature(thread: Thread, executionPath: string) {
+    const size =
+      thread.messages.reduce((total, message) => total + message.text.length, 0) +
+      (thread.queuedMessages?.reduce((total, message) => total + message.text.length, 0) ?? 0) +
+      (thread.toolActivities?.reduce((total, tool) => total + toolLogSize(tool), 0) ?? 0);
+    if (size < 64 * 1024)
+      return Promise.resolve(
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              threadSchema.parse(thread),
+              this.project(thread.projectId).path,
+              executionPath,
+            ]),
+          )
+          .digest("hex"),
+      );
     return projectCompute.threadSignature(
       thread,
       this.project(thread.projectId).path,
@@ -648,15 +682,95 @@ export class ProjectStore {
       textLength >= 256 * 1024
         ? () => projectCompute.encodeThread(portable)
         : JSON.stringify(portable, null, 2);
-    return this.writeEncoded(async () => {
+    const written = this.writeEncoded(async () => {
       const path = await this.storagePath(value.projectId, "threads", value.id);
+      const checkpoint = this.runningCheckpoints.get(value.id);
+      let pending: UpdateResume | undefined;
+      let authorizedSnapshot: Thread | undefined;
+      if (!checkpoint && value.recovery && !value.doneAt) {
+        const entry = (await this.updateResumes.list()).find(
+          (entry) => entry.projectId === value.projectId && entry.threadId === value.id,
+        );
+        if (entry) {
+          const previous = await this.readThread(value.projectId, value.id);
+          const signature = await this.updateResumeSignature(
+            previous,
+            previous.worktree?.path ??
+              this.project(previous.executionProjectId ?? previous.projectId).path,
+          );
+          // A metadata action cannot authorize a changed request, session or execution context.
+          const normalized = {
+            ...value,
+            title: previous.title,
+            titleSource: previous.titleSource,
+            titleRevision: previous.titleRevision,
+            revision: previous.revision,
+            updatedAt: previous.updatedAt,
+            queuedMessages: previous.queuedMessages,
+            queueError: previous.queueError,
+          };
+          const unchangedRequest =
+            (await this.updateResumeSignature(
+              normalized,
+              previous.worktree?.path ??
+                this.project(previous.executionProjectId ?? previous.projectId).path,
+            )) === signature;
+          let trustedQueue = true;
+          for (const message of value.queuedMessages ?? []) {
+            try {
+              await this.assertQueuedMessage(value, message);
+            } catch {
+              trustedQueue = false;
+              break;
+            }
+          }
+          if (
+            unchangedRequest &&
+            trustedQueue &&
+            [entry.signature, entry.previousSignature].includes(signature)
+          ) {
+            pending = {
+              ...entry,
+              previousSignature: signature,
+              automaticQueue: Boolean(value.queuedMessages?.length),
+            };
+            authorizedSnapshot = previous;
+          }
+        }
+      }
       await this.authority.write(
         this.project(value.projectId).path,
         value,
         value.executionProjectId ? this.project(value.executionProjectId).path : undefined,
       );
+      if ((checkpoint || pending) && !value.doneAt) {
+        const plan = checkpoint ? checkpoint() : pending!;
+        const executionPath =
+          value.worktree?.path ?? this.project(value.executionProjectId ?? value.projectId).path;
+        const snapshot = this.runSnapshots.get(value.id) ?? authorizedSnapshot;
+        // Only native snapshots or snapshots matching private intent authorize the old side of a rename.
+        const previous = snapshot
+          ? {
+              ...snapshot,
+              sessionId: value.sessionId,
+              settings: { ...snapshot.settings, permissionMode: value.settings?.permissionMode },
+            }
+          : undefined;
+        await this.updateResumes.checkpoint({
+          ...plan,
+          projectId: value.projectId,
+          threadId: value.id,
+          signature: await this.updateResumeSignature(value, executionPath),
+          previousSignature: previous
+            ? await this.updateResumeSignature(previous, executionPath)
+            : plan.previousSignature,
+        });
+      }
       return path;
     }, encoded);
+    return written.then(() => {
+      if (this.runningCheckpoints.has(value.id)) this.runSnapshots.set(value.id, value);
+    });
   }
 
   async readDesign(
@@ -1179,6 +1293,7 @@ export class ProjectStore {
   }
 
   async recover() {
+    const continuations = await this.updateResumes.list().catch(() => []);
     for (const project of this.projects) {
       let finishClaim: ((retain: boolean) => void) | undefined;
       try {
@@ -1188,18 +1303,39 @@ export class ProjectStore {
         for (const summary of summaries) {
           if (summary.status !== "running") continue;
           const thread = await this.readThread(project.id, summary.id);
-          await this.writeThread({
+          const continuation = continuations.find(
+            (entry) => entry.projectId === project.id && entry.threadId === thread.id,
+          );
+          const signature = continuation
+            ? await this.updateResumeSignature(
+                thread,
+                thread.worktree?.path ??
+                  this.project(thread.executionProjectId ?? thread.projectId).path,
+              )
+            : undefined;
+          const trusted =
+            continuation &&
+            (continuation.signature === signature || continuation.previousSignature === signature);
+          const recovered: Thread = {
             ...thread,
             status: "interrupted",
             revision: thread.revision + 1,
             pendingApprovals: undefined,
-            activity: undefined,
+            activity: trusted ? "Tidy paused this thread. Resuming…" : undefined,
             toolActivities: thread.toolActivities?.map((tool) =>
               tool.status === "running" ? { ...tool, status: "interrupted" as const } : tool,
             ),
-            error:
-              "The backend stopped during this run. Check the workspace before sending a message to continue.",
-          });
+            error: trusted
+              ? undefined
+              : "The backend stopped during this run. Check the workspace before sending a message to continue.",
+          };
+          if (trusted)
+            this.trackRun(recovered.id, () => ({ ...continuation, previousSignature: signature }));
+          try {
+            await this.writeThread(recovered);
+          } finally {
+            if (trusted) this.untrackRun(recovered.id);
+          }
         }
         finishClaim(true);
       } catch {

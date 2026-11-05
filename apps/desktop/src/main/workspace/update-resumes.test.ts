@@ -135,7 +135,7 @@ test("a fresh backend resumes all update-interrupted sessions once, retaining pa
   expect(f.runs[4].input.prompt).toContain("Then check it");
   await reopened.service.resumeUpdatedThreads();
   expect(f.runs).toHaveLength(5);
-  expect(await reopened.store.updateResumes.list()).toEqual([]);
+  expect(await reopened.store.updateResumes.list()).toHaveLength(2);
 });
 
 test("completed, manually stopped and crash-interrupted threads never acquire update restart intent", async () => {
@@ -185,7 +185,7 @@ for (const change of ["stop", "done", "settings", "portable prompt"] as const) {
   });
 }
 
-test("a failed native restart resumes work in the existing app and does not revive it on a later launch", async () => {
+test("a failed native restart resumes work and an ordinary relaunch preserves unfinished intent", async () => {
   const f = await fixture();
   const thread = await f.start();
   const restore = await f.service.prepareUpdate();
@@ -199,21 +199,20 @@ test("a failed native restart resumes work in the existing app and does not revi
   await f.service.close();
   const reopened = await f.boot();
   await reopened.service.resumeUpdatedThreads();
-  expect(f.runs).toHaveLength(2);
+  expect(f.runs).toHaveLength(3);
 });
 
-test("missing native sessions fail visibly without replaying the original request", async () => {
+test("missing native sessions reconstruct the saved request without duplicating its message", async () => {
   const f = await fixture();
   f.withoutSession();
   const thread = await f.start();
   await f.service.prepareUpdate();
   const reopened = await f.boot();
   await reopened.service.resumeUpdatedThreads();
-  expect(f.runs).toHaveLength(1);
-  expect((await reopened.store.readThread(f.project.id, thread.id)).error).toContain(
-    "had not saved its session",
-  );
-  expect(await reopened.store.updateResumes.list()).toEqual([]);
+  expect(f.runs).toHaveLength(2);
+  expect(f.runs[1].input.prompt).toContain("Recovered conversation");
+  expect(f.runs[1].input.prompt).toContain(thread.messages[0].text);
+  expect((await reopened.store.readThread(f.project.id, thread.id)).messages).toHaveLength(1);
 });
 
 test("an update before the first native submission sends the original request once without duplicating its message", async () => {
@@ -263,7 +262,7 @@ test("a queued request interrupted before submission is delivered instead of con
 });
 
 test.each(["unknown", "rejected"] as const)(
-  "a %s submission is not automatically retried against an older native session",
+  "a %s submission resumes with workspace reconciliation instead of a duplicate user message",
   async (state) => {
     const f = await fixture();
     const thread = await f.start();
@@ -271,10 +270,9 @@ test.each(["unknown", "rejected"] as const)(
     await f.service.prepareUpdate();
     const reopened = await f.boot();
     await reopened.service.resumeUpdatedThreads();
-    expect(f.runs).toHaveLength(1);
-    expect((await reopened.store.readThread(f.project.id, thread.id)).error).toContain(
-      "did not confirm",
-    );
+    expect(f.runs).toHaveLength(2);
+    expect(f.runs[1].input.prompt).toContain("Do not repeat completed actions");
+    expect((await reopened.store.readThread(f.project.id, thread.id)).messages).toHaveLength(1);
   },
 );
 
@@ -288,20 +286,20 @@ test("a request accepted while update cancellation is in flight is continued rat
   await reopened.service.resumeUpdatedThreads();
   expect(f.runs).toHaveLength(2);
   expect(f.runs[1].input.prompt).toContain("Continue the unfinished user request");
-  expect(f.runs[1].input.prompt).not.toContain("An action that must only be submitted once");
+  expect(f.runs[1].input.prompt).toContain("Check current files and external state");
 });
 
 for (const interruption of ["stop", "quit", "another update"] as const) {
-  test(`${interruption} while recovery consumes its journal cannot cause a late or duplicate launch`, async () => {
+  test(`${interruption} while recovery validates its checkpoint cannot cause a late or duplicate launch`, async () => {
     const f = await fixture();
     const thread = await f.start();
     await f.service.prepareUpdate();
     const reopened = await f.boot();
     const consumed = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
-    const take = reopened.store.updateResumes.take.bind(reopened.store.updateResumes);
-    reopened.store.updateResumes.take = async (entry) => {
-      const result = await take(entry);
+    const sign = reopened.store.updateResumeSignature.bind(reopened.store);
+    reopened.store.updateResumeSignature = async (...args) => {
+      const result = await sign(...args);
       consumed.resolve();
       await gate.promise;
       return result;
@@ -318,7 +316,7 @@ for (const interruption of ["stop", "quit", "another update"] as const) {
       expect(f.runs).toHaveLength(1);
       const next = await f.boot();
       await next.service.resumeUpdatedThreads();
-      expect(f.runs).toHaveLength(interruption === "another update" ? 2 : 1);
+      expect(f.runs).toHaveLength(interruption === "stop" ? 1 : 2);
     } finally {
       gate.resolve();
       await recovery;
@@ -326,14 +324,14 @@ for (const interruption of ["stop", "quit", "another update"] as const) {
   });
 }
 
-test("ordinary quit after preparing an update cancels its automatic continuation", async () => {
+test("ordinary quit after preparing an update retains its automatic continuation", async () => {
   const f = await fixture();
   await f.start();
   await f.service.prepareUpdate();
   await f.service.close();
   const reopened = await f.boot();
   await reopened.service.resumeUpdatedThreads();
-  expect(f.runs).toHaveLength(1);
+  expect(f.runs).toHaveLength(2);
 });
 
 for (const action of ["stop", "quit"] as const) {
@@ -347,11 +345,11 @@ for (const action of ["stop", "quit"] as const) {
       await done;
     } else await f.service.close();
     expect(f.runs[0].stopped).toBe(true);
-    expect(await f.store.updateResumes.list()).toEqual([]);
+    expect(await f.store.updateResumes.list()).toHaveLength(action === "stop" ? 0 : 1);
   });
 }
 
-test("failure to clear restart intent on quit still terminates active native work", async () => {
+test("ordinary quit never clears durable restart intent", async () => {
   const f = await fixture();
   await f.start();
   const clear = f.store.updateResumes.clear.bind(f.store.updateResumes);
@@ -359,7 +357,8 @@ test("failure to clear restart intent on quit still terminates active native wor
     throw new Error("Journal disk failure");
   };
   try {
-    await expect(f.service.close()).rejects.toThrow("Journal disk failure");
+    await f.service.close();
+    expect(await f.store.updateResumes.list()).toHaveLength(1);
     expect(f.runs[0].stopped).toBe(true);
   } finally {
     f.store.updateResumes.clear = clear;

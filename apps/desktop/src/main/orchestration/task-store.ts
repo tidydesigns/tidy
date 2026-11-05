@@ -100,11 +100,11 @@ export class TaskStore {
   }
   private worker?: Worker;
   private parents = new Map<string, string>();
+  private executions = new Map<string, string>();
   private receivers = new Map<string, { grantId: string; projectScope?: string }>();
   private initialization?: Promise<void>;
   private closing = false;
   private shutdown?: Promise<void>;
-  private initializedOnce = false;
   private retryAt = 0;
   private failures = 0;
   private workerStartedAt = 0;
@@ -220,6 +220,9 @@ export class TaskStore {
     try {
       const initialized = z
         .object({
+          executions: z
+            .array(z.object({ id: uuid, projectId: uuid, childThreadId: uuid }))
+            .max(10_000),
           lineage: z
             .array(z.object({ projectId: uuid, childThreadId: uuid, parentThreadId: uuid }))
             .max(110_000),
@@ -234,8 +237,11 @@ export class TaskStore {
             )
             .max(10_000),
         })
-        .parse(await this.call("initialize", { recover: !this.initializedOnce }));
+        .parse(await this.call("initialize", {}));
       this.parents.clear();
+      this.executions.clear();
+      for (const task of initialized.executions)
+        this.executions.set(task.id, `${task.projectId}:${task.childThreadId}`);
       this.receivers.clear();
       for (const item of initialized.lineage)
         this.parents.set(`${item.projectId}:${item.childThreadId}`, item.parentThreadId);
@@ -244,7 +250,6 @@ export class TaskStore {
           grantId: item.grantId,
           ...(item.projectScope ? { projectScope: item.projectScope } : {}),
         });
-      this.initializedOnce = true;
     } catch (error) {
       if (this.worker === worker)
         this.failed(
@@ -302,6 +307,7 @@ export class TaskStore {
     const task = taskRecordSchema.parse(await this.call("create", { ...parsed, fingerprint }));
     if (task.kind !== "message")
       this.parents.set(`${task.projectId}:${task.childThreadId}`, task.parentThreadId);
+    this.trackExecution(task);
     this.changed(task);
     return task;
   }
@@ -332,6 +338,15 @@ export class TaskStore {
     await this.ready();
     const result = await this.call("for-request", { projectId, parentThreadId, requestId });
     return result === null ? undefined : taskRecordSchema.parse(result);
+  }
+  private trackExecution(task: TaskRecord) {
+    if (task.state === "running" || task.state === "cancel_requested")
+      this.executions.set(task.id, `${task.projectId}:${task.childThreadId}`);
+    else this.executions.delete(task.id);
+  }
+  /** Synchronous exclusion for generic thread recovery, including ordinary recipients. */
+  isManagedExecution(projectId: string, threadId: string) {
+    return [...this.executions.values()].includes(`${projectId}:${threadId}`);
   }
   receiverGrant(projectId: string, threadId: string) {
     if (this.closing) return undefined;
@@ -376,6 +391,7 @@ export class TaskStore {
     const parsed = transitionSchema.parse(input);
     await this.ready();
     const task = taskRecordSchema.parse(await this.call("transition", parsed));
+    this.trackExecution(task);
     this.changed(task);
     return task;
   }
@@ -388,6 +404,24 @@ export class TaskStore {
     return threadTasksPageSchema.parse(
       await this.call("thread-page", { projectId, parentThreadId, before, taskIds }),
     );
+  }
+  /** Stable insertion cursor: state changes during recovery cannot skip work. */
+  async unfinished(
+    after = 0,
+    owner?: Pick<TaskRecord, "projectId" | "parentThreadId">,
+  ): Promise<{ tasks: TaskRecord[]; cursor: number }> {
+    z.number().int().nonnegative().parse(after);
+    if (owner) {
+      uuid.parse(owner.projectId);
+      uuid.parse(owner.parentThreadId);
+    }
+    await this.ready();
+    return z
+      .object({
+        tasks: z.array(taskRecordSchema).max(100),
+        cursor: z.number().int().nonnegative(),
+      })
+      .parse(await this.call("unfinished", { after, ...owner }));
   }
   async pendingDeliveries(after = 0): Promise<TaskRecord[]> {
     z.number().int().nonnegative().parse(after);

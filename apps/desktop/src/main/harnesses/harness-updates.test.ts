@@ -20,7 +20,7 @@ const installation = (id: UpdatableHarnessId, version = "1.2.3"): HarnessInstall
   command: { executable: `/global/${id}`, args: ["update"] },
 });
 /** Create an isolated updater with observable reservations, commands and installed versions. */
-function fixture(installDisabledReason?: string) {
+function fixture(installDisabledReason?: string, now?: () => number) {
   const installed = new Map<UpdatableHarnessId, HarnessInstallation>([
     ["codex", installation("codex")],
     ["claude", installation("claude")],
@@ -37,11 +37,12 @@ function fixture(installDisabledReason?: string) {
     installed.set(id, installation(id, "1.3.0"));
     return "";
   };
-  let latest = async () => "1.3.0";
+  let latest: (installation: HarnessInstallation) => Promise<string> = async () => "1.3.0";
   const updater = new HarnessUpdates({
     installDisabledReason,
+    now,
     inspect: async (id) => structuredClone(installed.get(id) ?? null),
-    latest: async () => latest(),
+    latest: async (installation) => latest(installation),
     reserve(id, options) {
       reservations.push({ id, ...options });
       if (busy.has(id) && !options.allowActiveRuns) return null;
@@ -312,4 +313,237 @@ test("attached backend policy discovers updates but cannot reserve or install pr
   expect(f.reservations).toEqual([]);
   expect(f.commands).toEqual([]);
   expect(f.updater.busy).toBe(false);
+});
+
+test("failed first discovery is visible, sanitized and retries only failed providers with backoff", async () => {
+  let now = 0;
+  const f = fixture(undefined, () => now);
+  const calls = { codex: 0, claude: 0, opencode: 0 };
+  let offline = true;
+  f.setLatest(async ({ id }) => {
+    calls[id]++;
+    if (id === "codex" && offline) throw new Error("/private/token=secret");
+    return "1.3.0";
+  });
+  await f.updater.check();
+  expect(f.updater.state[0]).toMatchObject({
+    id: "codex",
+    status: "check-error",
+    canInstall: false,
+  });
+  expect(JSON.stringify(f.updater.state)).not.toMatch(/private|secret/);
+  expect(() => f.updater.install("codex")).toThrow("No installable update");
+  now = 59_999;
+  await f.updater.check();
+  expect(calls).toEqual({ codex: 1, claude: 1, opencode: 1 });
+  now = 60_000;
+  await f.updater.check();
+  expect(calls).toEqual({ codex: 2, claude: 1, opencode: 1 });
+  now = 179_999;
+  await f.updater.check();
+  expect(calls.codex).toBe(2);
+  offline = false;
+  now = 180_000;
+  await f.updater.check();
+  expect(f.updater.state[0]).toMatchObject({ status: "available", canInstall: true });
+  expect(f.updater.state[0].checkError).toBeUndefined();
+  expect(f.commands).toHaveLength(0);
+  now += 60_000;
+  await f.updater.check();
+  expect(calls.codex).toBe(3);
+});
+
+test("concurrent rechecks coalesce and late failures cannot replace an explicit update", async () => {
+  const f = fixture();
+  await f.updater.check();
+  let reject!: (error: Error) => void;
+  const delayed = new Promise<string>((_, fail) => {
+    reject = fail;
+  });
+  let calls = 0;
+  f.setLatest(async () => {
+    calls++;
+    return delayed;
+  });
+  const check = f.updater.check(true);
+  expect(f.updater.check(true)).toBe(check);
+  await Promise.resolve();
+  f.updater.install("codex");
+  await until(f.updater, "codex", "updated");
+  reject(new Error("offline"));
+  await check;
+  expect(calls).toBe(3);
+  expect(f.updater.state[0]).toMatchObject({ status: "updated", installedVersion: "1.3.0" });
+  expect(f.updater.state[0].checkError).toBeUndefined();
+});
+
+test("offline refresh observes removal and externally updated versions without stale prompts", async () => {
+  const f = fixture();
+  await f.updater.check();
+  f.installed.delete("opencode");
+  f.installed.set("claude", installation("claude", "1.4.0"));
+  f.setLatest(async () => {
+    throw new Error("offline");
+  });
+  await f.updater.check(true);
+  expect(f.updater.state.map(({ id, status }) => [id, status])).toEqual([
+    ["codex", "available"],
+    ["claude", "current"],
+  ]);
+  expect(f.updater.state[1].installedVersion).toBe("1.4.0");
+  expect(f.updater.state[0].checkError).toContain("try again automatically");
+  f.installed.set("claude", installation("claude", "1.2.0"));
+  await f.updater.check(true);
+  expect(f.updater.state[1]).toMatchObject({ status: "available", installedVersion: "1.2.0" });
+});
+
+test("a failed check never reuses a release from a changed installation channel", async () => {
+  const f = fixture();
+  await f.updater.check();
+  f.installed.set("claude", { ...installation("claude"), channel: "stable" });
+  f.setLatest(async () => {
+    throw new Error("offline");
+  });
+  await f.updater.check(true);
+  expect(f.updater.state.find(({ id }) => id === "claude")).toMatchObject({
+    status: "check-error",
+    canInstall: false,
+    latestVersion: "",
+  });
+  expect(() => f.updater.install("claude")).toThrow("No installable update");
+});
+
+test("background checks retain explicit installation errors until resolved or a new release exists", async () => {
+  const f = fixture();
+  await f.updater.check();
+  f.setRun(async () => {
+    throw new Error("installer failed");
+  });
+  f.updater.install("codex");
+  await until(f.updater, "codex", "error");
+  const message = f.updater.state[0].message;
+  await f.updater.check(true);
+  expect(f.updater.state[0]).toMatchObject({ status: "error", message });
+  f.setLatest(async () => "1.4.0");
+  await f.updater.check(true);
+  expect(f.updater.state[0].status).toBe("available");
+});
+
+test("inspection failures produce retryable diagnostics rather than implying no installation", async () => {
+  let now = 0;
+  let failed = true;
+  const updater = new HarnessUpdates({
+    now: () => now,
+    reserve: () => {
+      throw new Error("must never reserve");
+    },
+    inspect: async () => {
+      if (failed) throw new Error("unsupported version /private/config");
+      return null;
+    },
+  });
+  updates.push(updater);
+  await updater.check();
+  expect(updater.state).toHaveLength(3);
+  expect(updater.state.every((entry) => entry.status === "check-error")).toBe(true);
+  expect(JSON.stringify(updater.state)).not.toMatch(/private|unsupported version/);
+  failed = false;
+  now = 60_000;
+  await updater.check();
+  expect(updater.state).toEqual([]);
+});
+
+test("a queued update cannot cross a release-channel change", async () => {
+  const f = fixture();
+  f.busy.add("claude");
+  await f.updater.check();
+  f.updater.install("claude");
+  f.installed.set("claude", { ...installation("claude"), channel: "stable" });
+  f.busy.delete("claude");
+  await until(f.updater, "claude", "error");
+  expect(f.commands).toHaveLength(0);
+});
+
+test("a failed version probe preserves known availability but disables stale installation actions", async () => {
+  let probeFailed = false;
+  let metadataFailed = false;
+  const updater = new HarnessUpdates({
+    inspect: async (id) => {
+      if (probeFailed) throw new Error("probe failed");
+      return installation(id);
+    },
+    latest: async () => {
+      if (metadataFailed) throw new Error("offline");
+      return "1.3.0";
+    },
+    reserve: () => {
+      throw new Error("must never reserve");
+    },
+  });
+  updates.push(updater);
+  await updater.check();
+  probeFailed = true;
+  await updater.check(true);
+  expect(updater.state[0]).toMatchObject({ status: "available", canInstall: false });
+  expect(() => updater.install("codex")).toThrow("No installable update");
+  probeFailed = false;
+  metadataFailed = true;
+  await updater.check(true);
+  expect(updater.state[0]).toMatchObject({ status: "available", canInstall: true });
+});
+
+test("newly installed CLIs are discovered after one minute without rechecking healthy providers", async () => {
+  let now = 0;
+  const f = fixture(undefined, () => now);
+  f.installed.delete("opencode");
+  const calls: UpdatableHarnessId[] = [];
+  f.setLatest(async ({ id }) => {
+    calls.push(id);
+    return "1.3.0";
+  });
+  await f.updater.check();
+  expect(f.updater.state).toHaveLength(2);
+  f.installed.set("opencode", installation("opencode"));
+  now = 60_000;
+  await f.updater.check();
+  expect(calls).toEqual(["codex", "claude", "opencode"]);
+  expect(f.updater.state[2]).toMatchObject({ id: "opencode", status: "available" });
+  expect(f.commands).toHaveLength(0);
+});
+
+test("only an active installer blocks app updates, including during its first published state", async () => {
+  const f = fixture();
+  await f.updater.check();
+  expect(f.updater.busy).toBe(false);
+  expect(f.updater.installing).toBe(false);
+  f.busy.add("codex");
+  f.updater.install("codex");
+  expect(f.updater.busy).toBe(true);
+  expect(f.updater.installing).toBe(false);
+
+  let finish!: () => void;
+  const running = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  f.setRun(async () => {
+    await running;
+    f.installed.set("claude", installation("claude", "1.3.0"));
+    return "";
+  });
+  const observed: boolean[] = [];
+  const unsubscribe = f.updater.subscribe((entries) => {
+    if (entries.some((entry) => entry.status === "installing")) observed.push(f.updater.installing);
+  });
+  f.updater.install("claude");
+  const activeImmediately = f.updater.installing;
+  finish();
+  expect(activeImmediately).toBe(true);
+  expect(observed.length).toBeGreaterThan(0);
+  expect(observed.every(Boolean)).toBe(true);
+  await until(f.updater, "claude", "updated");
+  await Promise.resolve();
+  unsubscribe();
+  expect(f.updater.installing).toBe(false);
+  expect(f.updater.busy).toBe(true);
+  expect(f.updater.state[0]).toMatchObject({ id: "codex", status: "queued" });
 });
