@@ -1305,6 +1305,80 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
+  await run("thread previews replace siblings and cancel stale hover intent", async (root) => {
+    let preloads = 0;
+    const threads = [makeThread(), makeThread()];
+    function render(dragging = false) {
+      flushSync(() =>
+        root.render(
+          <div>
+            {threads.map((thread) => (
+              <ThreadCard
+                key={thread.id}
+                thread={summarizeThread(thread)}
+                selected={false}
+                loaded={false}
+                now={Date.now()}
+                pending={false}
+                onSelect={() => {}}
+                onDone={() => {}}
+                onPreload={() => preloads++}
+                orderControls={{ dragging, onPointerDown() {}, onMove() {} }}
+              />
+            ))}
+          </div>,
+        ),
+      );
+    }
+    render();
+    const rows = [...host.querySelectorAll<HTMLElement>(".thread-item")];
+    const first = required(rows[0], "First thread");
+    const second = required(rows[1], "Second thread");
+    const enter = (row: HTMLElement) =>
+      row.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+    const leave = (row: HTMLElement) =>
+      row.dispatchEvent(
+        new PointerEvent("pointerout", {
+          bubbles: true,
+          pointerType: "mouse",
+          relatedTarget: document.body,
+        }),
+      );
+    const visible = () => host.querySelectorAll(".thread-preview:popover-open");
+    enter(first);
+    await until(() => visible().length === 1, "First preview opens");
+    enter(second);
+    await until(
+      () => visible().length === 1 && second.contains(visible()[0]),
+      "Second preview replaces first",
+    );
+    leave(second);
+    await until(() => visible().length === 0, "Pointer leave closes the preview");
+    enter(first);
+    await until(() => visible().length === 1, "Dismissed sibling reopens");
+    window.dispatchEvent(new Event("blur"));
+    await until(() => visible().length === 0, "Window blur closes the preview");
+    const before = preloads;
+    for (const dismiss of [
+      () => window.dispatchEvent(new Event("blur")),
+      () => window.dispatchEvent(new Event("resize")),
+      () => document.dispatchEvent(new Event("scroll")),
+      () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+    ]) {
+      enter(first);
+      await frame();
+      dismiss();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      check(preloads === before && visible().length === 0, "Dismissal revived pending hover");
+    }
+    enter(first);
+    await until(() => visible().length === 1, "Preview before drag");
+    render(true);
+    check(visible().length === 0, "Dragging retained a preview");
+    render(false);
+    check(visible().length === 0, "Ending a drag revived a stale preview");
+  });
+
   await run(
     "cached sidebar PRs stay mounted through bootstrap and sparse refreshes",
     async (root) => {
