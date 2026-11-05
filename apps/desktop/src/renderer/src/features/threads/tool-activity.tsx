@@ -233,20 +233,33 @@ export const ToolActivityGroup = memo(
     const thinking = phase === "thinking" && !current;
     const showPhase =
       phase && (waiting || (!current && (phase !== "replying" || !activities.length)));
-    const live = !waiting && Boolean(current || showPhase);
+    const live = visible && !waiting && Boolean(current || showPhase);
+    const representative = current ?? (activities.length === 1 ? activities[0] : undefined);
     const label = showPhase
       ? phaseLabels[phase]
-      : (current?.title ?? `${activities.length} ${activities.length === 1 ? "step" : "steps"}`);
-    const command = !showPhase && (current?.kind === "command" || current?.kind === "test");
+      : (representative?.title ??
+        `${activities.length} ${activities.length === 1 ? "step" : "steps"}`);
+    const command =
+      !showPhase && (representative?.kind === "command" || representative?.kind === "test");
     const line = (
       <>
         <span className="activity-summary-content" data-live={live ? "" : undefined}>
           <span className="activity-icon">
             <ToolIcon
-              kind={thinking ? "thinking" : !waiting && current ? current.kind : "history"}
+              kind={
+                thinking ? "thinking" : !waiting && representative ? representative.kind : "history"
+              }
             />
           </span>
-          {command && <span className="tool-call-verb">Running</span>}
+          {command && (
+            <span className="tool-call-verb">
+              {representative?.status === "completed"
+                ? "Ran"
+                : representative
+                  ? toolStatusLabel[representative.status]
+                  : "Running"}
+            </span>
+          )}
           <span
             className="activity-summary-title"
             data-command={command ? "" : undefined}
@@ -255,10 +268,8 @@ export const ToolActivityGroup = memo(
             <span className="activity-summary-text">{label}</span>
           </span>
         </span>
-        {activities.length > 0 && (showPhase || current) && (
-          <span className="activity-count">
-            {activities.length} {activities.length === 1 ? "step" : "steps"}
-          </span>
+        {activities.length > 1 && (showPhase || current) && (
+          <span className="activity-count">{activities.length} steps</span>
         )}
       </>
     );
@@ -278,7 +289,7 @@ export const ToolActivityGroup = memo(
       >
         <summary
           onClick={() => setRevealed(true)}
-          aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}`}
+          aria-label={`${label}, tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}`}
         >
           {line}
           <span className="activity-chevron" aria-hidden="true">

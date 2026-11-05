@@ -47,6 +47,9 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
 }
+.message-activity {
+  margin-block: 8px 16px;
+}
 .message-markdown {
   white-space: normal;
 }
@@ -613,6 +616,68 @@
   }
 }
 
+.conversation-turn {
+  display: flow-root;
+}
+.turn-work {
+  margin-bottom: 0;
+  color: var(--color-muted-ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.turn-work-summary {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  text-align: start;
+  cursor: pointer;
+}
+.turn-work > .turn-status {
+  margin-bottom: 0;
+}
+.turn-work .turn-status-heading {
+  margin-bottom: 0;
+}
+.turn-work-summary:focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.turn-work-chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.turn-work[data-instant] .turn-work-chevron {
+  transition: none;
+}
+.turn-work[data-expanded] .turn-work-chevron {
+  transform: rotate(90deg);
+}
+.turn-work-region {
+  height: 0;
+  overflow: hidden;
+}
+.turn-work-content {
+  display: flow-root;
+}
+.turn-work-content[data-bounded] {
+  max-height: min(480px, 60dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  padding-inline-end: 8px;
+}
+.turn-status-phase {
+  min-width: 0;
+  margin-inline-start: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
 .turn-status {
   margin: 0 0 20px;
   color: var(--color-muted-ink);
@@ -646,6 +711,7 @@
   transition: transform 260ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .turn-status-heading[data-running] .turn-status-time {
+  margin-inline-end: 30px;
   transform: translateX(30px);
 }
 .working-matrix {
@@ -670,13 +736,6 @@
 .turn-status[data-active] .working-matrix i {
   animation-play-state: running;
 }
-.turn-status[data-active] .activity-summary-content[data-live] {
-  color: var(--color-ink);
-  mask-image: linear-gradient(100deg, rgb(0 0 0 / 55%) 40%, black 50%, rgb(0 0 0 / 55%) 60%);
-  mask-size: 300% 100%;
-  mask-repeat: no-repeat;
-  animation: working-shimmer 2400ms linear infinite;
-}
 @keyframes working-dot-pulse {
   0%,
   70%,
@@ -696,6 +755,14 @@
   }
 }
 @media (prefers-reduced-motion: no-preference) {
+  .conversation-turn:has(.turn-status[data-active]) .activity-summary-content[data-live],
+  .turn-status[data-active] .turn-status-phase:not(:empty) {
+    color: var(--color-ink);
+    mask-image: linear-gradient(100deg, rgb(0 0 0 / 55%) 40%, black 50%, rgb(0 0 0 / 55%) 60%);
+    mask-size: 300% 100%;
+    mask-repeat: no-repeat;
+    animation: working-shimmer 2400ms linear infinite;
+  }
   .message-markdown[data-revealing] > * {
     transition: opacity 600ms ease-out;
     @starting-style {
@@ -707,16 +774,26 @@
   .turn-status-time {
     transition: none;
   }
-  .working-matrix i,
-  .turn-status[data-active] .activity-summary-content[data-live] {
+  .working-matrix i {
     animation: none;
-  }
-  .turn-status[data-active] .activity-summary-content[data-live] {
-    mask-image: none;
-    color: inherit;
   }
   .working-matrix i {
     opacity: 0.55;
+  }
+  .turn-work-chevron {
+    transition: none;
+  }
+}
+
+.conversation {
+  container-type: inline-size;
+}
+@container (max-width: 400px) {
+  .transcript {
+    --chat-gutter: 16px;
+  }
+  .transcript .tool-call-verb {
+    width: auto;
   }
 }
 

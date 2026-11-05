@@ -1,7 +1,6 @@
 import { memo, useEffect, useState } from "react";
+import { Button } from "@tidy/ui/button";
 import type { Message, Thread } from "../../../../shared/contracts/desktop";
-import type { ToolActivity } from "../../../../shared/contracts/tool-activity";
-import { ToolActivityGroup, type ActivityPhase } from "./tool-activity";
 import { formatElapsedTime } from "./thread-time";
 
 const matrixRing = [1, 2, 7, 11, 14, 13, 8, 4];
@@ -41,15 +40,15 @@ export const TurnStatus = memo(function TurnStatus({
   message,
   thread,
   visible,
-  activities,
+  disclosure,
 }: {
   message: Message;
   thread?: Thread;
   visible: boolean;
-  activities: ToolActivity[];
+  disclosure?: { expanded: boolean; controls: string; toggle: (instant: boolean) => void };
 }) {
   const running = thread?.status === "running";
-  if (!message.turn && !running && !activities.length) return null;
+  if (!message.turn && !running && !disclosure) return null;
   const waiting = running && Boolean(thread?.pendingApprovals?.length);
   const startedAt = message.turn?.startedAt ?? thread?.updatedAt;
   const endedAt = message.turn?.endedAt;
@@ -63,54 +62,85 @@ export const TurnStatus = memo(function TurnStatus({
         : thread.status === "interrupted"
           ? "Interrupted after"
           : "Stopped after";
-  const phase: ActivityPhase | undefined = !running
+  const phase = !running
     ? undefined
     : waiting
-      ? "waiting"
+      ? "Waiting for permission"
       : thread?.activity === "Starting"
-        ? "starting"
+        ? "Starting session"
         : thread?.activity === "Thinking"
-          ? "thinking"
-          : thread?.activity === "Replying"
-            ? "replying"
-            : thread?.activity === "Stopping"
-              ? "stopping"
-              : "working";
-  return (
-    <div className="turn-status" data-active={running && !waiting && visible ? "" : undefined}>
-      {(message.turn || running) && (
-        <div className="turn-status-heading" data-running={running ? "" : undefined}>
-          {running && (
-            <span className="turn-status-icon" aria-hidden="true">
-              <span className="working-matrix">
-                {Array.from({ length: 16 }, (_, index) => {
-                  const step = matrixRing.indexOf(index);
-                  return (
-                    <i
-                      key={index}
-                      style={{
-                        animationDelay: `${step * 150 - 1200}ms`,
-                        animationName: step < 0 ? "none" : undefined,
-                      }}
-                    />
-                  );
-                })}
-              </span>
-            </span>
-          )}
-          <span className="turn-status-time" role="timer" aria-live="off">
-            {timed && startedAt ? (
-              <>
-                {label}{" "}
-                <Elapsed startedAt={startedAt} endedAt={endedAt} live={running && visible} />
-              </>
-            ) : (
-              "Interrupted"
-            )}
+          ? "Thinking"
+          : thread?.activity === "Stopping"
+            ? "Stopping"
+            : undefined;
+  const heading = (
+    <div className="turn-status-heading" data-running={running ? "" : undefined}>
+      {running && (
+        <span className="turn-status-icon" aria-hidden="true">
+          <span className="working-matrix">
+            {Array.from({ length: 16 }, (_, index) => {
+              const step = matrixRing.indexOf(index);
+              return (
+                <i
+                  key={index}
+                  style={{
+                    animationDelay: `${step * 150 - 1200}ms`,
+                    animationName: step < 0 ? "none" : undefined,
+                  }}
+                />
+              );
+            })}
           </span>
-        </div>
+        </span>
       )}
-      <ToolActivityGroup activities={activities} visible={visible} phase={phase} />
+      <span
+        className="turn-status-time"
+        role="timer"
+        aria-live="off"
+        aria-hidden={Boolean(disclosure)}
+      >
+        {timed && startedAt ? (
+          <>
+            {label} <Elapsed startedAt={startedAt} endedAt={endedAt} live={running && visible} />
+          </>
+        ) : message.turn ? (
+          "Interrupted"
+        ) : (
+          "Work details"
+        )}
+      </span>
+      {disclosure && (
+        <span className="turn-work-chevron" aria-hidden="true">
+          ›
+        </span>
+      )}
+      <span className="turn-status-phase" role="status">
+        {phase}
+      </span>
+      {disclosure && (
+        <Button
+          type="button"
+          className="turn-work-summary"
+          aria-expanded={disclosure.expanded}
+          aria-controls={disclosure.controls}
+          aria-label={
+            endedAt && startedAt
+              ? `${label} ${formatElapsedTime(Date.parse(endedAt) - Date.parse(startedAt))}`
+              : "Work details"
+          }
+          onClick={(event) => disclosure.toggle(event.detail === 0)}
+        />
+      )}
+    </div>
+  );
+  return (
+    <div
+      className="turn-status"
+      data-active={
+        running && !waiting && thread?.activity !== "Stopping" && visible ? "" : undefined
+      }
+    >
+      {heading}
     </div>
   );
 });

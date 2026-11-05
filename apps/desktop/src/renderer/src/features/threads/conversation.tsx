@@ -29,14 +29,20 @@ import { useThreadTasks } from "./use-thread-tasks";
 import type { ThreadTask } from "../../../../shared/contracts/thread-tasks";
 import { attachmentText } from "../../../../shared/models/attachment-references";
 import { AttachmentText, MessageAttachments } from "../composer/message-attachments";
-import { groupTurnActivity } from "./turn-activity";
+import {
+  groupMessageActivity,
+  streamingAssistantMessage,
+  groupConversationTurns,
+  splitTurnResponse,
+} from "./turn-activity";
 import { ChatLink } from "../../components/chat-link";
 import { parseChatLink } from "../../../../shared/models/chat-links";
 import { MarkdownPreview } from "../../components/markdown-preview";
 import { MarkdownTable } from "./markdown-table";
 import { MarkdownCodeBlock } from "./markdown-code-block";
 import { remarkTableSource } from "./table-markdown";
-import { TurnStatus } from "./turn-status";
+import { ToolActivityGroup } from "./tool-activity";
+import { TurnWork } from "./turn-work";
 import { remarkCompleteBlocks, useBlockReveal, useBufferedMarkdown } from "./streamed-markdown";
 
 const messageTime = new Intl.DateTimeFormat(undefined, {
@@ -51,6 +57,7 @@ const MarkdownContent = memo(function MarkdownContent({
   streaming,
   minimum,
   active,
+  onExpose,
   api,
   projectId,
   threadId,
@@ -59,13 +66,18 @@ const MarkdownContent = memo(function MarkdownContent({
   streaming: boolean;
   minimum: number;
   active: boolean;
+  onExpose: (offset: number) => void;
   api: DesktopAPI;
   projectId: string;
   threadId: string;
 }) {
   const markdownPlugins = useMemo<ComponentProps<typeof Markdown>["remarkPlugins"]>(
-    () => [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum }], remarkTableSource],
-    [text, minimum, streaming],
+    () => [
+      remarkGfm,
+      [remarkCompleteBlocks, { text, streaming, minimum, onExpose }],
+      remarkTableSource,
+    ],
+    [text, minimum, streaming, onExpose],
   );
   const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
     () => ({
@@ -180,6 +192,7 @@ const MessageBody = memo(function MessageBody({
         streaming={streaming}
         minimum={buffered.minimum}
         active={visible}
+        onExpose={buffered.onExpose}
         api={api}
         projectId={projectId}
         threadId={threadId}
@@ -191,15 +204,12 @@ const MessageBody = memo(function MessageBody({
 const ConversationEntry = memo(function ConversationEntry({
   message,
   machineId,
-  activities,
   active,
   streaming,
-  statusThread,
   api,
   projectId,
   threadId,
   nodes,
-  tasks,
   summaries,
   onOpenThread,
   source,
@@ -207,24 +217,15 @@ const ConversationEntry = memo(function ConversationEntry({
   message: Message;
   machineId: string;
   source?: { threadId: string };
-  activities: NonNullable<Thread["toolActivities"]>;
   active: boolean;
   streaming: boolean;
-  statusThread?: Thread;
   api: DesktopAPI;
   projectId: string;
   threadId: string;
   nodes: Map<string, HTMLElement>;
-  tasks?: ThreadTask[];
   summaries: ReadonlyMap<string, ThreadSummary>;
   onOpenThread?: (projectId: string, threadId: string) => void;
 }) {
-  const cancelTask = useCallback(
-    async (projectId: string, taskId: string) => {
-      await api.cancelThreadTask?.(projectId, threadId, taskId);
-    },
-    [api, threadId],
-  );
   const register = useCallback(
     (node: HTMLDivElement | null) => {
       if (node) nodes.set(message.id, node);
@@ -243,7 +244,7 @@ const ConversationEntry = memo(function ConversationEntry({
         }
       >
         <article
-          className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
+          className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "my-4 text-[light-dark(#292929,#e2e2e2)]"}`}
           aria-label={
             source
               ? "Work from another thread"
@@ -284,27 +285,122 @@ const ConversationEntry = memo(function ConversationEntry({
           </div>
         )}
       </div>
-      {message.role === "user" && (
-        <TurnStatus
-          message={message}
-          thread={statusThread}
-          visible={active}
-          activities={activities}
-        />
-      )}
-      {tasks?.length && onOpenThread ? (
-        <AgentTasks
-          tasks={tasks}
-          summaries={summaries}
-          projectId={projectId}
-          onOpenThread={onOpenThread}
-          onCancel={api.cancelThreadTask ? cancelTask : undefined}
-        />
-      ) : null}
     </div>
   );
 });
-const emptyActivities: NonNullable<Thread["toolActivities"]> = [];
+
+const ConversationTurn = memo(function ConversationTurn({
+  messages,
+  thread,
+  currentTurn,
+  toolsByMessage,
+  streamingMessage,
+  active,
+  api,
+  nodes,
+  machineId,
+  assignmentsByMessage,
+  summaries,
+  onOpenThread,
+}: {
+  messages: Message[];
+  thread: Thread;
+  currentTurn?: string;
+  toolsByMessage: ReadonlyMap<string, NonNullable<Thread["toolActivities"]>>;
+  streamingMessage?: string;
+  active: boolean;
+  api: DesktopAPI;
+  nodes: Map<string, HTMLElement>;
+  machineId: string;
+  assignmentsByMessage: ReadonlyMap<string, ThreadTask[]>;
+  summaries: ReadonlyMap<string, ThreadSummary>;
+  onOpenThread?: (projectId: string, threadId: string) => void;
+}) {
+  const cancelTask = useCallback(
+    async (projectId: string, taskId: string) => {
+      await api.cancelThreadTask?.(projectId, thread.id, taskId);
+    },
+    [api, thread.id],
+  );
+  const prompt = messages[0];
+  if (!prompt) return null;
+  const hasPrompt = prompt.role === "user";
+  const statusThread = prompt.id === currentTurn ? thread : undefined;
+  const completed =
+    hasPrompt &&
+    (statusThread
+      ? statusThread.status === "completed"
+      : !prompt.turn || Boolean(prompt.turn.endedAt));
+  const content = hasPrompt ? messages.slice(1) : messages;
+  const { history, response } = splitTurnResponse(content);
+  const hasWork =
+    history.some((message) => message.role === "assistant") ||
+    messages.some((message) => toolsByMessage.has(message.id));
+  const entry = (message: Message) => (
+    <ConversationEntry
+      key={message.id}
+      message={message}
+      machineId={machineId}
+      source={thread.messageSources?.[message.id]}
+      threadId={thread.id}
+      summaries={summaries}
+      onOpenThread={onOpenThread}
+      active={active}
+      streaming={message.role === "assistant" && message.id === streamingMessage}
+      api={api}
+      projectId={thread.projectId}
+      nodes={nodes}
+    />
+  );
+  const items = messages.flatMap((message) => {
+    const rows = [];
+    if (message !== prompt || !hasPrompt)
+      rows.push({
+        id: `message:${message.id}`,
+        collapsible: message.role === "assistant" && message.id !== response?.id,
+        content: () => entry(message),
+      });
+    const activities = toolsByMessage.get(message.id);
+    if (activities?.length)
+      rows.push({
+        id: `tools:${message.id}`,
+        collapsible: true,
+        content: (visible: boolean) => (
+          <div className="message-activity">
+            <ToolActivityGroup activities={activities} visible={visible} />
+          </div>
+        ),
+      });
+    const tasks = assignmentsByMessage.get(message.id);
+    if (tasks?.length && onOpenThread)
+      rows.push({
+        id: `tasks:${message.id}`,
+        collapsible: false,
+        content: () => (
+          <AgentTasks
+            tasks={tasks}
+            summaries={summaries}
+            projectId={thread.projectId}
+            onOpenThread={onOpenThread}
+            onCancel={api.cancelThreadTask ? cancelTask : undefined}
+          />
+        ),
+      });
+    return rows;
+  });
+  return (
+    <section className="conversation-turn">
+      {hasPrompt && entry(prompt)}
+      <TurnWork
+        message={hasPrompt ? prompt : undefined}
+        thread={statusThread}
+        visible={active}
+        completed={Boolean(completed && response && hasWork)}
+        items={items}
+      />
+    </section>
+  );
+});
 
 const TurnButton = memo(function TurnButton({
   id,
@@ -466,21 +562,26 @@ export const Conversation = memo(function Conversation({
     }
     return result;
   }, [thread?.messages]);
-  const previousToolsByTurn = useRef<ReturnType<typeof groupTurnActivity>>(new Map());
-  const toolsByTurn = useMemo(
+  const previousToolsByMessage = useRef<ReturnType<typeof groupMessageActivity>>(new Map());
+  const toolsByMessage = useMemo(
     () =>
-      groupTurnActivity(
+      groupMessageActivity(
         {
           messages: thread?.messages ?? [],
           toolActivities: thread?.toolActivities,
         },
-        previousToolsByTurn.current,
+        previousToolsByMessage.current,
       ),
     [thread?.messages, thread?.toolActivities],
   );
   useLayoutEffect(() => {
-    previousToolsByTurn.current = toolsByTurn;
-  }, [toolsByTurn]);
+    previousToolsByMessage.current = toolsByMessage;
+  }, [toolsByMessage]);
+
+  const conversationTurns = useMemo(
+    () => groupConversationTurns(thread?.messages ?? []),
+    [thread?.messages],
+  );
 
   function measure() {
     const element = viewport.current;
@@ -667,7 +768,9 @@ export const Conversation = memo(function Conversation({
       .find((message) => message.turn) ?? prompts?.at(-1)
   )?.id;
   const streamingMessage =
-    running && thread.activity === "Replying" ? thread.messages.at(-1)?.id : undefined;
+    running && thread.activity === "Replying"
+      ? streamingAssistantMessage({ messages: thread.messages, turnId: currentTurn })
+      : undefined;
   return (
     <div className="conversation relative flex min-h-0 min-w-0 flex-1 flex-col">
       <div
@@ -688,7 +791,9 @@ export const Conversation = memo(function Conversation({
         onClickCapture={(event) => {
           if (
             event.target instanceof Element &&
-            event.target.closest(".tool-activity-group summary, .tool-detail-toggle")
+            event.target.closest(
+              ".turn-work-summary, .tool-activity-group summary, .tool-detail-toggle",
+            )
           )
             following.current = false;
         }}
@@ -698,7 +803,9 @@ export const Conversation = memo(function Conversation({
             ["ArrowUp", "PageUp", "Home"].includes(event.key) ||
             (["Enter", " "].includes(event.key) &&
               event.target instanceof Element &&
-              event.target.closest(".tool-activity-group summary, .tool-detail-toggle"))
+              event.target.closest(
+                ".turn-work-summary, .tool-activity-group summary, .tool-detail-toggle",
+              ))
           )
             following.current = false;
         }}
@@ -729,25 +836,24 @@ export const Conversation = memo(function Conversation({
           {thread?.toolActivityTruncated && (
             <p className="tool-log-notice">Earlier tool activity omitted</p>
           )}
-          {thread?.messages.map((message) => (
-            <ConversationEntry
-              key={message.id}
-              message={message}
-              machineId={machineId}
-              source={thread.messageSources?.[message.id]}
-              activities={toolsByTurn.get(message.id) ?? emptyActivities}
-              active={active}
-              streaming={message.role === "assistant" && message.id === streamingMessage}
-              statusThread={message.id === currentTurn ? thread : undefined}
-              api={api}
-              projectId={thread.projectId}
-              threadId={thread.id}
-              nodes={nodes.current}
-              tasks={assignmentsByMessage.get(message.id)}
-              summaries={childSummaries}
-              onOpenThread={onOpenThread}
-            />
-          ))}
+          {thread &&
+            conversationTurns.map((messages) => (
+              <ConversationTurn
+                key={messages[0]?.id}
+                messages={messages}
+                thread={thread}
+                currentTurn={currentTurn}
+                toolsByMessage={toolsByMessage}
+                streamingMessage={streamingMessage}
+                active={active}
+                api={api}
+                nodes={nodes.current}
+                machineId={machineId}
+                assignmentsByMessage={assignmentsByMessage}
+                summaries={childSummaries}
+                onOpenThread={onOpenThread}
+              />
+            ))}
           {earlierAssignments.length > 0 && thread && onOpenThread && (
             <AgentTasks
               tasks={earlierAssignments}

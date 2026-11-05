@@ -1,5 +1,5 @@
 import type { Code, Root } from "mdast";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useBlockReveal(active: boolean) {
   const [lingering, setLingering] = useState(active);
@@ -40,13 +40,17 @@ export function useBufferedMarkdown(text: string, buffering: boolean) {
         publishedAt.current = performance.now();
         setDisplayed(latest.current);
       },
-      Math.max(0, 400 - (performance.now() - publishedAt.current)),
+      Math.max(0, 160 - (performance.now() - publishedAt.current)),
     );
   }, [text, buffering, replaced, displayed]);
+  const onExpose = useCallback((offset: number) => {
+    if (offset > exposed.current.length) exposed.current = latest.current.slice(0, offset);
+  }, []);
   useEffect(() => () => clearTimeout(pending.current), []);
   return {
     text: !buffering || replaced || displayed.length < minimum ? text : displayed,
     minimum,
+    onExpose,
   };
 }
 
@@ -63,10 +67,12 @@ export function remarkCompleteBlocks({
   text,
   streaming,
   minimum,
+  onExpose,
 }: {
   text: string;
   streaming: boolean;
   minimum: number;
+  onExpose?: (offset: number) => void;
 }) {
   return (root: Root) => {
     const tail = root.children.at(-1);
@@ -75,16 +81,17 @@ export function remarkCompleteBlocks({
     const exposed = (tail.position?.start.offset ?? text.length) < minimum;
     const codeReady = tail.type === "code" && closedFence(tail, text);
     const separated = /\r?\n[ \t]*\r?\n[ \t]*$/u.test(text);
-    if (exposed) {
-      ready.push(tail);
-    } else if (tail.type === "list") {
+    if (tail.type === "list") {
       const items = tail.children.filter(
         (item, index) =>
           index < tail.children.length - 1 ||
+          (item.position?.start.offset ?? text.length) < minimum ||
           (separated && item.children.at(-1)?.type === "paragraph"),
       );
       if (items.length) ready.push({ ...tail, children: items });
     } else if (
+      exposed ||
+      tail.type === "paragraph" ||
       codeReady ||
       (separated && tail.type !== "heading" && tail.type !== "code" && tail.type !== "blockquote")
     ) {
@@ -95,5 +102,11 @@ export function remarkCompleteBlocks({
       ready.pop();
     }
     root.children = ready;
+    const last = ready.at(-1);
+    onExpose?.(
+      (last?.type === "list"
+        ? last.children.at(-1)?.position?.end.offset
+        : last?.position?.end.offset) ?? 0,
+    );
   };
 }
