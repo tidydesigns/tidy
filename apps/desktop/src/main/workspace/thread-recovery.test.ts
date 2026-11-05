@@ -88,6 +88,37 @@ test("unknown provider failures stop after three automatic continuations and ret
   expect(await f.store.updateResumes.list()).toEqual([]);
 });
 
+test("a short request-drain budget does not truncate durable provider flushes", async () => {
+  const f = await fixture();
+  await f.start();
+  const flush = f.store.flush.bind(f.store);
+  const slowDisk = spyOn(f.store, "flush").mockImplementation(async () => {
+    await Bun.sleep(60);
+    await flush();
+  });
+  try {
+    await f.service.close(5);
+    expect(f.runs[0].stopped).toBe(true);
+    expect(await f.store.updateResumes.list()).toHaveLength(1);
+  } finally {
+    slowDisk.mockRestore();
+  }
+});
+
+test("an unresponsive provider still has a separate bounded shutdown and keeps recovery intent", async () => {
+  const f = await fixture();
+  const thread = await f.start();
+  const jobs = Reflect.get(f.service, "jobs") as Map<string, { process: { stop(): void } }>;
+  jobs.get(thread.id)!.process.stop = () => {};
+  try {
+    await expect(f.service.close(5, 20)).rejects.toThrow("could not finish pausing");
+    expect(await f.store.updateResumes.list()).toHaveLength(1);
+  } finally {
+    f.runs[0].finish();
+    await f.service.close();
+  }
+});
+
 test("a rejected replacement message preserves the original provider retry timer", async () => {
   const f = await fixture();
   spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(10_000);

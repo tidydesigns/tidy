@@ -3715,7 +3715,8 @@ export class WorkspaceService {
     }
   }
 
-  async close(requestDrainTimeoutMs = 30_000) {
+  /** Optional request draining must not shorten the durable provider shutdown deadline. */
+  async close(requestDrainTimeoutMs = 30_000, providerShutdownTimeoutMs = 30_000) {
     this.closing = "quit";
     this.completionPreferences.clear();
     clearInterval(this.worktreeCleanupTimer);
@@ -3733,7 +3734,7 @@ export class WorkspaceService {
     for (const watcher of this.watchers.values()) watcher.close();
     for (const refresh of this.designRefreshes.values()) refresh.close();
     this.designRefreshes.clear();
-    await this.shutdownDeadline(this.stopAndFlush(), requestDrainTimeoutMs);
+    await this.shutdownDeadline(this.stopAndFlush(), providerShutdownTimeoutMs);
     await this.agentMcp.close();
     await this.canvas.close();
     await this.tasks.close();
