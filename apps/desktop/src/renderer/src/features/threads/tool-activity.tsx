@@ -298,7 +298,7 @@ export const ToolActivityGroup = memo(
         </summary>
         {revealed && (
           <div
-            className="tool-activity-list"
+            className="tool-activity-list overscroll-x-contain"
             ref={list}
             onClickCapture={() => {
               following.current = false;

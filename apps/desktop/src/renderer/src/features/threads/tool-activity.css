@@ -87,7 +87,6 @@ code.tool-call-title {
   border-left: 1px solid var(--color-border);
   max-height: min(320px, 45dvh);
   overflow: auto;
-  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-gutter: stable;
 }

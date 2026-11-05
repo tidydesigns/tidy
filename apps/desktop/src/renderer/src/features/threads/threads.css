@@ -665,7 +665,6 @@
 .turn-work-content[data-bounded] {
   max-height: min(480px, 60dvh);
   overflow: auto;
-  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-gutter: stable;
   padding-inline-end: 8px;

@@ -514,6 +514,22 @@ async function verifyTurnContinuity(root: Root) {
     group.open && row.open && row.querySelector("pre")?.textContent === output,
     "Reopening work reset tool details",
   );
+  const workContent = required(progress.closest<HTMLElement>(".turn-work-content"), "Work content");
+  const toolList = required(group.querySelector<HTMLElement>(".tool-activity-list"), "Tool list");
+  check(
+    workContent.scrollHeight === workContent.clientHeight,
+    "Short progress unexpectedly needs its own scrollbar",
+  );
+  for (const element of [workContent, toolList])
+    check(
+      getComputedStyle(element).overscrollBehaviorY === "auto" &&
+        getComputedStyle(element).overscrollBehaviorX === "contain",
+      "Expanded work must pass vertical scrolling through while containing horizontal scrolling",
+    );
+  check(
+    getComputedStyle(viewport).overscrollBehaviorY === "contain",
+    "Conversation lost its outer scroll boundary",
+  );
   for (let index = 0; index < 3; index++) {
     heading.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     await frame();
@@ -4069,6 +4085,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         list.clientHeight <= Math.min(320, innerHeight * 0.45) + 1 &&
           list.scrollHeight > list.clientHeight,
         "Expanded commands exceeded their scroll boundary",
+      );
+      check(
+        getComputedStyle(list).overscrollBehaviorY === "auto",
+        "Overflowing command output traps vertical scrolling at its boundaries",
       );
       list.scrollTop = 0;
       list.dispatchEvent(new Event("scroll"));
