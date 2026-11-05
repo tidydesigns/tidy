@@ -5,27 +5,27 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkCompleteBlocks } from "./streamed-markdown";
 
-function render(text: string, streaming = true, minimum = 0) {
+function render(text: string, streaming = true, minimum = 0, onExpose?: (offset: number) => void) {
   return renderToStaticMarkup(
     createElement(Markdown, {
       children: text,
-      remarkPlugins: [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum }]],
+      remarkPlugins: [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum, onExpose }]],
       skipHtml: true,
     }),
   );
 }
 
 describe("streamed Markdown sections", () => {
-  test("holds partial paragraphs and releases separated paragraphs", () => {
-    expect(render("A **partial")).toBe("");
+  test("streams paragraphs before their separator arrives", () => {
+    expect(render("A **partial")).toContain("partial");
     expect(render("A **complete** paragraph.\n\n")).toContain("<strong>complete</strong>");
   });
 
-  test("holds headings until content can accompany them", () => {
+  test("holds new headings until content arrives and preserves exposed headings", () => {
     const prefix = "Earlier paragraph.\n\n## Details\n\n";
     expect(render(prefix)).not.toContain("<h2>");
-    expect(render(prefix + "An unfinished paragraph")).not.toContain("<h2>");
-    expect(render(prefix + "A finished paragraph.\n\n")).toContain("<h2>Details</h2>");
+    expect(render(prefix + "An unfinished paragraph")).toContain("<h2>");
+    expect(render(prefix, true, prefix.length)).toContain("<h2>Details</h2>");
   });
 
   test("reveals completed list items while holding the last partial item", () => {
@@ -41,6 +41,8 @@ describe("streamed Markdown sections", () => {
     expect(render(fence)).toBe("");
     expect(render(fence + "\n}\n```")).toContain("color: red;");
     expect(render("~~~text\r\nComplete code\r\n~~~~")).toContain("Complete code");
+    expect(render(fence + "\n   ```")).toContain("color: red;");
+    expect(render(fence + "\n    ```")).toBe("");
   });
 
   test("keeps blank lines inside an unfinished code fence hidden", () => {
@@ -63,24 +65,99 @@ describe("streamed Markdown sections", () => {
     const html = render("A paragraph.\n\n    incomplete code");
     expect(html).toContain("A paragraph.");
     expect(html).not.toContain("incomplete code");
+    expect(render("- Item\n\n      complete code\n\n  Following paragraph\n\n")).toContain(
+      "complete code",
+    );
   });
 
   test("keeps document-wide link definitions available to earlier sections", () => {
     const html = render("[Docs][ref]\n\n[ref]: https://example.com\n\nAn unfinished tail");
     expect(html).toContain('href="https://example.com"');
-    expect(html).not.toContain("unfinished");
-  });
-
-  test("does not hide a section exposed before streaming resumed", () => {
-    expect(render("日本語 👩🏽‍💻 grows", true, "日本語 👩🏽‍💻".length)).toContain("日本語 👩🏽‍💻 grows");
-    const heading = "## Already visible";
-    expect(render(heading + "\n\nAn unfinished tail", true, heading.length)).toContain(
-      "<h2>Already visible</h2>",
-    );
   });
 
   test("flushes final content without requiring a boundary", () => {
-    expect(render("Final **answer**.", false)).toContain("<strong>answer</strong>");
-    expect(render("Literal **unfinished", false)).toContain("Literal **unfinished");
+    expect(render("## Final heading", false)).toBe("<h2>Final heading</h2>");
+    expect(render("```ts\nconst final = 1;", false)).toContain("const final = 1;");
+    expect(render("- Final item", false)).toContain("<li>Final item</li>");
   });
+});
+
+test("visible paragraphs stay visible when streaming reclassifies tables and headings", () => {
+  for (const chunks of [
+    ["| Name | Value |", "\n| --- | --- |", "\n| Count | 1 |"],
+    ["Title", "\n---"],
+  ]) {
+    let text = "";
+    let exposed = 0;
+    for (const chunk of chunks) {
+      text += chunk;
+      const html = render(text, true, exposed, (offset) => {
+        exposed = Math.max(exposed, offset);
+      });
+      expect(html).toContain(chunks[0].includes("Name") ? "Name" : "Title");
+    }
+  }
+});
+
+test("exposing paragraphs does not release a subsequent unfinished code fence", () => {
+  let exposed = 0;
+  render("A visible paragraph", true, 0, (offset) => {
+    exposed = offset;
+  });
+  const html = render("A visible paragraph\n\n```ts\nconst secret = 1", true, exposed);
+  expect(html).toContain("A visible paragraph");
+  expect(html).not.toContain("const secret");
+});
+
+test("exposed list items do not expose a later unfinished fenced item", () => {
+  let exposed = 0;
+  const text = "- First item\n- ```ts\n  const hidden = 1;";
+  render(text, true, 0, (offset) => {
+    exposed = offset;
+  });
+  const html = render(text + "\n  const next = 2;", true, exposed);
+  expect(html).toContain("<li>First item</li>");
+  expect(html).not.toContain("const hidden");
+});
+
+test("exposed list items retain text and hold unfinished code through nested containers", () => {
+  for (const marker of ["```", "~~~"]) {
+    for (const { prefix, continuation } of [
+      { prefix: "- Visible item\n\n", continuation: "  " },
+      { prefix: "100. Visible item\n\n", continuation: "     " },
+      { prefix: "100.\n     Visible item\n\n", continuation: "     " },
+      { prefix: "100.\tVisible item\n\n", continuation: "        " },
+      { prefix: "- Visible item\n\n", continuation: "  > " },
+      {
+        prefix: "- Visible item\n\n  > Quoted introduction\n  >\n",
+        continuation: "  > ",
+      },
+      { prefix: "100. Visible item\n\n", continuation: "     > > " },
+      { prefix: "- Outer\n\n  - Visible item\n\n", continuation: "    " },
+    ]) {
+      let exposed = 0;
+      const onExpose = (offset: number) => {
+        exposed = Math.max(exposed, offset);
+      };
+      render(prefix.slice(0, prefix.indexOf("\n\n") + 2), true, exposed, onExpose);
+      expect(render(prefix, true, exposed, onExpose)).toContain("Visible item");
+      const retained = exposed;
+      const text =
+        prefix +
+        `${continuation}${marker}ts\n${continuation}const pending = 1;\n${continuation.trimEnd()}\n`;
+      const html = render(text, true, exposed, onExpose);
+      expect(html).toContain("Visible item");
+      expect(html).not.toContain("const pending");
+      if (prefix.includes("Quoted introduction")) expect(html).toContain("Quoted introduction");
+      expect(exposed).toBe(retained);
+      expect(render(text + `${continuation}${marker}`, true, exposed)).toContain("const pending");
+      expect(render(text + `${continuation}   ${marker}`, true, exposed)).toContain(
+        "const pending",
+      );
+      expect(render(text + `${continuation}    ${marker}`, true, exposed)).not.toContain(
+        "const pending",
+      );
+      expect(render(text, false)).toContain("const pending");
+    }
+  }
 });

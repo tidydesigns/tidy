@@ -402,6 +402,181 @@ function videoVisibilityFixture() {
   };
 }
 
+async function verifyTurnContinuity(root: Root) {
+  const { a, threads, render } = conversationFixture(root);
+  const startedAt = new Date().toISOString();
+  const progressId = crypto.randomUUID();
+  const responseId = crypto.randomUUID();
+  const output = "First\nSecond\nThird\nFourth\n日本語 👩🏽‍💻 complete output";
+  const tool: ToolActivity = {
+    id: crypto.randomUUID(),
+    afterMessageId: progressId,
+    kind: "command",
+    title: "bun test apps/desktop/src/renderer/src/features/threads/streamed-markdown.test.ts",
+    toolName: "Shell",
+    status: "running",
+    startedAt,
+    output,
+  };
+  threads[a.id] = {
+    ...a,
+    activity: "Replying",
+    messages: [
+      { ...a.messages[0], turn: { startedAt } },
+      { id: progressId, role: "assistant", text: "Checking the renderer." },
+    ],
+    toolActivities: [tool],
+  };
+  render({ selected: a.id });
+  await until(
+    () => Boolean(host.querySelector(".transcript")?.getBoundingClientRect().height),
+    "Conversation loads",
+  );
+  const viewport = visibleTranscript();
+  const progress = required(viewport.querySelector(".message-assistant"), "Progress message");
+  const group = required(
+    viewport.querySelector<HTMLDetailsElement>(".tool-activity-group"),
+    "Tool group",
+  );
+  required(group.querySelector("summary"), "Group summary").click();
+  await until(() => Boolean(group.querySelector(".tool-call")), "Tool row");
+  const row = required(group.querySelector<HTMLDetailsElement>(".tool-call"), "Tool row");
+  const rowSummary = required(row.querySelector("summary"), "Tool summary");
+  rowSummary.click();
+  await until(() => Boolean(row.querySelector(".tool-detail-toggle")), "Output preview");
+  required(row.querySelector<HTMLButtonElement>(".tool-detail-toggle"), "Full output").click();
+  await until(() => row.querySelector("pre")?.textContent === output, "Full output expands");
+  rowSummary.focus();
+  threads[a.id] = {
+    ...threads[a.id],
+    revision: 2,
+    messages: [
+      ...threads[a.id].messages,
+      { id: responseId, role: "assistant", text: "Final answer." },
+      { id: crypto.randomUUID(), role: "user", text: "Also check narrow screens." },
+    ],
+  };
+  render({ selected: a.id });
+  await settle();
+  check(
+    viewport.querySelector(".message-assistant") === progress,
+    "A new response remounted progress",
+  );
+  check(viewport.querySelector(".tool-activity-group") === group, "A new response remounted tools");
+  check(
+    group.open && row.open && row.querySelector("pre")?.textContent === output,
+    "A new response reset disclosures",
+  );
+  check(document.activeElement === rowSummary, "A new response lost keyboard focus");
+  const response = required(
+    [...viewport.querySelectorAll(".message-assistant")].at(-1),
+    "Final response",
+  );
+  threads[a.id] = {
+    ...threads[a.id],
+    revision: 3,
+    status: "completed",
+    messages: threads[a.id].messages.map((message) =>
+      message.turn
+        ? { ...message, turn: { startedAt, endedAt: new Date().toISOString() } }
+        : message,
+    ),
+    toolActivities: [{ ...tool, status: "completed", endedAt: new Date().toISOString() }],
+  };
+  render({ selected: a.id });
+  const heading = required(
+    viewport.querySelector<HTMLButtonElement>(".turn-work-summary"),
+    "Completed disclosure",
+  );
+  check(document.activeElement === heading, "Condensation left focus inside hidden work");
+  await until(
+    () =>
+      !viewport
+        .getAnimations({ subtree: true })
+        .some((animation) => animation.playState === "running"),
+    "Condensation settles",
+  );
+  check(
+    response.isConnected && !response.closest('[aria-hidden="true"]'),
+    "Condensation hid or replaced the final answer",
+  );
+  check(
+    !required(group.closest(".turn-work-region"), "Tool region").getBoundingClientRect().height,
+    "Completed work stayed visible",
+  );
+  const followup = [...viewport.querySelectorAll(".message-user")].find((message) =>
+    message.textContent?.includes("Also check narrow"),
+  );
+  check(followup && !followup.closest('[aria-hidden="true"]'), "Condensation hid the follow-up");
+  heading.click();
+  await settle();
+  check(
+    group.open && row.open && row.querySelector("pre")?.textContent === output,
+    "Reopening work reset tool details",
+  );
+  for (let index = 0; index < 3; index++) {
+    heading.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    await frame();
+  }
+  await until(
+    () =>
+      !viewport
+        .getAnimations({ subtree: true })
+        .some((animation) => animation.playState === "running"),
+    "Interrupted toggles settle",
+  );
+  check(
+    heading.getAttribute("aria-expanded") === "false",
+    "Interrupted toggles settled to the wrong state",
+  );
+  heading.click();
+  await settle();
+  check(
+    !viewport
+      .getAnimations({ subtree: true })
+      .some((animation) => animation.playState === "running"),
+    "Keyboard disclosure animated",
+  );
+  check(
+    response.isConnected && group.open && row.open,
+    "Repeated toggles lost response or tool state",
+  );
+  const width = host.style.width;
+  host.style.width = "320px";
+  viewport.style.zoom = "2";
+  try {
+    await settle();
+    check(
+      viewport.scrollWidth <= viewport.clientWidth,
+      "Large text overflowed the narrow transcript",
+    );
+    check(
+      required(group.querySelector(".activity-summary-title"), "Tool title").getBoundingClientRect()
+        .width > 0,
+      "Narrow layout squeezed the tool title out",
+    );
+  } finally {
+    host.style.width = width;
+    viewport.style.zoom = "";
+  }
+  heading.click();
+  await settle();
+  render({ selected: a.id, active: false });
+  await settle();
+  render({ selected: a.id });
+  await settle();
+  check(
+    heading.getAttribute("aria-expanded") === "false" &&
+      !required(group.closest(".turn-work-region"), "Restored tool region").getBoundingClientRect()
+        .height,
+    "Returning to a completed transcript reopened hidden work",
+  );
+  check(
+    response.isConnected && group.open && row.open,
+    "Returning discarded response or disclosure state",
+  );
+}
+
 async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   const passed: string[] = [];
   async function run(name: string, test: (root: Root) => Promise<void>) {
@@ -1020,6 +1195,64 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       }
     },
   );
+
+  await run("folded work pauses media transfers and resumes them on expansion", async (root) => {
+    const visibility = videoVisibilityFixture();
+    try {
+      let thread = makeThread({ count: 0 });
+      thread.activity = "Replying";
+      thread.messages = [
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          text: "Inspect the recording",
+          turn: { startedAt: timestamp },
+        },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: "[Watch recording](recordings/demo.mp4)",
+        },
+      ];
+      let requests = 0;
+      const pending = deferred<Awaited<ReturnType<DesktopAPI["readVideoChunk"]>>>();
+      const api: DesktopAPI = {
+        ...nativeAPI,
+        readVideoChunk: async () => {
+          requests++;
+          if (requests === 1) return pending.promise;
+          throw new Error("Synthetic preview unavailable");
+        },
+      };
+      const render = () =>
+        flushSync(() =>
+          root.render(<Conversation thread={thread} identity={thread.id} api={api} active />),
+        );
+      render();
+      await until(() => requests === 1, "Live recording starts its transfer");
+      thread = {
+        ...thread,
+        status: "completed",
+        messages: [
+          { ...thread.messages[0], turn: { startedAt: timestamp, endedAt: timestamp } },
+          thread.messages[1],
+          { id: crypto.randomUUID(), role: "assistant", text: "Recording reviewed." },
+        ],
+      };
+      render();
+      pending.resolve({ data: "ZGVtbw==", size: 8, mimeType: "video/mp4", revision: "late" });
+      await settle();
+      check(requests === 1, "Folded work continued fetching video chunks");
+      check(!host.querySelector("video"), "A late transfer restarted a folded preview");
+      required(
+        host.querySelector<HTMLButtonElement>(".turn-work-summary"),
+        "Work disclosure",
+      ).click();
+      await until(() => requests === 2, "Expanded work resumes its recording");
+    } finally {
+      visibility.restore();
+    }
+  });
 
   await run(
     "thread videos render inline, defer inactive reads and isolate late responses",
@@ -2367,6 +2600,11 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await until(() => visibleTranscript().scrollTop < 80, "Jump to first turn");
   });
 
+  await run(
+    "turn work preserves disclosures and focus through new responses and completion",
+    verifyTurnContinuity,
+  );
+
   await run("streaming retains selection, tool disclosure and turn targets", async (root) => {
     const { a, threads, render } = conversationFixture(root);
     const tool: ToolActivity = {
@@ -2384,6 +2622,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await settle();
     const viewport = visibleTranscript();
     const article = required(viewport.querySelector("article"), "First message");
+    const work = required(
+      viewport.querySelector<HTMLButtonElement>(".turn-work-summary"),
+      "Completed turn work",
+    );
+    check(work.getAttribute("aria-expanded") === "false", "Historical work starts expanded");
+    work.click();
+    await until(() => Boolean(viewport.querySelector(".tool-activity-group")), "Reveal turn tools");
     const group = required(viewport.querySelector(".tool-activity-group summary"), "Tool group");
     group.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await until(() => Boolean(viewport.querySelector(".tool-call")), "Tool rows");
@@ -3409,8 +3654,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         () => host.querySelector(".turn-status-time")?.textContent !== first,
         "Elapsed clock advances",
       );
-      const thinkingRow = required(host.querySelector(".activity-row"), "Thinking row");
-      const thinkingBox = thinkingRow.getBoundingClientRect();
+      const clock = required(host.querySelector(".turn-status-heading"), "Working heading");
+      const thinkingBox = clock.getBoundingClientRect();
+      check(
+        host.querySelector(".turn-status-phase")?.textContent === "Thinking",
+        "Thinking phase missing",
+      );
       const tool: ToolActivity = {
         id: crypto.randomUUID(),
         kind: "read",
@@ -3431,9 +3680,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Activity summary",
       );
       check(
-        Math.abs(commandRow.getBoundingClientRect().top - thinkingBox.top) < 1 &&
-          Math.abs(commandRow.getBoundingClientRect().height - thinkingBox.height) < 1,
-        "Switching from thinking to tool activity moved the activity row",
+        host.querySelector(".turn-status-heading") === clock &&
+          Math.abs(clock.getBoundingClientRect().top - thinkingBox.top) < 1 &&
+          commandRow.getBoundingClientRect().top >= clock.getBoundingClientRect().bottom,
+        "Tool activity replaced or moved above the working heading",
       );
       check(
         host.querySelectorAll(".activity-summary-text").length === 1,
@@ -3475,6 +3725,21 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Completed turn lost its duration",
       );
       check(!host.querySelector(".working-matrix"), "Completed turn kept its loader");
+      threads[a.id] = {
+        ...threads[a.id],
+        messages: [
+          { ...a.messages[0], turn: { startedAt } },
+          { id: crypto.randomUUID(), role: "assistant", text: "Review complete." },
+        ],
+        toolActivities: [{ ...tool, status: "completed", endedAt: timestamp }],
+      };
+      render({ selected: a.id });
+      const untimed = required(host.querySelector(".turn-status-time"), "Untimed status");
+      check(Boolean(host.querySelector(".turn-work-summary")), "Untimed work lost its disclosure");
+      check(
+        untimed.textContent === "Interrupted" && untimed.getAttribute("aria-hidden") !== "true",
+        "Untimed interruption was hidden from assistive technology",
+      );
     },
   );
 
@@ -3604,7 +3869,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       };
       update("A **clear");
       await settle();
-      check(!host.querySelector(".message-markdown")?.textContent, "A partial paragraph leaked");
+      await until(
+        () => Boolean(host.querySelector(".message-markdown")?.textContent?.includes("clear")),
+        "Partial paragraph streams",
+      );
       const paragraph = "A **clear** [response](https://example.com).\n\n";
       update(paragraph);
       await until(
@@ -3655,9 +3923,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const codeBlock = host.querySelector(".message-markdown pre");
       update(`${closed}\n\nFinal **finished** sentence.`);
       await settle();
-      check(
-        !host.querySelector(".message-markdown")?.textContent?.includes("Final"),
-        "A final partial section leaked",
+      await until(
+        () => Boolean(host.querySelector(".message-markdown")?.textContent?.includes("Final")),
+        "Final paragraph streams before completion",
       );
       threads[a.id] = { ...threads[a.id], status: "completed", activity: undefined };
       render({ selected: a.id });
@@ -3723,7 +3991,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     );
   });
   await run(
-    "command groups stay anchored above replies and preserve the reader's place",
+    "command groups follow their messages and preserve the reader's place",
     async (root) => {
       const { a, threads, render } = conversationFixture(root);
       a.messages = [{ ...a.messages[0], turn: { startedAt: timestamp } }];
@@ -3780,15 +4048,15 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         activity: "Replying",
       };
       render({ selected: a.id });
-      check(
-        host.querySelectorAll(".tool-activity-group").length === 1 &&
-          host.querySelector(".tool-activity-group") === group,
-        "New commands moved or recreated the turn's group",
-      );
+      const groups = host.querySelectorAll(".tool-activity-group");
+      check(groups.length === 2 && groups[0] === group, "New commands recreated earlier tools");
+      check(row.open, "New commands collapsed earlier output");
       const response = required(host.querySelector(".message-assistant"), "Reply");
+      const following = required(groups[1], "Reply tool group");
       check(
-        Boolean(group.compareDocumentPosition(response) & Node.DOCUMENT_POSITION_FOLLOWING),
-        "Commands appeared below the reply",
+        Boolean(group.compareDocumentPosition(response) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+          Boolean(response.compareDocumentPosition(following) & Node.DOCUMENT_POSITION_FOLLOWING),
+        "Command groups lost their message anchors",
       );
       const many = Array.from({ length: 35 }, () => ({ ...tool, id: crypto.randomUUID() }));
       threads[a.id] = { ...threads[a.id], toolActivities: [...many, next] };
@@ -6061,6 +6329,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const sender = makeThread({ count: 2 });
       sender.title = "Design coordinator";
       const recipient = makeThread({ count: 2 });
+      recipient.status = "completed";
+      recipient.messages[0].turn = { startedAt: timestamp, endedAt: timestamp };
+      recipient.messages.push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: "Review complete.",
+      });
       recipient.messageSources = { [recipient.messages[0].id]: { threadId: sender.id } };
       const task: ThreadTask = {
         id: crypto.randomUUID(),
@@ -6071,7 +6346,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         kind: "initial",
         harness: "codex",
         createdAt: timestamp,
-        originatingMessageId: recipient.messages[0].id,
+        originatingMessageId: recipient.messages[1].id,
       };
       const opened: string[] = [];
       const cancellations: string[][] = [];
@@ -6109,6 +6384,14 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       await until(
         () => Boolean(host.querySelector(`[aria-label="Stop ${task.label}"]`)),
         "Queued stop control",
+      );
+      check(
+        !host.querySelector(`[aria-label="Stop ${task.label}"]`)?.closest('[aria-hidden="true"]'),
+        "Completion hid an actionable assignment",
+      );
+      check(
+        host.querySelector(".turn-work-summary")?.getAttribute("aria-expanded") === "false",
+        "Completed source work did not fold",
       );
       required(
         host.querySelector<HTMLButtonElement>(`[aria-label="Stop ${task.label}"]`),
