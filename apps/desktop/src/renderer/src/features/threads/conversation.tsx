@@ -406,12 +406,6 @@ export const Conversation = memo(function Conversation({
     () => new Map(summaries?.map((summary) => [summary.id, summary])),
     [summaries],
   );
-  const parentSummary = thread?.parentThreadId
-    ? childSummaries.get(thread.parentThreadId)
-    : undefined;
-  const parent =
-    assignments.parent ??
-    (parentSummary ? { threadId: parentSummary.id, title: parentSummary.title } : null);
   const assignmentsByMessage = useMemo(() => {
     const messages = new Set(thread?.messages.map((message) => message.id));
     const groups = new Map<string, ThreadTask[]>();
@@ -676,26 +670,6 @@ export const Conversation = memo(function Conversation({
     running && thread.activity === "Replying" ? thread.messages.at(-1)?.id : undefined;
   return (
     <div className="conversation relative flex min-h-0 min-w-0 flex-1 flex-col">
-      {parent && onOpenThread && thread && (
-        <nav className="agent-breadcrumb" aria-label="Thread breadcrumb">
-          <ol>
-            <li>
-              <Button
-                className="agent-parent hover:text-ink"
-                title={parent.title}
-                onClick={() => onOpenThread(thread.projectId, parent.threadId)}
-              >
-                {parent.title}
-              </Button>
-            </li>
-            <li aria-hidden="true">/</li>
-            <li aria-current="page" title={thread.title}>
-              {thread.title}
-            </li>
-          </ol>
-        </nav>
-      )}
-
       <div
         className={`transcript flex-1 min-h-0 overflow-auto overscroll-contain px-[max(var(--chat-gutter),calc((100%_-_var(--chat-content-width))_/_2))] pt-8 pb-5 [overflow-anchor:none] [scroll-padding-bottom:20px] [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent] focus-visible:outline focus-visible:outline-border focus-visible:-outline-offset-1 max-[700px]:pt-6 [scroll-padding-top:32px] max-[700px]:[scroll-padding-top:24px] ${codeFontClassName}`}
         ref={viewport}
