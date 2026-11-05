@@ -467,6 +467,14 @@ export function App({
     [thread?.messages],
   );
   const selectedSummary = snapshot?.threads.find((item) => item.id === selectedThreadId);
+  const parentThreadId = thread?.parentThreadId ?? selectedSummary?.parentThreadId;
+  const parentSummary = snapshot?.threads.find((item) => item.id === parentThreadId);
+  const parentThread = parentSummary ?? (parentThreadId ? threads[parentThreadId] : undefined);
+  useEffect(() => {
+    if (project && parentThreadId)
+      void readThread({ projectId: project.id, threadId: parentThreadId }).catch(() => {});
+  }, [project?.id, parentThreadId, readThread]);
+
   const pendingConfiguration = thread ? settingsPending[thread.id] : undefined;
   const executionProjectId =
     pendingConfiguration && "executionProjectId" in pendingConfiguration
@@ -2591,7 +2599,6 @@ export function App({
                     >
                       {thread || selectedSummary ? (
                         <ThreadTitle
-                          key={`${project.id}:${selectedThreadId}`}
                           thread={{
                             ...(thread ?? selectedSummary!),
                             title:
@@ -2599,6 +2606,23 @@ export function App({
                               thread?.title ??
                               selectedSummary!.title,
                           }}
+                          parent={
+                            parentThreadId
+                              ? {
+                                  title:
+                                    threadNameOverrides[parentThreadId] ??
+                                    parentThread?.title ??
+                                    "Parent thread",
+                                  open: () => selectThread(project.id, parentThreadId),
+                                  prefetch: () => {
+                                    void readThread({
+                                      projectId: project.id,
+                                      threadId: parentThreadId,
+                                    }).catch(() => {});
+                                  },
+                                }
+                              : undefined
+                          }
                           generating={Boolean(generatingNames[selectedThreadId!])}
                           editRequested={editingThreadName === selectedThreadId}
                           onEditFinished={() => setEditingThreadName(undefined)}

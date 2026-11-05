@@ -741,6 +741,73 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   });
 
   await run(
+    "thread breadcrumbs keep titles and actions reachable with worst-case names",
+    async (root) => {
+      const thread = makeThread({ count: 1 });
+      const cases = [
+        {
+          parent:
+            "Read-only review of the current diff in this shared worktree for inline conversation navigation and accessibility",
+          child: "ÜberprüfungDerNavigationshierarchieUndTastaturbedienung",
+        },
+        { parent: "J", child: "Jo" },
+        { parent: "مراجعة تغييرات التنقل", child: "👩🏽‍💻 Đặng Thị Ngọc Hân — 王秀英" },
+        { parent: "   ", child: "" },
+        { parent: "<script>alert(1)</script>", child: "**Review** &amp; navigation" },
+        { parent: "Review navigation\nwith keyboard", child: "Review navigation\nwith keyboard" },
+      ];
+      for (const names of cases) {
+        flushSync(() =>
+          root.render(
+            <div style={{ width: 320 }}>
+              <ThreadTitle
+                thread={{ ...thread, title: names.child }}
+                generating={false}
+                editRequested={false}
+                onEditFinished={() => {}}
+                onRename={() => {}}
+                onRegenerate={() => {}}
+                parent={{ title: names.parent, open() {}, prefetch() {} }}
+              />
+            </div>,
+          ),
+        );
+        const nav = required(host.querySelector<HTMLElement>(".thread-breadcrumb"), "Breadcrumb");
+        const parent = required(
+          nav.querySelector<HTMLButtonElement>(".agent-parent"),
+          "Parent link",
+        );
+        const heading = required(nav.querySelector("h1"), "Current title");
+        const menu = required(
+          nav.querySelector('[aria-label="Thread name actions"]'),
+          "Title menu",
+        );
+        check(
+          parent.textContent === (names.parent.trim() || "Parent thread"),
+          "Parent title lost its fallback or escaping",
+        );
+        check(
+          heading.textContent === (names.child.trim() || "New thread"),
+          "Current title lost its fallback or escaping",
+        );
+        check(!nav.querySelector("script"), "Breadcrumb interpreted title markup");
+        check(
+          parent.getBoundingClientRect().width >= 24 && heading.getBoundingClientRect().width > 0,
+          "A breadcrumb became unreachable",
+        );
+        check(
+          menu.getBoundingClientRect().right <= nav.getBoundingClientRect().right + 1,
+          "Long titles pushed the menu outside the header",
+        );
+        check(
+          heading.getAttribute("title")?.includes(names.child.trim() || "New thread"),
+          "Truncated current title has no full label",
+        );
+      }
+    },
+  );
+
+  await run(
     "thread names edit immediately, cancel cleanly and expose explicit regeneration",
     async (root) => {
       const initial = { ...makeThread({ count: 1 }), title: "Original name" };
@@ -5018,22 +5085,44 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       };
       function Scene() {
         const [selected, setSelected] = useState(parent.id);
+        const current = required(threads[selected], "Selected thread");
         return (
-          <Conversations
-            projectId={projectId}
-            selected={selected}
-            threads={threads}
-            summaries={[parent, ...children.slice(0, 2)].map((thread, index) => ({
-              ...summarizeThread(thread),
-              ...(index === 2 ? { pendingApprovalCount: 1 } : {}),
-            }))}
-            api={api}
-            active
-            onOpenThread={(project, id) => {
-              check(project === projectId, "Agent navigation crossed project scope");
-              setSelected(id);
-            }}
-          />
+          <>
+            <div className="thread-heading">
+              <ThreadTitle
+                thread={summarizeThread(current)}
+                generating={false}
+                editRequested={false}
+                onEditFinished={() => {}}
+                onRename={() => {}}
+                onRegenerate={() => {}}
+                parent={
+                  selected === parent.id
+                    ? undefined
+                    : {
+                        title: parent.title,
+                        open: () => setSelected(parent.id),
+                        prefetch: () => {},
+                      }
+                }
+              />
+            </div>
+            <Conversations
+              projectId={projectId}
+              selected={selected}
+              threads={threads}
+              summaries={[parent, ...children.slice(0, 2)].map((thread, index) => ({
+                ...summarizeThread(thread),
+                ...(index === 2 ? { pendingApprovalCount: 1 } : {}),
+              }))}
+              api={api}
+              active
+              onOpenThread={(project, id) => {
+                check(project === projectId, "Agent navigation crossed project scope");
+                setSelected(id);
+              }}
+            />
+          </>
         );
       }
       flushSync(() => root.render(<Scene />));
@@ -5076,14 +5165,14 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         "Agent row",
       ).click();
       await until(
-        () => Boolean(visibleTranscript().closest(".conversation")?.querySelector(".agent-parent")),
+        () => Boolean(host.querySelector(".thread-heading .agent-parent")),
         "Child parent navigation",
       );
       check(
-        visibleTranscript().closest(".conversation")?.querySelector(".agent-parent")
-          ?.textContent === parent.title &&
-          visibleTranscript().closest(".conversation")?.querySelector('[aria-current="page"]')
-            ?.textContent === children[0].title,
+        host.querySelector(".agent-parent")?.textContent === parent.title &&
+          host
+            .querySelector('.thread-breadcrumb [aria-current="page"]')
+            ?.textContent?.includes(children[0].title),
         "Breadcrumb did not identify the parent and child threads",
       );
       check(
@@ -5092,23 +5181,24 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       );
       await settle();
       const breadcrumb = required(
-        visibleTranscript()
-          .closest(".conversation")
-          ?.querySelector<HTMLElement>(".agent-breadcrumb"),
-        "Child breadcrumb",
+        host.querySelector<HTMLElement>(".thread-heading .thread-breadcrumb"),
+        "Child breadcrumb in main heading",
       ).getBoundingClientRect();
       const viewport = visibleTranscript().getBoundingClientRect();
       check(
-        breadcrumb.bottom <= viewport.top + 1 && breadcrumb.height > 0,
-        "Long child scrolled the breadcrumb out of view",
+        breadcrumb.bottom <= viewport.top + 1 &&
+          breadcrumb.height > 0 &&
+          !visibleTranscript()
+            .closest(".conversation")
+            ?.querySelector('[aria-label="Thread breadcrumb"]'),
+        "Child navigation duplicated a row inside the conversation",
       );
-      required(
-        visibleTranscript()
-          .closest(".conversation")
-          ?.querySelector<HTMLButtonElement>(".agent-parent"),
-        "Parent navigation",
-      ).click();
+      required(host.querySelector<HTMLButtonElement>(".agent-parent"), "Parent navigation").click();
       await until(() => visibleTranscript() === before, "Retained parent conversation");
+      check(
+        document.activeElement === host.querySelector(".thread-heading h1"),
+        "Returning to parent lost keyboard focus",
+      );
       tasks = tasks.map((task, index) =>
         index === 0
           ? { ...task, state: "completed", sequence: 100, summary: "Reported design findings" }
