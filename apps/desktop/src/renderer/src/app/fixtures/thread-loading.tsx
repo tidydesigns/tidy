@@ -1598,8 +1598,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       () => document.dispatchEvent(new Event("scroll")),
       () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
     ]) {
-      enter(first);
-      await frame();
+      // Commit the waiting state and its dismissal listeners before dispatching
+      // the event, without giving the hover timer time to open the preview.
+      flushSync(() => enter(first));
       dismiss();
       await new Promise((resolve) => setTimeout(resolve, 200));
       check(preloads === before && visible().length === 0, "Dismissal revived pending hover");
