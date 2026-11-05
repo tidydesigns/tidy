@@ -148,6 +148,7 @@ type Job = {
   process?: RunningHarness;
   launching?: boolean;
   recoveryAttempt?: number;
+  unknownRecoveryAttempts?: number;
   completion?: Promise<void>;
   stopped: boolean;
   messages: Map<string, string>;
@@ -454,6 +455,10 @@ export class WorkspaceService {
   private recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private recoveryReadAttempts = new Map<string, number>();
   private recoveringEntries = new Map<string, UpdateResume>();
+  private idleRunCheckpoints = new Map<
+    string,
+    { projectId: string; signature: string; generation: number }
+  >();
   private updatingHarnesses = new Set<UpdatableHarnessId>();
   private executionProjects = new Map<string, string>();
   private preparingHarnesses = new Map<string, HarnessId>();
@@ -483,14 +488,45 @@ export class WorkspaceService {
     private nameThread: (input: NamingInput) => Promise<string> = generateThreadTitle,
   ) {
     this.sessions.onBackgroundWorkChanged = (threadId, projectId, active) => {
-      if (!active && !this.closing)
+      if (!this.closing)
         void this.serialize(threadId, async () => {
-          if (
-            !this.closing &&
-            !this.jobs.has(threadId) &&
-            !this.sessions.backgroundContexts.some((item) => item.threadId === threadId)
-          )
+          if (this.closing || this.jobs.has(threadId)) return;
+          const background = this.sessions.backgroundContexts.some(
+            (item) => item.threadId === threadId && item.projectId === projectId,
+          );
+          if (!active && !background) {
             await this.store.updateResumes.cancel(projectId, threadId);
+            const idle = this.idleRunCheckpoints.get(threadId);
+            if (idle) idle.generation = this.store.updateResumes.generation(threadId);
+          } else if (active && background) {
+            const idle = this.idleRunCheckpoints.get(threadId);
+            if (
+              !idle ||
+              idle.projectId !== projectId ||
+              idle.generation !== this.store.updateResumes.generation(threadId)
+            )
+              return;
+            const thread = await this.store.readThread(projectId, threadId);
+            if (
+              thread.doneAt ||
+              (await this.store.updateResumeSignature(
+                thread,
+                this.executionProject(thread).path,
+              )) !== idle.signature
+            )
+              return;
+            await this.store.updateResumes.checkpoint(
+              {
+                projectId,
+                threadId,
+                signature: idle.signature,
+                automaticQueue: false,
+                background: true,
+                reason: "restart",
+              },
+              idle.generation,
+            );
+          }
         }).catch(() => {});
     };
     this.sessions.onBackgroundWorkLost = (threadId, projectId) => {
@@ -2568,11 +2604,6 @@ export class WorkspaceService {
   ) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
-    if (!continuation) {
-      thread.recovery = undefined;
-      clearTimeout(this.recoveryTimers.get(thread.id));
-      this.recoveryTimers.delete(thread.id);
-    }
     if (this.repositoryChanges.size)
       throw new Error("Wait for the branch switch to finish before sending a message.");
     if (this.updatingHarnesses.has(thread.harness))
@@ -2599,6 +2630,7 @@ export class WorkspaceService {
         const attachments = await this.resolveAttachments(thread.projectId, prompt, attachmentIds);
         const accepted: Thread = {
           ...thread,
+          recovery: undefined,
           status: "running",
           activity: "Starting",
           messages: [
@@ -2629,6 +2661,10 @@ export class WorkspaceService {
         // Accept the request durably before discovery, worktree checks or process startup can fail.
         await this.store.writeThread(accepted);
         acceptedIntent = true;
+        this.idleRunCheckpoints.delete(thread.id);
+        thread.recovery = undefined;
+        clearTimeout(this.recoveryTimers.get(thread.id));
+        this.recoveryTimers.delete(thread.id);
       }
       const execution = this.executionProject(thread);
       const checkout = await repositoryRoot(execution.path);
@@ -2778,11 +2814,13 @@ export class WorkspaceService {
     this.jobs.set(thread.id, job);
     const recovery = this.recoveringEntries.get(thread.id);
     job.recoveryAttempt = recovery?.attempt ?? 0;
+    job.unknownRecoveryAttempts = recovery?.unknownAttempts ?? 0;
     if (!job.stopped)
       this.store.trackRun(thread.id, () => ({
         automaticQueue: this.automaticQueues.has(thread.id),
         reason: thread.recovery?.reason ?? "restart",
         attempt: thread.recovery?.attempt ?? job.recoveryAttempt ?? 0,
+        unknownAttempts: job.unknownRecoveryAttempts,
         retryAt: thread.recovery?.retryAt,
         previousSignature: recovery?.previousSignature,
         submission: {
@@ -3058,6 +3096,7 @@ export class WorkspaceService {
     const { job } = request;
     if (this.jobs.get(job.thread.id) !== job) return;
     const recoveryGeneration = this.store.updateResumes.generation(job.thread.id);
+    const stopVersion = this.stopVersions.get(job.thread.id) ?? 0;
     const delivery = job.queuedDelivery;
     if (
       delivery &&
@@ -3109,10 +3148,13 @@ export class WorkspaceService {
     if (request.kind === "done") job.thread.doneAt = request.doneAt;
     const failureKind = job.thread.errorKind ?? describeHarnessFailure(job.thread.error ?? "").kind;
     if (job.thread.status === "failed") job.thread.errorKind = failureKind;
+    const unknownAttempts = failureKind === "unknown" ? (job.unknownRecoveryAttempts ?? 0) + 1 : 0;
+    job.unknownRecoveryAttempts = unknownAttempts;
     const retry =
       request.kind === "complete" &&
       !job.stopped &&
       job.thread.status === "failed" &&
+      (failureKind !== "unknown" || unknownAttempts <= 3) &&
       [
         "unavailable",
         "rate-limit",
@@ -3168,6 +3210,21 @@ export class WorkspaceService {
           recoveryGeneration,
         );
       } else await this.store.updateResumes.cancel(job.thread.projectId, job.thread.id);
+    }
+    if (!writeFailure && !this.closing && !job.stopped && job.thread.status === "completed") {
+      const signature = await this.store.updateResumeSignature(
+        job.thread,
+        this.executionProject(job.thread).path,
+      );
+      if ((this.stopVersions.get(job.thread.id) ?? 0) === stopVersion) {
+        this.idleRunCheckpoints.set(job.thread.id, {
+          projectId: job.thread.projectId,
+          signature,
+          generation: this.store.updateResumes.generation(job.thread.id),
+        });
+        if (this.idleRunCheckpoints.size > 128)
+          this.idleRunCheckpoints.delete(this.idleRunCheckpoints.keys().next().value!);
+      }
     }
     job.toolsController.abort();
     await this.tasks.finished(job.thread).catch(() => {});
@@ -3284,6 +3341,7 @@ export class WorkspaceService {
     clearTimeout(this.recoveryTimers.get(threadId));
     this.recoveryTimers.delete(threadId);
     this.recoveryReadAttempts.delete(threadId);
+    this.idleRunCheckpoints.delete(threadId);
     this.store.untrackRun(threadId);
     this.automaticQueues.delete(threadId);
     this.maintenanceQueues.delete(threadId);

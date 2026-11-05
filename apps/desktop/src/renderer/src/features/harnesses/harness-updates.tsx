@@ -155,8 +155,13 @@ export function HarnessUpdateNotices({
         : entry,
     )
     .filter((entry) => {
-      if (entry.status === "current") return false;
-      if (entry.status === "updated" && completed[entry.id] !== entry.latestVersion) return false;
+      if (entry.status === "current" && !entry.checkError) return false;
+      if (
+        entry.status === "updated" &&
+        completed[entry.id] !== entry.latestVersion &&
+        !entry.checkError
+      )
+        return false;
       return (
         !(dismissed[entry.id]?.key === noticeKey(entry) && dismissed[entry.id].until > now) &&
         !harnessUpdateSnoozed(entry, storedSnooze(entry.id), now)

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -18,6 +18,7 @@ import {
   parseLinuxListeners,
   parseLinuxProcess,
   parseLsofListeners,
+  type OwnedProcess,
 } from "./port-scanner";
 
 const executeFixture = promisify(execFile);
@@ -544,6 +545,91 @@ afterEach(async () => {
   }
   orphanFixtures.clear();
 });
+for (const diskFailure of [false, true])
+  test.skipIf(!supported)(
+    `provider input waits for durable ownership (disk failure: ${diskFailure})`,
+    async () => {
+      const f = await retirementFixture();
+      const registration = await f.manager.register({
+        projectId: f.projectId,
+        threadId: f.threadId,
+      });
+      const entered = Promise.withResolvers<void>();
+      const gate = Promise.withResolvers<void>();
+      const payload = join(f.directory, "provider-input");
+      const transport = new HarnessTransport({
+        executable: "node",
+        args: [
+          "-e",
+          `const fs=require('node:fs');require('node:readline').createInterface({input:process.stdin}).on('line',line=>{fs.appendFileSync(${JSON.stringify(payload)},line);const message=JSON.parse(line);process.stdout.write(JSON.stringify({id:message.id,result:{ok:true}})+'\\n');});`,
+        ],
+        cwd: f.directory,
+        protocol: "jsonrpc",
+        env: { ...process.env, ...registration.environment },
+        onSpawn: async (...args) => {
+          await registration.onSpawn(...args);
+          entered.resolve();
+          await gate.promise;
+          if (diskFailure) throw new Error("Ownership persistence failed");
+        },
+        onExit: registration.onExit,
+      });
+      const request = transport.request("user-request");
+      void request.catch(() => {});
+      try {
+        await entered.promise;
+        await expect(readFile(payload)).rejects.toMatchObject({ code: "ENOENT" });
+        const saved = z
+          .array(z.object({ rootPid: z.number(), rootIdentity: z.string(), groupId: z.number() }))
+          .parse(await f.state.read("thread-port-owners"));
+        expect(saved[0].groupId).toBe(saved[0].rootPid);
+        gate.resolve();
+        if (diskFailure) {
+          await expect(request).rejects.toThrow("Ownership persistence failed");
+          await expect(readFile(payload)).rejects.toMatchObject({ code: "ENOENT" });
+        } else {
+          expect(await request).toEqual({ ok: true });
+        }
+      } finally {
+        gate.resolve();
+        transport.close();
+        await transport.done;
+      }
+    },
+  );
+
+test.skipIf(!supported)(
+  "reparented untagged processes retain ownership records and block replacement",
+  async () => {
+    const f = await retirementFixture();
+    const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
+    const root = spawn(
+      "node",
+      [
+        "-e",
+        `const {spawn}=require('node:child_process');const env={...process.env};delete env.TIDY_THREAD_OWNER;const child=spawn(process.execPath,['-e','process.send(process.pid);setInterval(()=>{},1000)'],{env,stdio:['ignore','ignore','ignore','ipc']});child.once('message',pid=>process.send({child:pid}));process.on('message',()=>process.exit(0));`,
+      ],
+      {
+        detached: true,
+        env: { ...process.env, ...registration.environment },
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      },
+    );
+    children.push(root);
+    const ready = z.object({ child: z.number() }).parse(await fixtureMessage(root));
+    await rememberFixture(ready.child);
+    await registration.onSpawn(root.pid!, false, root.pid);
+    root.send("exit");
+    await childExit(root);
+    // Force a new ownership scan as a fresh backend would do before starting another agent.
+    const reopened = new ThreadPorts(f.state);
+    await reopened.register({ projectId: randomUUID(), threadId: randomUUID() });
+    await expect(reopened.retireAgent(f)).rejects.toThrow("process group");
+    expect(await inspectProcessIdentity(ready.child)).not.toBeNull();
+  },
+  15_000,
+);
+
 async function rememberFixture(pid: number) {
   const identity = await inspectProcessIdentity(pid);
   if (!identity) throw new Error("Fixture exited before it was recorded.");
@@ -564,41 +650,65 @@ async function fixtureMessage(child: ChildProcess): Promise<unknown> {
   });
 }
 
-test.skipIf(!supported)(
-  "untagged descendants block recovery and verified roots are resumed on refusal",
-  async () => {
-    const f = await retirementFixture();
-    const registration = await f.manager.register({ projectId: f.projectId, threadId: f.threadId });
-    const root = spawn(
-      "node",
-      [
-        "-e",
-        `
+for (const failedThawInspection of [false, true])
+  test.skipIf(!supported)(
+    `untagged descendants block recovery and verified roots resume on refusal (failed thaw inspection: ${failedThawInspection})`,
+    async () => {
+      const f = await retirementFixture();
+      const registration = await f.manager.register({
+        projectId: f.projectId,
+        threadId: f.threadId,
+      });
+      const root = spawn(
+        "node",
+        [
+          "-e",
+          `
 const { spawn } = require('node:child_process');
 const environment = { ...process.env }; delete environment.TIDY_THREAD_OWNER;
 const child = spawn(process.execPath, ['-e', "process.send(process.pid); setInterval(() => {}, 1000);"], {env:environment, stdio:['ignore','ignore','ignore','ipc']});
-child.once('message', pid => process.send({child:pid}));
-setInterval(() => { if (process.connected) process.send({tick:true}); }, 250);
+child.once('message', pid => {
+  process.send({child:pid});
+  setInterval(() => { if (process.connected) process.send({tick:true}); }, 250);
+});
 `,
-      ],
-      {
-        env: { ...process.env, ...registration.environment },
-        stdio: ["ignore", "pipe", "pipe", "ipc"],
-      },
-    );
-    children.push(root);
-    const ready = z.object({ child: z.number() }).parse(await fixtureMessage(root));
-    await rememberFixture(ready.child);
-    registration.onSpawn(root.pid!);
-    await f.manager.flush();
-    await expect(f.manager.retireAgent(f)).rejects.toThrow("descendant ownership");
-    const tick = z.object({ tick: z.literal(true) }).parse(await fixtureMessage(root));
-    expect(tick.tick).toBe(true);
-    expect(root.signalCode).toBeNull();
-    expect(await inspectProcessIdentity(ready.child)).not.toBeNull();
-  },
-  15000,
-);
+        ],
+        {
+          env: { ...process.env, ...registration.environment },
+          stdio: ["ignore", "pipe", "pipe", "ipc"],
+        },
+      );
+      children.push(root);
+      const ready = z.object({ child: z.number() }).parse(await fixtureMessage(root));
+      await rememberFixture(ready.child);
+      registration.onSpawn(root.pid!);
+      await f.manager.flush();
+      const originalSignal = Reflect.get(f.manager, "signalRetiredAgent").bind(f.manager) as (
+        entry: OwnedProcess,
+        signal: NodeJS.Signals,
+      ) => Promise<boolean>;
+      const thaw = failedThawInspection
+        ? spyOn(
+            f.manager as unknown as { signalRetiredAgent: typeof originalSignal },
+            "signalRetiredAgent",
+          ).mockImplementation((entry, signal) => {
+            if (signal === "SIGCONT")
+              return Promise.reject(new Error("Temporary ownership inspection failure"));
+            return originalSignal(entry, signal);
+          })
+        : undefined;
+      try {
+        await expect(f.manager.retireAgent(f)).rejects.toThrow("descendant ownership");
+        const tick = z.object({ tick: z.literal(true) }).parse(await fixtureMessage(root));
+        expect(tick.tick).toBe(true);
+      } finally {
+        thaw?.mockRestore();
+      }
+      expect(root.signalCode).toBeNull();
+      expect(await inspectProcessIdentity(ready.child)).not.toBeNull();
+    },
+    15000,
+  );
 
 test.skipIf(!supported)(
   "crashed launcher recovery retires an unsupervised orphan and its detached worker, escalating to SIGKILL",

@@ -31,7 +31,7 @@ export type TransportInput = {
   superviseParent?: boolean;
   protocol: "jsonrpc" | "claude";
   env?: NodeJS.ProcessEnv;
-  onSpawn?: (pid: number, supervised?: boolean) => void;
+  onSpawn?: (pid: number, supervised?: boolean, groupId?: number) => void | Promise<void>;
   onExit?: () => void;
 };
 
@@ -41,6 +41,7 @@ export class HarnessTransport {
   private serial = 0;
   private closed = false;
   private stopping = false;
+  private registered = false;
   private force?: ReturnType<typeof setTimeout>;
   private waiting = new Map<
     string,
@@ -51,6 +52,7 @@ export class HarnessTransport {
     }
   >();
   readonly done: Promise<void>;
+  readonly ready: Promise<void>;
   onMessage: (message: ProtocolMessage) => void = () => {};
   onClose: (error: Error) => void = () => {};
 
@@ -70,7 +72,19 @@ export class HarnessTransport {
         detached: process.platform !== "win32",
       },
     );
-    if (this.child.pid) input.onSpawn?.(this.child.pid, Boolean(supervised));
+    this.ready = Promise.resolve()
+      .then(() => {
+        if (this.child.pid)
+          return input.onSpawn?.(
+            this.child.pid,
+            Boolean(supervised),
+            process.platform !== "win32" ? this.child.pid : undefined,
+          );
+      })
+      .then(() => {
+        this.registered = true;
+      });
+    void this.ready.catch(() => this.close());
     this.done = new Promise((resolve) => {
       this.child.once("close", () => {
         input.onExit?.();
@@ -156,7 +170,13 @@ export class HarnessTransport {
     else pending.resolve(value);
   }
   write(value: unknown) {
-    if (!this.available || this.child.stdin.destroyed || !this.child.stdin.writable) return false;
+    if (
+      !this.registered ||
+      !this.available ||
+      this.child.stdin.destroyed ||
+      !this.child.stdin.writable
+    )
+      return false;
     try {
       this.child.stdin.write(JSON.stringify(value) + "\n");
       return true;
@@ -164,7 +184,8 @@ export class HarnessTransport {
       return false;
     }
   }
-  request(method: string, params: unknown = {}, timeoutMs = 15_000): Promise<unknown> {
+  async request(method: string, params: unknown = {}, timeoutMs = 15_000): Promise<unknown> {
+    await this.ready;
     if (!this.available) return Promise.reject(new Error("The harness connection closed."));
     const id = String(++this.serial);
     return new Promise((resolve, reject) => {

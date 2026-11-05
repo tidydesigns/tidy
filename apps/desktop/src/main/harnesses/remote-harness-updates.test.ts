@@ -92,7 +92,49 @@ test("a failed remote discovery preserves the last actionable update", async () 
     await updates.check();
     failed = true;
     await updates.check();
-    expect(updates.state).toEqual(available);
+    expect(updates.state).toMatchObject(available);
+    expect(updates.state[0].checkError).toContain("retry automatically");
+  } finally {
+    await updates.close();
+  }
+});
+
+test("a check started before installation cannot replace its queued snapshot", async () => {
+  const stale = Promise.withResolvers<HarnessUpdateState[]>();
+  const queued: HarnessUpdateState[] = [{ ...available[0], status: "queued", waitReason: "turn" }];
+  const updates = new RemoteHarnessUpdates({
+    status: { kind: "connected", capabilities: ["harness-updates"] },
+    operation(name: string) {
+      return name === "backend-harness-update-state" ? stale.promise : Promise.resolve(queued);
+    },
+  } as unknown as RemoteClient);
+  try {
+    const checking = updates.check();
+    const installing = updates.install("codex");
+    await Promise.resolve();
+    expect(updates.state).toEqual(queued);
+    stale.resolve(available);
+    await Promise.all([checking, installing]);
+    expect(updates.state).toEqual(queued);
+  } finally {
+    await updates.close();
+  }
+});
+
+test("initial backend discovery failure exposes sanitized retryable diagnostics", async () => {
+  const updates = new RemoteHarnessUpdates({
+    status: { kind: "connected", capabilities: ["harness-updates"] },
+    async operation() {
+      throw new Error("private credential data");
+    },
+  } as unknown as RemoteClient);
+  try {
+    await updates.check();
+    expect(updates.state).toHaveLength(3);
+    expect(
+      updates.state.every((entry) => entry.status === "check-error" && !entry.canInstall),
+    ).toBe(true);
+    expect(JSON.stringify(updates.state)).not.toContain("credential");
   } finally {
     await updates.close();
   }

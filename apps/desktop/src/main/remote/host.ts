@@ -49,6 +49,7 @@ export function createRemoteHost({
   drainTimeoutMs?: number;
 }) {
   let draining = false;
+  let restartPreparation: Promise<void> | undefined;
   let inflight = 0;
   let finishRequests: (() => void) | undefined;
   let closing: Promise<void> | undefined;
@@ -180,18 +181,26 @@ export function createRemoteHost({
           return send(409, {
             error: `Update blocked by ${blockers.join("; ")}. Finish active work and disconnect these sessions, then try again.`,
           });
-        if (!draining) {
+        if (!restartPreparation) {
           draining = true;
-          try {
-            await service.prepareUpdate();
-          } catch {
-            draining = false;
-            return send(503, {
-              error:
-                "The backend could not finish pausing its work. Recovery checkpoints were retained; retry shortly.",
+          restartPreparation = service
+            .prepareUpdate()
+            .then(() => {
+              setTimeout(shutdown, 100);
+            })
+            .catch((error: unknown) => {
+              draining = false;
+              restartPreparation = undefined;
+              throw error;
             });
-          }
-          setTimeout(shutdown, 100);
+        }
+        try {
+          await restartPreparation;
+        } catch {
+          return send(503, {
+            error:
+              "The backend could not finish pausing its work. Recovery checkpoints were retained; retry shortly.",
+          });
         }
         return send(200, { stopping: true });
       }

@@ -37,7 +37,7 @@ import {
   threadPullRequests,
 } from "../../shared/models/thread-pull-requests";
 import { summarizeThread } from "../../shared/models/thread-updates";
-import { ThreadAuthority } from "./thread-authority";
+import { ThreadAuthority, ThreadAuthorityError } from "./thread-authority";
 import { ThreadWorktrees } from "../repository/thread-worktrees";
 import { threadModeSchema, type ThreadMode } from "../../shared/contracts/thread-workspace";
 import { UpdateResumes, type UpdateResume } from "./update-resumes";
@@ -586,10 +586,10 @@ export class ProjectStore {
     threadId: string;
   }): Promise<T> {
     if (thread.projectId !== projectId || thread.id !== threadId)
-      throw new Error("This thread belongs to another project.");
+      throw new ThreadAuthorityError("This thread belongs to another project.");
     const authority = await this.authority.read(this.project(projectId).path, thread);
     if (authority && authority.harness !== thread.harness)
-      throw new Error("This thread's harness changed on disk. Start a new thread.");
+      throw new ThreadAuthorityError("This thread's harness changed on disk. Start a new thread.");
     await this.assertThreadExecution(thread);
     if ("messages" in thread) thread.sessionId = authority?.sessionId;
     const settings = { ...thread.settings };
@@ -608,13 +608,15 @@ export class ProjectStore {
     const authority = await this.authority.read(this.project(thread.projectId).path, thread);
     if (!authority && allowUnbound) return;
     if (!isDeepStrictEqual(thread.worktree, authority?.worktree))
-      throw new Error("This thread's worktree changed. Start a new thread.");
+      throw new ThreadAuthorityError("This thread's worktree changed. Start a new thread.");
     if (
       thread.executionProjectId !== authority?.executionProjectId ||
       (authority?.executionProjectId &&
         this.project(authority.executionProjectId).path !== authority.executionProjectPath)
     )
-      throw new Error("This thread's execution project changed. Start a new thread.");
+      throw new ThreadAuthorityError(
+        "This thread's execution project changed. Start a new thread.",
+      );
   }
 
   /** Explicit native UI action; ordinary writes still reject execution changes. */
@@ -739,11 +741,7 @@ export class ProjectStore {
           }
         }
       }
-      await this.authority.write(
-        this.project(value.projectId).path,
-        value,
-        value.executionProjectId ? this.project(value.executionProjectId).path : undefined,
-      );
+      let recoveryCheckpoint: UpdateResume | undefined;
       if ((checkpoint || pending) && !value.doneAt) {
         const plan = checkpoint ? checkpoint() : pending!;
         const executionPath =
@@ -757,19 +755,49 @@ export class ProjectStore {
               settings: { ...snapshot.settings, permissionMode: value.settings?.permissionMode },
             }
           : undefined;
-        await this.updateResumes.checkpoint(
-          {
-            ...plan,
-            projectId: value.projectId,
-            threadId: value.id,
-            signature: await this.updateResumeSignature(value, executionPath),
-            previousSignature: previous
-              ? await this.updateResumeSignature(previous, executionPath)
-              : plan.previousSignature,
-          },
-          recoveryGeneration,
-        );
+        const signature = await this.updateResumeSignature(value, executionPath);
+        const previousSignature = previous
+          ? await this.updateResumeSignature(previous, executionPath)
+          : plan.previousSignature;
+        if (snapshot) {
+          const authority = await this.authority.read(this.project(value.projectId).path, value);
+          if (
+            authority?.sessionId !== value.sessionId ||
+            authority?.permissionMode !== value.settings?.permissionMode
+          ) {
+            // Cover the old portable file with either side of the private authority rename.
+            const beforeAuthority = {
+              ...snapshot,
+              sessionId: authority?.sessionId,
+              settings: { ...snapshot.settings, permissionMode: authority?.permissionMode },
+            };
+            await this.updateResumes.checkpoint(
+              {
+                ...plan,
+                projectId: value.projectId,
+                threadId: value.id,
+                signature: previousSignature!,
+                previousSignature: await this.updateResumeSignature(beforeAuthority, executionPath),
+              },
+              recoveryGeneration,
+            );
+          }
+        }
+        recoveryCheckpoint = {
+          ...plan,
+          projectId: value.projectId,
+          threadId: value.id,
+          signature,
+          previousSignature,
+        };
       }
+      await this.authority.write(
+        this.project(value.projectId).path,
+        value,
+        value.executionProjectId ? this.project(value.executionProjectId).path : undefined,
+      );
+      if (recoveryCheckpoint)
+        await this.updateResumes.checkpoint(recoveryCheckpoint, recoveryGeneration);
       return path;
     }, encoded);
     return written.then(() => {
@@ -1325,6 +1353,7 @@ export class ProjectStore {
             status: "interrupted",
             revision: thread.revision + 1,
             pendingApprovals: undefined,
+            recovery: trusted ? thread.recovery : undefined,
             activity: trusted ? "Tidy paused this thread. Resuming…" : undefined,
             toolActivities: thread.toolActivities?.map((tool) =>
               tool.status === "running" ? { ...tool, status: "interrupted" as const } : tool,

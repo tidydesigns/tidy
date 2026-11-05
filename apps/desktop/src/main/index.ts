@@ -442,10 +442,12 @@ app
       native: autoUpdater,
       fetch: net.fetch.bind(net),
       async prepareInstall() {
-        if (harnessUpdates?.state.some((entry) => entry.status === "installing"))
+        if (harnessUpdates?.installing || ownedHost?.service?.harnessUpdates.installing)
           throw new Error("Wait for the active CLI installation to finish.");
         // An attached backend owns its processes independently and survives this desktop restart.
-        const resumeWorkspace = ownsInitialService ? await service!.prepareUpdate() : () => {};
+        const resumeWorkspace = ownedHost?.service
+          ? await ownedHost.service.prepareUpdate()
+          : () => {};
         const update = Symbol("update");
         if (!quitting) quitting = update;
         return () => {

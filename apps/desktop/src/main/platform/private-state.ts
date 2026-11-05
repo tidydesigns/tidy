@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { readLocalFile } from "./local-files";
+import { writePrivateJSON } from "../remote/session-store";
 
 /** Authority and sync baselines live in app data, never in a portable project. */
 export class PrivateState {
@@ -32,7 +33,8 @@ export class PrivateState {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  async write(key: string, value: unknown) {
+  async write(key: string, value: unknown, options?: { durable?: boolean }) {
+    if (options?.durable) return writePrivateJSON(this.path(key), value, { durable: true });
     const path = this.path(key),
       temporary = `${path}.${randomUUID()}.tmp`;
     try {

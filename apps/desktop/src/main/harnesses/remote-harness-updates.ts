@@ -13,6 +13,7 @@ export class RemoteHarnessUpdates {
   private checking?: Promise<void>;
   private stopped = false;
   private fallback?: HarnessUpdates;
+  private generation = 0;
   constructor(private client: RemoteClient) {}
   get busy() {
     return this.state.some((entry) => entry.status === "installing" || entry.status === "queued");
@@ -38,6 +39,7 @@ export class RemoteHarnessUpdates {
     if (this.stopped) return Promise.resolve();
     if (this.checking) return this.checking;
     clearTimeout(this.timer);
+    const generation = this.generation;
     const status = this.client.status;
     const legacy = status.kind === "connected" && !status.capabilities?.includes("harness-updates");
     if (legacy && !this.fallback) {
@@ -53,8 +55,26 @@ export class RemoteHarnessUpdates {
         ? this.fallback!.check().then(() => this.fallback!.state)
         : this.client.operation("backend-harness-update-state", { refresh: true })
     )
-      .then((state) => this.publish(state))
-      .catch(() => {})
+      .then((state) => {
+        if (generation === this.generation) this.publish(state);
+      })
+      .catch(() => {
+        if (generation !== this.generation || this.stopped) return;
+        const checkError =
+          "Couldn’t contact the backend to check CLI updates. Tidy will retry automatically.";
+        this.publish(
+          this.state.length
+            ? this.state.map((entry) => ({ ...entry, checkError }))
+            : (["codex", "claude", "opencode"] as const).map((id) => ({
+                id,
+                status: "check-error",
+                installedVersion: "",
+                latestVersion: "",
+                canInstall: false,
+                checkError,
+              })),
+        );
+      })
       .finally(() => {
         this.checking = undefined;
         if (!this.stopped) {
@@ -71,7 +91,9 @@ export class RemoteHarnessUpdates {
   }
   async install(id: UpdatableHarnessId) {
     if (this.stopped) throw new Error("Tidy is closing.");
-    this.publish(await this.client.operation("backend-install-harness-update", id));
+    const generation = ++this.generation;
+    const state = await this.client.operation("backend-install-harness-update", id);
+    if (generation === this.generation) this.publish(state);
     await this.check();
   }
   async close() {

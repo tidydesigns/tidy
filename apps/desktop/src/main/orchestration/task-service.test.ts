@@ -7,6 +7,7 @@ import type { Thread } from "../../shared/contracts/desktop";
 import type { AgentScope } from "./contracts";
 import { TaskStore } from "./task-store";
 import { TaskService, inheritedPermissionMode, type TaskHost } from "./task-service";
+import { ThreadAuthorityError } from "../workspace/thread-authority";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -113,6 +114,57 @@ async function fixture() {
     launches: () => launches,
   };
 }
+
+test("a durable continuation on a host without resume support settles once", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  childFor(f, task);
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => (await store.get(task.id))?.state === "failed");
+  expect((await store.get(task.id))?.error).toContain("cannot resume");
+  expect(f.launches()).toBe(0);
+});
+
+test("private authority mismatches settle without provider retries", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  childFor(f, task);
+  f.host.resumeThread = async () => f.parent;
+  const read = f.host.readThread.bind(f.host);
+  f.host.readThread = async (project, id) => {
+    if (id === task.childThreadId) throw new ThreadAuthorityError("The harness changed on disk.");
+    return read(project, id);
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => (await store.get(task.id))?.state === "failed");
+  expect((await store.get(task.id))?.error).toContain("harness changed");
+  expect(f.launches()).toBe(0);
+});
+
+test("unclassified continuation failures eventually deliver a terminal task result", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  childFor(f, task);
+  let calls = 0;
+  f.host.resumeThread = async () => {
+    calls++;
+    throw new Error("Unclassified failure");
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  const deadline = Date.now() + 12_000;
+  while ((await store.get(task.id))?.state !== "failed") {
+    if (Date.now() > deadline) throw new Error("Unknown failures did not settle.");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(calls).toBe(4);
+  expect((await store.get(task.id))?.error).toContain("Unclassified failure");
+}, 15_000);
 
 test("fast async completion during submission releases execution slots and delivers each result once", async () => {
   const f = await fixture();

@@ -14,6 +14,8 @@ import {
   threadSendSchema,
 } from "./contracts";
 import { TaskStore, TaskStoreError, type TaskRecord } from "./task-store";
+import { ThreadAuthorityError } from "../workspace/thread-authority";
+import { HarnessFailureError } from "../harnesses/provider-failure";
 
 export type TaskHost = {
   assertProjectAccess(projectId: string): Promise<void>;
@@ -877,6 +879,17 @@ export class TaskService {
   }
   private async handleExecutionError(task: TaskRecord, error: unknown) {
     if (this.closed || this.paused) return;
+    const transientHarnessFailure =
+      error instanceof HarnessFailureError &&
+      [
+        "unavailable",
+        "rate-limit",
+        "connection",
+        "timeout",
+        "harness",
+        "interrupted",
+        "session",
+      ].includes(error.kind);
     if (!this.completions.has(task.id)) {
       const latest = await this.store.get(task.id).catch(() => undefined);
       if (latest?.state === "cancel_requested") {
@@ -887,6 +900,14 @@ export class TaskService {
         (!(error instanceof AgentOperationError) ||
           error.code === "UNAVAILABLE" ||
           error.code === "BUSY") &&
+        !(error instanceof ThreadAuthorityError) &&
+        (!(error instanceof HarnessFailureError) ||
+          error.kind === "unknown" ||
+          transientHarnessFailure) &&
+        (error instanceof TaskStoreError ||
+          error instanceof AgentOperationError ||
+          transientHarnessFailure ||
+          (this.retryAttempts.get(task.id) ?? 0) < 3) &&
         (this.host.resumeThread ||
           error instanceof TaskStoreError ||
           error instanceof AgentOperationError)
@@ -922,10 +943,7 @@ export class TaskService {
     )
       return child;
     if (!this.host.resumeThread)
-      throw new AgentOperationError(
-        "UNAVAILABLE",
-        "This host cannot resume interrupted assignments.",
-      );
+      throw new AgentOperationError("CONFLICT", "This host cannot resume interrupted assignments.");
     const resumed = await this.host.resumeThread(task.projectId, task.childThreadId, () =>
       this.authorizeResume(task),
     );
@@ -981,6 +999,8 @@ export class TaskService {
               "storage",
             ].includes(thread.errorKind)))) &&
       this.host.resumeThread &&
+      ((thread.errorKind && thread.errorKind !== "unknown") ||
+        (this.retryAttempts.get(task.id) ?? 0) < 3) &&
       !thread.doneAt
     ) {
       const latest = await this.store.get(task.id).catch(() => undefined);

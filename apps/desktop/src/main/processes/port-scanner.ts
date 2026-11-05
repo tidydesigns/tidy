@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile, readdir, readlink } from "node:fs/promises";
+import { readFile, readdir, readlink, stat as fileStat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { ThreadPort } from "../../shared/contracts/thread-ports";
 
@@ -318,6 +318,13 @@ export async function scanProcessDescendants(roots: readonly OwnedProcess[]) {
         } catch (error) {
           if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? ""))
             return null;
+          if (["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+            const owner = await fileStat(`/proc/${entry}`).catch((cause: NodeJS.ErrnoException) => {
+              if (cause.code === "ENOENT" || cause.code === "ESRCH") return null;
+              throw cause;
+            });
+            if (!owner || owner.uid !== process.getuid?.()) return null;
+          }
           throw new Error("Could not inspect the previous agent's descendants.");
         }
       },
@@ -358,4 +365,27 @@ export async function scanProcessDescendants(roots: readonly OwnedProcess[]) {
       return processes.filter((entry) => ids.has(entry.pid) && !rootIds.has(entry.pid));
   }
   throw new Error("Could not bound the previous agent's process tree.");
+}
+
+/** A reparented child still occupies its original group even after its agent root exits. */
+export async function scanProcessGroups(
+  groups: ReadonlySet<number>,
+): Promise<Array<{ pid: number; groupId: number; identity: string }>> {
+  if (!groups.size) return [];
+  const table = await ps(["-axo", "pid=,pgid="]);
+  const pids = table
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+      if (!match) throw new Error("Could not inspect the previous agent's process groups.");
+      return groups.has(Number(match[2]))
+        ? [{ pid: Number(match[1]), groupId: Number(match[2]) }]
+        : [];
+    });
+  const entries = await batches(pids, async (entry) => {
+    const identity = await inspectProcessIdentity(entry.pid);
+    return identity ? { ...entry, identity } : null;
+  });
+  return entries.filter((entry) => entry !== null);
 }

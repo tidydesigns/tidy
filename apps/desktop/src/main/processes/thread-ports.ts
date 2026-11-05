@@ -10,6 +10,7 @@ import {
   scanOwnedListeners,
   scanOwnedProcesses,
   scanProcessDescendants,
+  scanProcessGroups,
   THREAD_OWNER_ENV,
   type OwnedProcess,
   type ProcessListener,
@@ -25,6 +26,7 @@ const ownershipSchema = z
         threadId: z.string().uuid().nullable(),
         rootPid: z.number().int().positive().optional(),
         rootIdentity: z.string().min(1).max(200).optional(),
+        groupId: z.number().int().positive().optional(),
         supervised: z.boolean().optional(),
       })
       .strict(),
@@ -65,7 +67,10 @@ export class ThreadPorts {
       .catch(() => {})
       .then(async () => {
         const owners = [...this.owners].map(([token, owner]) => ({ token, ...owner }));
-        if (this.state) await this.state.write("thread-port-owners", ownershipSchema.parse(owners));
+        if (this.state)
+          await this.state.write("thread-port-owners", ownershipSchema.parse(owners), {
+            durable: true,
+          });
       });
     this.writes = write;
     return write;
@@ -79,9 +84,22 @@ export class ThreadPorts {
         [...this.owners.keys()].filter((token) => !this.pending.has(token)),
       );
       const live = new Set((await scanOwnedProcesses(candidates)).map((entry) => entry.owner));
+      const groups = new Set(
+        [...candidates].flatMap((token) => {
+          const owner = this.owners.get(token)!;
+          return !live.has(token) && owner.groupId ? [owner.groupId] : [];
+        }),
+      );
+      const liveGroups = new Set((await scanProcessGroups(groups)).map((entry) => entry.groupId));
       let changed = false;
       for (const token of candidates) {
         if (live.has(token) || this.pending.has(token)) continue;
+        const owner = this.owners.get(token)!;
+        if (owner.rootPid) {
+          const identity = await inspectProcessIdentity(owner.rootPid);
+          if (identity && (!owner.rootIdentity || identity === owner.rootIdentity)) continue;
+        }
+        if (owner.groupId && liveGroups.has(owner.groupId)) continue;
         changed = this.owners.delete(token) || changed;
       }
       if (changed) {
@@ -129,9 +147,10 @@ export class ThreadPorts {
     this.scannedAt = 0;
     return {
       environment: { [THREAD_OWNER_ENV]: token },
-      onSpawn: (pid: number, supervised = false) => {
+      onSpawn: (pid: number, supervised = false, groupId?: number) => {
         owner.rootPid = pid;
         owner.supervised = supervised;
+        owner.groupId = groupId;
         // Include birth-identity capture in flush(), without changing the synchronous spawn hook.
         delete owner.rootIdentity;
         this.writes = this.writes
@@ -149,11 +168,17 @@ export class ThreadPorts {
                 if (!(await inspectProcessIdentity(pid))) break;
                 await delay(25);
               } while (performance.now() < deadline);
+              if (!owner.rootIdentity && (await inspectProcessIdentity(pid)))
+                throw new Error("Could not verify the spawned agent's process identity.");
             } finally {
               this.pending.delete(token);
             }
           });
-        void this.save().catch(() => {});
+        const captured = this.writes;
+        const saved = this.save();
+        const ready = captured.then(() => saved);
+        void ready.catch(() => {});
+        return ready;
       },
       onExit: () => {
         this.pending.delete(token);
@@ -193,8 +218,10 @@ export class ThreadPorts {
       throw new Error("Cannot retire this agent process.");
     if ((await inspectProcessIdentity(entry.pid)) !== entry.identity) return false;
     const current = await inspectOwnedProcess(entry.pid, new Set([entry.owner]));
-    if (!current || current.identity !== entry.identity)
+    if (!current || current.identity !== entry.identity) {
+      if ((await inspectProcessIdentity(entry.pid)) !== entry.identity) return false;
       throw new Error("Could not verify the previous agent's process ownership.");
+    }
     try {
       process.kill(entry.pid, signal);
       return true;
@@ -241,8 +268,12 @@ export class ThreadPorts {
           );
         if (identity !== owner.rootIdentity) continue;
         const root = await inspectOwnedProcess(owner.rootPid, new Set([token]));
-        if (!root || root.identity !== identity || root.pid <= 1 || root.pid === process.pid)
+        if (!root || root.identity !== identity) {
+          if ((await inspectProcessIdentity(owner.rootPid)) !== identity) continue;
           throw new Error("Could not verify the previous agent's process ownership.");
+        }
+        if (root.pid <= 1 || root.pid === process.pid)
+          throw new Error("Cannot retire this agent process.");
         targets.set(root.identity, root);
       }
       // Stop creation of new descendants while enumerating. Untagged children cause refusal.
@@ -286,6 +317,18 @@ export class ThreadPorts {
               "An unverified process still holds the previous agent's ownership token. Stop it manually before retrying.",
             );
         }
+        const groups = new Set(
+          owners.flatMap(([, owner]) => (owner.groupId ? [owner.groupId] : [])),
+        );
+        for (const entry of await scanProcessGroups(groups)) {
+          if (
+            !targets.has(entry.identity) &&
+            (await inspectProcessIdentity(entry.pid)) === entry.identity
+          )
+            throw new Error(
+              "An unverified process remains in the previous agent's process group. Stop it manually before retrying.",
+            );
+        }
       };
       await assertNoUnknownActors();
       checkDeadline();
@@ -313,9 +356,36 @@ export class ThreadPorts {
       await assertNoUnknownActors();
     } finally {
       // A refused retirement must not strand verified processes in SIGSTOP.
+      let thawFailure = false;
       for (const entry of frozen.values()) {
-        await this.signalRetiredAgent(entry, "SIGCONT").catch(() => {});
+        let failure: unknown;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await this.signalRetiredAgent(entry, "SIGCONT");
+            failure = undefined;
+            break;
+          } catch (error) {
+            failure = error;
+            try {
+              // Undo only our own pause on the same birth identity. This fallback never terminates a process.
+              if ((await inspectProcessIdentity(entry.pid)) !== entry.identity) {
+                failure = undefined;
+                break;
+              }
+              process.kill(entry.pid, "SIGCONT");
+              failure = undefined;
+              break;
+            } catch {
+              await delay(50);
+            }
+          }
+        }
+        if (failure) thawFailure = true;
       }
+      if (thawFailure)
+        throw new Error(
+          "Could not resume a paused previous agent safely. Recovery will retry its ownership checks.",
+        );
     }
   }
 

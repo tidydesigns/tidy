@@ -7,7 +7,7 @@ import type { HarnessTransport, ProtocolMessage } from "./harness-transport";
 
 export type ProcessRegistration = {
   environment: Record<string, string>;
-  onSpawn(pid: number, supervised?: boolean): void;
+  onSpawn(pid: number, supervised?: boolean, groupId?: number): void | Promise<void>;
   onExit(): void;
   bind(threadId: string): Promise<void>;
 };
@@ -31,7 +31,7 @@ export type SessionContext = {
   agentTools?: { identity: string; open(): Promise<AgentMcpConnection> };
   mcp?: AgentMcpConnection;
   environment?: Record<string, string>;
-  onSpawn?: (pid: number, supervised?: boolean) => void;
+  onSpawn?: (pid: number, supervised?: boolean, groupId?: number) => void | Promise<void>;
   onExit?: () => void;
   processRegistration?: () => Promise<ProcessRegistration>;
 };

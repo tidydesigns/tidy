@@ -17,6 +17,7 @@ const entrySchema = z.object({
   automaticQueue: z.boolean(),
   reason: z.enum(["update", "restart", "provider"]).optional(),
   attempt: z.number().int().nonnegative().optional(),
+  unknownAttempts: z.number().int().nonnegative().optional(),
   retryAt: z.string().datetime().optional(),
   background: z.boolean().optional(),
   submission: z

@@ -8,6 +8,7 @@ import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import type { startHarness } from "../harnesses/harnesses";
+import type { HarnessSessions } from "../harnesses/harness-sessions";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -68,6 +69,85 @@ async function fixture() {
     });
   return { ...initial, directory, root, boot, project, start, runs };
 }
+
+test("unknown provider failures stop after three automatic continuations and retain the request", async () => {
+  const f = await fixture();
+  spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(5);
+  const thread = await f.start();
+  for (let index = 0; index < 4; index++) {
+    f.runs[index].fail(new HarnessFailureError("Unclassified permanent failure", "unknown"));
+    if (index < 3) await until(() => f.runs.length === index + 2);
+  }
+  await until(
+    async () => (await f.service.readThread(f.project.id, thread.id)).status === "failed",
+  );
+  expect(f.runs).toHaveLength(4);
+  const saved = await f.service.readThread(f.project.id, thread.id);
+  expect(saved.messages.filter((message) => message.role === "user")).toHaveLength(1);
+  expect(saved.recovery).toBeUndefined();
+  expect(await f.store.updateResumes.list()).toEqual([]);
+});
+
+test("a rejected replacement message preserves the original provider retry timer", async () => {
+  const f = await fixture();
+  spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(10_000);
+  const thread = await f.start();
+  f.runs[0].fail(new HarnessFailureError("Capacity unavailable", "unavailable"));
+  await until(async () => Boolean((await f.store.updateResumes.list())[0]?.retryAt));
+  const retry = (await f.service.readThread(f.project.id, thread.id)).recovery;
+  const changes = Reflect.get(f.service, "repositoryChanges") as Map<string, Promise<unknown>>;
+  changes.set("switching", Promise.resolve());
+  try {
+    await f.service.sendMessage({
+      projectId: f.project.id,
+      threadId: thread.id,
+      text: "Replace the request",
+      delivery: "steer",
+    });
+    expect((await f.service.readThread(f.project.id, thread.id)).recovery).toEqual(retry);
+    expect((Reflect.get(f.service, "recoveryTimers") as Map<string, unknown>).has(thread.id)).toBe(
+      true,
+    );
+  } finally {
+    changes.delete("switching");
+  }
+});
+
+for (const tampered of [false, true])
+  test(`late background work checkpoints only a trusted completed turn (tampered: ${tampered})`, async () => {
+    const f = await fixture();
+    const thread = await f.start();
+    f.runs[0].finish();
+    await until(() =>
+      (Reflect.get(f.service, "idleRunCheckpoints") as Map<string, unknown>).has(thread.id),
+    );
+    expect(await f.store.updateResumes.list()).toEqual([]);
+    if (tampered) {
+      const changed = await f.store.readThread(f.project.id, thread.id);
+      changed.messages[0].text = "An imported replacement request";
+      await f.store.writeThread(changed);
+    }
+    const sessions = Reflect.get(f.service, "sessions") as HarnessSessions;
+    Object.defineProperty(sessions, "backgroundContexts", {
+      configurable: true,
+      get: () => [{ projectId: f.project.id, threadId: thread.id, cwd: f.project.path }],
+    });
+    try {
+      sessions.onBackgroundWorkChanged?.(thread.id, f.project.id, true);
+      // Drain the same per-thread serializer after the protocol callback.
+      await Reflect.get(f.service, "serialize").call(f.service, thread.id, async () => {});
+      const entries = await f.store.updateResumes.list();
+      expect(entries).toHaveLength(tampered ? 0 : 1);
+      if (!tampered)
+        expect(entries[0]).toMatchObject({
+          projectId: f.project.id,
+          threadId: thread.id,
+          background: true,
+        });
+    } finally {
+      Reflect.deleteProperty(sessions, "backgroundContexts");
+    }
+  });
 
 for (const kind of [
   "unavailable",

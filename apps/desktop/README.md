@@ -389,10 +389,11 @@ on your desktop.
 4. Stop cancels the active process, queued recovery and its commands. Closing the app
    checkpoints unfinished runs. Reopening automatically continues trusted local checkpoints,
    preserving the conversation and queued messages. Update and retry notices explain the pause.
-   Pending approvals must be requested again; stopped and completed work stays stopped.
+   Pending approvals must be requested again; explicitly stopped work stays stopped.
 
 Temporary provider capacity, rate-limit, connection and harness failures retry with increasing
-backoff. Retry timing and delegated task ownership survive restarts. Tidy checks the current
+backoff. Unclassified provider failures get three automatic continuations, then retain the
+thread as failed for an explicit retry. Retry timing and delegated task ownership survive restarts. Tidy checks the current
 workspace before continuing an uncertain submission; it does not duplicate its user message.
 Cloud recovery still requires the original account and workspace authorization. Recovery waits
 when process ownership cannot be verified, rather than overlapping an unknown old agent.
