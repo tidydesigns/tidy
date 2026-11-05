@@ -519,7 +519,79 @@ test("a real workspace collects child results within the parent turn and revokes
   ).toBeInstanceOf(Error);
 });
 
-test("late child completion preserves an idle parent and remains readable on its next turn", async () => {
+test("wait delegation through MCP returns a child result without scheduling a parent turn", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const waiting = call(tools, "task_delegate", {
+    request_id: randomUUID(),
+    prompt: "Inspect",
+    mode: "wait",
+    timeout_ms: 2000,
+  });
+  await until(async () => f.runs.length === 2);
+  f.runs[1].input.onUpdate({ type: "message", id: "result", text: "Direct inspection result" });
+  f.runs[1].complete();
+  const result = await waiting;
+  expect(result).toMatchObject({
+    state: "completed",
+    summary: "Direct inspection result",
+    wait_timed_out: false,
+  });
+  await f.service.tasks.reconcile();
+  expect((await f.service.readThread(f.project.id, parent.id)).queuedMessages ?? []).toHaveLength(
+    0,
+  );
+  f.runs[0].complete();
+  await until(
+    async () => (await f.service.readThread(f.project.id, parent.id)).status === "completed",
+  );
+  expect(f.runs).toHaveLength(2);
+});
+
+test("acknowledging a queued result preserves subsequent user work and its automatic delivery", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const task = await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.runs.length === 2);
+  f.runs[1].complete();
+  await until(
+    async () => (await f.service.readThread(f.project.id, parent.id)).queuedMessages?.length === 1,
+  );
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: parent.id,
+    text: "Continue my work",
+    delivery: "queue",
+  });
+  await call(tools, "task_read", { task_ids: [task.task_id] });
+  expect(
+    (await f.service.readThread(f.project.id, parent.id)).queuedMessages?.map(
+      (message) => message.text,
+    ),
+  ).toEqual(["Continue my work"]);
+  f.runs[0].complete();
+  await until(async () => f.runs.length === 3);
+  expect(f.runs[2].input.prompt).toContain("Continue my work");
+  expect(f.runs[2].input.prompt).not.toContain("worker-reported data");
+});
+
+test("async child completion resumes an idle parent once and acknowledges the result", async () => {
   const f = await fixture();
   const parent = await f.service.startThread({
     projectId: f.project.id,
@@ -542,20 +614,17 @@ test("late child completion preserves an idle parent and remains readable on its
     async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "completed",
   );
   await f.service.tasks.reconcile();
-  const idle = await f.service.readThread(f.project.id, parent.id);
-  expect(idle.status).toBe("completed");
-  expect(idle.queuedMessages ?? []).toHaveLength(0);
-  expect(f.runs).toHaveLength(2);
-  await f.service.sendMessage({
-    projectId: f.project.id,
-    threadId: parent.id,
-    text: "Collect the inspection result",
-  });
   await until(async () => f.runs.length === 3);
+  expect(f.runs[2].input.prompt).toContain("worker-reported data");
   const resumedTools = await f.runs[2].input.agentTools!.open();
   cleanups.push(async () => resumedTools.close());
   const result = await call(resumedTools, "task_read", { task_ids: [task.task_id] });
   expect(JSON.stringify(result)).toContain("Independent result");
+  await f.service.tasks.reconcile();
+  expect((await f.service.readThread(f.project.id, parent.id)).queuedMessages ?? []).toHaveLength(
+    0,
+  );
+  expect(f.runs).toHaveLength(3);
 });
 
 test("stopping the parent revokes an MCP result wait without a continuation", async () => {
@@ -925,7 +994,7 @@ test("committed canvas edits acknowledge without waiting for unrelated project r
   expect(parent.id).toBeTruthy();
 });
 
-test("startup recovery retains results without submitting parent continuations", async () => {
+test("startup recovery delivers unread results and reading clears the queued completion", async () => {
   const f = await fixture();
   const parent = await f.service.startThread({
     projectId: f.project.id,
@@ -955,7 +1024,7 @@ test("startup recovery retains results without submitting parent continuations",
   await f.service.initializeOrchestration();
   await f.service.tasks.reconcile();
   expect((await f.service.tasks.store.get(record.id))?.delivered).toBe(true);
-  expect(sends).not.toHaveBeenCalled();
+  expect(sends).toHaveBeenCalledTimes(1);
   expect(
     (
       await f.service.tasks.read(

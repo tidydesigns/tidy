@@ -52,6 +52,18 @@ async function fixture() {
       throw new Error("No provider should launch in contract tests.");
     },
     async stopThread() {},
+    async removeResultMessage(input) {
+      await input.authorize();
+      const thread = await documents.readThread(input.projectId, input.threadId);
+      const queue = thread.queuedMessages ?? [];
+      const next = queue.filter(
+        (message) => message.id !== input.messageId || message.text !== input.text,
+      );
+      if (next.length !== queue.length) {
+        thread.queuedMessages = next;
+        await documents.writeThread(thread);
+      }
+    },
     async sendMessage(input) {
       sends++;
       const thread = await documents.readThread(input.projectId, input.threadId);
@@ -113,6 +125,19 @@ test("the canvas catalog has typed tools within a fixed schema budget", async ()
     "canvas_import_asset",
     "canvas_render",
   ]);
+  expect(tools.find((tool) => tool.name === "task_read")?.readOnly).toBe(false);
+  const delegate = tools.find((tool) => tool.name === "task_delegate")!;
+  expect(delegate.inputSchema.parse({ request_id: randomUUID(), prompt: "Inspect" })).toMatchObject(
+    { mode: "async", timeout_ms: 20000 },
+  );
+  expect(
+    delegate.inputSchema.safeParse({
+      request_id: randomUUID(),
+      prompt: "Inspect",
+      mode: "wait",
+      timeout_ms: 20001,
+    }).success,
+  ).toBe(false);
   const catalog = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,

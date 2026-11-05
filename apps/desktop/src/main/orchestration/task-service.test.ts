@@ -81,6 +81,13 @@ async function fixture() {
         await service.finished(thread);
       }
     },
+    async removeResultMessage(input) {
+      await input.authorize();
+      const thread = await host.readThread(input.projectId, input.threadId);
+      thread.queuedMessages = (thread.queuedMessages ?? []).filter(
+        (message) => message.id !== input.messageId || message.text !== input.text,
+      );
+    },
     async sendMessage(input, guard) {
       await guard?.authorize();
       const thread = await host.readThread(input.projectId, input.threadId);
@@ -96,7 +103,7 @@ async function fixture() {
   return { store, service, scope, parent, host, threads, controller, launches: () => launches };
 }
 
-test("fast completion during submission releases execution slots without prompting the parent", async () => {
+test("fast async completion during submission releases execution slots and delivers each result once", async () => {
   const f = await fixture();
   f.host.startThread = async (input) => {
     const child: Thread = {
@@ -120,9 +127,9 @@ test("fast completion during submission releases execution slots without prompti
     ).tasks.every((task) => task.state === "completed"),
   );
   await f.service.reconcile();
-  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect(f.parent.queuedMessages).toHaveLength(5);
   await f.service.reconcile();
-  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect(f.parent.queuedMessages).toHaveLength(5);
 });
 
 test("completion persistence failures release capacity and retry results without rerunning inference", async () => {
@@ -151,9 +158,9 @@ test("completion persistence failures release capacity and retry results without
   await until(async () => (await f.store.get(tasks[0].task_id))?.state === "completed");
   await f.service.reconcile();
   expect((await f.store.get(tasks[0].task_id))?.summary).toBe("Inspection complete");
-  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect(f.parent.queuedMessages).toHaveLength(1);
   await f.service.reconcile();
-  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect(f.parent.queuedMessages).toHaveLength(1);
   expect(f.launches()).toBe(3);
 });
 
@@ -366,7 +373,7 @@ test("follow-up admission cannot expand the original child's permission grant", 
   ).toMatchObject({ code: "FORBIDDEN" });
 });
 
-test("failed result finalization retries without sending a parent message", async () => {
+test("failed result delivery retries without duplicating the parent message", async () => {
   const f = await fixture();
   const delivered = f.store.delivered.bind(f.store);
   let unavailable = true;
@@ -382,10 +389,10 @@ test("failed result finalization retries without sending a parent message", asyn
   child.status = "completed";
   await f.service.finished(child);
   await f.service.reconcile();
-  expect((await f.store.get(task.task_id))?.deliveryError).toContain("finalization is pending");
+  expect((await f.store.get(task.task_id))?.deliveryError).toContain("delivery is pending");
   unavailable = false;
   await until(async () => (await f.store.get(task.task_id))?.delivered === true);
-  expect(sends).not.toHaveBeenCalled();
+  expect(sends).toHaveBeenCalledTimes(1);
   expect((await f.store.get(task.task_id))?.deliveryError).toBeUndefined();
 });
 
@@ -627,4 +634,146 @@ test("closing the scheduler releases result waits", async () => {
   const closing = f.service.close();
   await expect(waiting).rejects.toThrow("Assignments are closing");
   await closing;
+});
+
+test("wait delegation returns fast results directly without queueing a continuation", async () => {
+  const f = await fixture();
+  f.host.startThread = async (input) => {
+    const child: Thread = {
+      ...f.parent,
+      id: input.threadId!,
+      messages: [{ id: randomUUID(), role: "assistant", text: "Direct result" }],
+      status: "completed",
+    };
+    f.threads.set(child.id, child);
+    await f.service.finished(child);
+    return child;
+  };
+  const sends = spyOn(f.host, "sendMessage");
+  const result = await f.service.delegate(f.scope, {
+    request_id: randomUUID(),
+    prompt: "Inspect",
+    mode: "wait",
+    timeout_ms: 1000,
+  });
+  expect(result).toMatchObject({
+    state: "completed",
+    summary: "Direct result",
+    wait_timed_out: false,
+  });
+  await f.service.reconcile();
+  expect(sends).not.toHaveBeenCalled();
+  expect((await f.store.get(result.task_id))?.delivered).toBe(true);
+});
+
+test("wait timeouts leave children running and restore a single background delivery", async () => {
+  const f = await fixture();
+  const result = await f.service.delegate(f.scope, {
+    request_id: randomUUID(),
+    prompt: "Inspect",
+    mode: "wait",
+    timeout_ms: 20,
+  });
+  expect(result).toMatchObject({ state: "running", wait_timed_out: true });
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  const child = f.threads.get(result.child_thread_id)!;
+  child.status = "completed";
+  child.messages = [{ id: randomUUID(), role: "assistant", text: "Later result" }];
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect(f.parent.queuedMessages![0].text).toContain("Later result");
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+});
+
+test("a cancelled wait restores delivery without cancelling independent child execution", async () => {
+  const f = await fixture();
+  const waiting = f.service
+    .delegate(f.scope, {
+      request_id: randomUUID(),
+      prompt: "Inspect",
+      mode: "wait",
+      timeout_ms: 1000,
+    })
+    .catch((error: unknown) => error);
+  await until(async () => f.launches() === 1);
+  f.controller.abort(new Error("Disconnected"));
+  expect(await waiting).toBeInstanceOf(Error);
+  const child = [...f.threads.values()].find((thread) => thread.id !== f.parent.id)!;
+  expect(child.status).toBe("running");
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+});
+
+test("reading a delivered result removes its queued continuation and durably acknowledges it", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  const unrelated = { id: randomUUID(), text: "User instruction" };
+  f.parent.queuedMessages!.push(unrelated);
+  await f.service.read(f.scope, { task_ids: [task.task_id] });
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toEqual([unrelated]);
+  expect((await f.store.get(task.task_id))?.delivered).toBe(true);
+});
+
+test("delivery rechecks permission changes and retries only under the original grant", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  f.parent.settings = { permissionMode: "auto" };
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect((await f.store.get(task.task_id))?.deliveryError).toContain("permissions changed");
+  f.parent.settings = { permissionMode: "default" };
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+});
+
+test("retrying an async delegation in wait mode reuses its child and suppresses duplicate delivery", async () => {
+  const f = await fixture();
+  const request = { request_id: randomUUID(), prompt: "Inspect" };
+  const task = await f.service.delegate(f.scope, request);
+  await until(async () => f.launches() === 1);
+  const subscribed = spyOn(f.store, "subscribe");
+  const waiting = f.service.delegate(f.scope, { ...request, mode: "wait", timeout_ms: 1000 });
+  await until(async () => subscribed.mock.calls.length > 0);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  expect(await waiting).toMatchObject({
+    task_id: task.task_id,
+    state: "completed",
+    wait_timed_out: false,
+  });
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect(f.launches()).toBe(1);
+});
+
+test("cancelling a completed task disposes its still-queued notification", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect(await f.service.cancel(f.scope, { task_id: task.task_id })).toMatchObject({
+    state: "completed",
+  });
+  await f.service.reconcile();
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
 });
