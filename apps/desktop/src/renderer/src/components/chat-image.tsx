@@ -1,55 +1,55 @@
 import { loadChatImage } from "./load-chat-image";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Button } from "@tidy/ui/button";
-import { Dialog } from "@tidy/editor/components/ui/dialog";
+import { MediaViewer, mediaViewerControlClassName } from "./media-viewer";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
 
-function ImageViewer({ src, name, onClose }: { src: string; name: string; onClose(): void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+export function ImageViewer({
+  src,
+  name,
+  onClose,
+}: {
+  src: string;
+  name: string;
+  onClose(): void;
+}) {
   const [zoomed, setZoomed] = useState(false);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
-  return createPortal(
-    <Dialog
-      ref={dialog}
-      padded={false}
-      size="wide"
-      aria-label={`Image preview: ${name}`}
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const failed = failedSource === src;
+  return (
+    <MediaViewer
+      kind="image"
+      name={name}
       onClose={onClose}
-      className="image-viewer flex h-[calc(100dvh-2rem)] max-h-none max-w-none flex-col backdrop:bg-black/80!"
+      actions={
+        !failed && (
+          <Button
+            className={`${mediaViewerControlClassName} px-[12px] py-[6px] text-xs leading-normal`}
+            onClick={() => setZoomed((value) => !value)}
+            aria-pressed={zoomed}
+          >
+            {zoomed ? "Fit to screen" : "Actual size"}
+          </Button>
+        )
+      }
     >
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-        <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
-        <Button
-          className="cursor-pointer rounded px-2 py-1 text-xs hover:bg-hover-surface"
-          onClick={() => setZoomed(!zoomed)}
-          aria-pressed={zoomed}
-        >
-          {zoomed ? "Fit to screen" : "Actual size"}
-        </Button>
-        <Button
-          className="cursor-pointer rounded px-2 py-1 text-sm hover:bg-hover-surface"
-          aria-label="Close image preview"
-          onClick={() => dialog.current?.close()}
-        >
-          ×
-        </Button>
-      </div>
-      <div className="flex min-h-0 flex-1 overflow-auto bg-subtle-fill p-4">
+      {failed ? (
+        <div className="m-auto p-6 text-center text-sm text-muted-ink" role="status">
+          Image unavailable
+        </div>
+      ) : (
         <img
           src={src}
-          alt={name}
+          alt={name.trim() || "Image preview"}
+          onError={() => setFailedSource(src)}
           className={
             zoomed
-              ? "m-auto max-w-none shrink-0 self-start"
-              : "m-auto max-h-full max-w-full object-contain"
+              ? "media-viewer-image m-auto max-w-none shrink-0 self-start rounded-[4px]"
+              : "media-viewer-image m-auto max-h-full max-w-full rounded-[4px] object-contain"
           }
         />
-      </div>
-    </Dialog>,
-    document.body,
+      )}
+    </MediaViewer>
   );
 }
 
@@ -64,6 +64,7 @@ export function ImagePreview({
   compact?: boolean;
   onError?(): void;
 }) {
+  const displayName = name.trim() || "Image";
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [failedSource, setFailedSource] = useState<string | null>(null);
@@ -73,18 +74,18 @@ export function ImagePreview({
       <Button
         ref={trigger}
         type="button"
-        aria-label={`Preview ${name}`}
+        aria-label={`Preview ${displayName}`}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         disabled={failed}
         className={`chat-image-preview inline-flex max-w-full cursor-zoom-in flex-col overflow-hidden rounded-lg border border-border bg-panel align-top text-left hover:border-muted-ink focus-visible:outline-2 focus-visible:outline-offset-2 ${compact ? "size-18" : "my-2 w-80"}`}
       >
         {failed ? (
-          <span className="p-3 text-xs text-muted-ink">Image unavailable · {name}</span>
+          <span className="p-3 text-xs text-muted-ink">Image unavailable · {displayName}</span>
         ) : (
           <img
             src={src}
-            alt={name}
+            alt={displayName}
             loading="lazy"
             decoding="async"
             onError={() => {
@@ -100,7 +101,7 @@ export function ImagePreview({
       {open && (
         <ImageViewer
           src={src}
-          name={name}
+          name={displayName}
           onClose={() => {
             setOpen(false);
             trigger.current?.focus({ preventScroll: true });
