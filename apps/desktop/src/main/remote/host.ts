@@ -280,6 +280,7 @@ export function createRemoteHost({
               browser: service.browser,
               scope: scope.data,
               viewerId: viewerId.data,
+              native: url.searchParams.get("native") === "1",
               authorized: () => sessions.validate(ticket.clientId, ticket.token, { cached: true }),
             });
             return;

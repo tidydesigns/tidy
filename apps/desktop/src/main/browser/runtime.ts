@@ -1,3 +1,4 @@
+import { connectNativeBrowser } from "./native-connection";
 import { downloadBrowserArchive } from "./download-archive";
 import { lockBrowserInstall, BrowserInstallBusyError } from "./install-lock";
 import { mkdir, chmod, access, rm } from "node:fs/promises";
@@ -17,6 +18,8 @@ import type { ChildProcess } from "node:child_process";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
 export class BrowserRuntime {
+  native = false;
+  private nativeDirectory?: string;
   private pending?: Promise<Browser>;
   private closing = false;
   private readonly lifetime = new AbortController();
@@ -28,6 +31,11 @@ export class BrowserRuntime {
     private readonly disconnected: () => void,
   ) {}
 
+  useNativeConnection(directory: string) {
+    if (this.pending) throw new Error("The browser is already running.");
+    this.nativeDirectory = directory;
+  }
+
   get() {
     if (this.closing) return Promise.reject(new Error("The browser is closing."));
     this.pending ??= this.start().catch((error: unknown) => {
@@ -38,6 +46,19 @@ export class BrowserRuntime {
   }
 
   private async start() {
+    const native = this.nativeDirectory
+      ? await connectNativeBrowser(this.nativeDirectory)
+      : undefined;
+    if (native) {
+      this.native = true;
+      native.once("disconnected", () => {
+        this.pending = undefined;
+        this.native = false;
+        this.disconnected();
+      });
+      return native;
+    }
+    this.native = false;
     let executablePath = process.env.TIDY_BROWSER_EXECUTABLE;
     if (!executablePath) {
       const platform = detectBrowserPlatform();

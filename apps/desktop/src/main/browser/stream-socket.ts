@@ -15,11 +15,13 @@ export async function serveBrowserStream({
   scope,
   authorized,
   viewerId,
+  native = false,
 }: {
   socket: WebSocket;
   browser: BrowserService;
   scope: BrowserScope;
   viewerId?: string;
+  native?: boolean;
   authorized(): Promise<boolean>;
 }) {
   let watch: BrowserWatch | undefined;
@@ -76,30 +78,35 @@ export async function serveBrowserStream({
     }
   });
   try {
-    watch = await browser.watch(scope, viewerId ?? randomUUID(), (event) => {
-      const data = event.kind === "frame" ? encodeBrowserFrame(event) : JSON.stringify(event);
-      const bytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
-      // Capture allows at most 8 MiB unacknowledged per viewer; leave room for headers/state.
-      if (queuedBytes + socket.bufferedAmount + bytes > 16 * 1024 * 1024) {
-        stop();
-        return;
-      }
-      queuedBytes += bytes;
-      writes = writes
-        .then(async () => {
-          try {
-            if (closed) return;
-            if (!(await authorized())) {
-              stop();
-              return;
+    watch = await browser.watch(
+      scope,
+      viewerId ?? randomUUID(),
+      (event) => {
+        const data = event.kind === "frame" ? encodeBrowserFrame(event) : JSON.stringify(event);
+        const bytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
+        // Capture allows at most 8 MiB unacknowledged per viewer; leave room for headers/state.
+        if (queuedBytes + socket.bufferedAmount + bytes > 16 * 1024 * 1024) {
+          stop();
+          return;
+        }
+        queuedBytes += bytes;
+        writes = writes
+          .then(async () => {
+            try {
+              if (closed) return;
+              if (!(await authorized())) {
+                stop();
+                return;
+              }
+              if (!closed && socket.readyState === WebSocket.OPEN) socket.send(data);
+            } finally {
+              queuedBytes -= bytes;
             }
-            if (!closed && socket.readyState === WebSocket.OPEN) socket.send(data);
-          } finally {
-            queuedBytes -= bytes;
-          }
-        })
-        .catch(stop);
-    });
+          })
+          .catch(stop);
+      },
+      native ? { update: () => {}, close: () => {} } : undefined,
+    );
     attached.resolve();
     if (closed) watch.close();
   } catch (error) {

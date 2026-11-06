@@ -179,6 +179,7 @@ try {
     const locks = projectLocks();
     const store = new ProjectStore(join(directory, "workspace"), "/__tidy/assets", locks.claim);
     const service = new WorkspaceService(store);
+    service.browser.useNativeConnection(directory);
     service.superviseHarnessParent = true;
     const identity = {
       hostId,

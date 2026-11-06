@@ -15,6 +15,7 @@ import {
   browserCommandSchema,
   browserInputEnvelopeSchema,
   browserScopeSchema,
+  browserNativeBoundsSchema,
   type BrowserAPI,
 } from "../shared/contracts/browser";
 import {
@@ -69,6 +70,14 @@ function browserApi(machineId?: string): BrowserAPI {
   const keyFor = (scope: { projectId: string; threadId: string }) =>
     `${scope.projectId}:${scope.threadId}`;
   return {
+    present: (scope, bounds) => {
+      const watchId = watches.get(keyFor(scope));
+      if (watchId)
+        ipcRenderer.send("tidy:browser-layout", {
+          watchId,
+          bounds: browserNativeBoundsSchema.nullable().parse(bounds),
+        });
+    },
     discardDraft: (input) =>
       request("browser-discard-draft", browserDiscardDraftSchema.parse(input), machineId),
     download: async (name, data) => {

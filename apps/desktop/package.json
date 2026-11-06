@@ -17,6 +17,7 @@
     "test": "bun test src scripts/build-worker.test.ts",
     "test:threads": "bun run build && bun scripts/thread-loading-smoke.ts",
     "test:canvas": "bun run build:demo && bun scripts/canvas-transition-smoke.ts",
+    "test:native-browser": "env -u ELECTRON_RUN_AS_NODE electron scripts/native-browser-smoke.mjs",
     "test:security": "env -u ELECTRON_RUN_AS_NODE electron scripts/security-smoke.mjs && env -u ELECTRON_RUN_AS_NODE electron scripts/update-lifecycle-smoke.mjs",
     "postinstall": "install-electron",
     "dev:browser": "node --import tsx scripts/dev-browser.ts",

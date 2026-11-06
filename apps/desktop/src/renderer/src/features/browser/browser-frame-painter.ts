@@ -33,7 +33,9 @@ export function createBrowserFramePainter(options: {
       data.buffer instanceof ArrayBuffer
         ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
         : new Uint8Array(data);
-    void createImageBitmap(new Blob([bytes], { type: "image/jpeg" }))
+    void createImageBitmap(
+      new Blob([bytes], { type: state.presentation === "native" ? "image/png" : "image/jpeg" }),
+    )
       .then((bitmap) => {
         try {
           const element = options.canvas();
@@ -49,8 +51,9 @@ export function createBrowserFramePainter(options: {
             state.activeTabId === tabId &&
             tab?.viewId === viewId &&
             size &&
-            Math.abs(bitmap.width - size.width) <= 1 &&
-            Math.abs(bitmap.height - size.height) <= 1
+            (state.presentation === "native" ||
+              (Math.abs(bitmap.width - size.width) <= 1 &&
+                Math.abs(bitmap.height - size.height) <= 1))
           ) {
             if (element.width !== bitmap.width) element.width = bitmap.width;
             if (element.height !== bitmap.height) element.height = bitmap.height;

@@ -1,3 +1,5 @@
+import { serveNativeBrowser } from "./browser/native-broker";
+import { NativeBrowserRuntime } from "./browser/native-runtime";
 import { machineConnections } from "./remote/machine-connections";
 import { nativeVideoResponse } from "./media/video-response";
 import { projectLocks } from "./remote/project-locks";
@@ -72,6 +74,7 @@ const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 const appName = desktopAppName(version, process.platform);
 
 let localClient: RemoteClient | undefined;
+let closeNativeBrowser: (() => Promise<void>) | undefined;
 let ownedHost: WorkspaceHost | undefined;
 const remoteClients = new Map<string, RemoteClient>();
 let service: WorkspaceService | undefined;
@@ -222,6 +225,7 @@ app
     const buildId = createHash("sha256")
       .update(await readFile(bundlePath))
       .digest("hex");
+    const nativeBrowser = new NativeBrowserRuntime();
     const acquire = async () => {
       const backend = await ensureWorkspaceHost({
         directory,
@@ -241,6 +245,7 @@ app
             await store.initialize();
             await store.recover();
             const workspace = new WorkspaceService(store);
+            workspace.browser.useRuntime(nativeBrowser);
             await workspace.initializeOrchestration();
             return {
               service: workspace,
@@ -257,6 +262,8 @@ app
     };
     const initial = await acquire();
     const ownsInitialService = Boolean(initial.service);
+    if (!ownsInitialService)
+      closeNativeBrowser = await serveNativeBrowser(nativeBrowser, directory);
     service =
       initial.service ?? new WorkspaceService(new ProjectStore(join(directory, "unused-local")));
     // An owned service is already ready and is reached through direct IPC. A loopback
@@ -306,37 +313,42 @@ app
         localClient.start();
       });
     }
-    registerWorkspaceIPC(service, entryURL, {
-      get: () => (ownsInitialService ? undefined : localClient),
-      getMachine: (id) => remoteClients.get(id),
-      list: () => [
-        { id: "local", label: hostname(), status: null },
-        ...profiles
-          .list()
-          .filter((machine) => remoteClients.has(machine.id))
-          .map((machine) => ({
-            id: machine.id,
-            label: machine.target,
-            status: remoteClients.get(machine.id)!.status,
-          })),
-      ],
-      open: connectMachine,
-      connectivity: (input) => {
-        for (const client of remoteClients.values())
-          client.wake(input.kind, input.kind === "network" ? input.online : true);
+    registerWorkspaceIPC(
+      service,
+      entryURL,
+      {
+        get: () => (ownsInitialService ? undefined : localClient),
+        getMachine: (id) => remoteClients.get(id),
+        list: () => [
+          { id: "local", label: hostname(), status: null },
+          ...profiles
+            .list()
+            .filter((machine) => remoteClients.has(machine.id))
+            .map((machine) => ({
+              id: machine.id,
+              label: machine.target,
+              status: remoteClients.get(machine.id)!.status,
+            })),
+        ],
+        open: connectMachine,
+        connectivity: (input) => {
+          for (const client of remoteClients.values())
+            client.wake(input.kind, input.kind === "network" ? input.online : true);
+        },
+        machines: () => profiles.list(),
+        discover: () => discoverSshHosts(),
+        forget: async (id) => {
+          const client = remoteClients.get(id);
+          client?.close();
+          await client?.flush();
+          remoteClients.delete(id);
+          await profiles.forget(id);
+          await rm(join(app.getPath("userData"), "remote-cache", `${id}.json`), { force: true });
+          broadcast("tidy:machines-changed");
+        },
       },
-      machines: () => profiles.list(),
-      discover: () => discoverSshHosts(),
-      forget: async (id) => {
-        const client = remoteClients.get(id);
-        client?.close();
-        await client?.flush();
-        remoteClients.delete(id);
-        await profiles.forget(id);
-        await rm(join(app.getPath("userData"), "remote-cache", `${id}.json`), { force: true });
-        broadcast("tidy:machines-changed");
-      },
-    });
+      nativeBrowser,
+    );
     const store = service.store;
     harnessUpdates = ownsInitialService
       ? service.harnessUpdates
@@ -576,6 +588,7 @@ app.on("before-quit", (event) => {
   const closeWorkspace = async () => {
     await Promise.all([harnessUpdates?.close(), cloud?.close()]);
     await (ownedHost ? ownedHost.close() : closingService.close());
+    await closeNativeBrowser?.();
   };
   void Promise.allSettled([
     closeWorkspace(),

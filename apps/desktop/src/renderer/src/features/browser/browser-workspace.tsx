@@ -1,4 +1,4 @@
-import { browserDeviceScaleFactor } from "../../../../shared/browser-viewport";
+import { useNativeBrowser } from "./use-native-browser";
 import { BrowserFileChooser, BrowserDownloads } from "./browser-files";
 import { BrowserPageDialog } from "./browser-page-dialog";
 import { BrowserGlyph, Glyph, BrowserIconButton, browserInputClass } from "./browser-controls";
@@ -57,6 +57,7 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
   const addressInput = useRef<HTMLInputElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const surface = useRef<HTMLDivElement>(null);
+  const nativeSurface = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLElement>(null);
   const resizing = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const keyboard = useRef<HTMLTextAreaElement>(null);
@@ -64,6 +65,7 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
   const addressTab = useRef<string | undefined>(undefined);
   const visible = open && active;
   const {
+    shortcut,
     state,
     stateRef,
     visibleRef,
@@ -79,13 +81,38 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
     closeTab,
     navigateURL,
   } = useBrowserSession({ api, scope, visible, canvas });
+  const native = state.presentation === "native";
+  useNativeBrowser({
+    api,
+    scope,
+    element: nativeSurface,
+    viewport: previewViewports[viewport].size,
+    enabled: native && visible && connected && !disconnected,
+  });
   const canInput = visible && state.control === "you" && connected && !disconnected;
   const canNavigate =
     connected && !disconnected && (state.control === "you" || state.control === "available");
   const tab = state.tabs.find((tab) => tab.id === state.activeTabId);
   const canInteractPage = Boolean(
-    canInput && tab && painted === `${tab.viewId}:${tab.width}:${tab.height}`,
+    canInput && tab && (native || painted === `${tab.viewId}:${tab.width}:${tab.height}`),
   );
+  useEffect(() => {
+    if (!shortcut || !canInput) return;
+    if (shortcut.action === "address") {
+      addressInput.current?.focus();
+      addressInput.current?.select();
+    } else if (shortcut.action === "find") setFindOpen(true);
+    else if (tab)
+      void command(
+        shortcut.action === "back" || shortcut.action === "forward"
+          ? { kind: shortcut.action, tabId: tab.id }
+          : {
+              kind: "reload",
+              tabId: tab.id,
+              ignoreCache: shortcut.action === "reload-ignore-cache",
+            },
+      );
+  }, [shortcut]);
   const currentError = error || (state.phase.kind === "error" ? state.phase.message : tab?.error);
 
   useEffect(() => {
@@ -146,7 +173,7 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
   }, [send]);
 
   useEffect(() => {
-    if (!visible || !canInput || !tab || !surface.current) return;
+    if (native || !visible || !canInput || !tab || !surface.current) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let previous = "";
     const resize = () => {
@@ -161,7 +188,7 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
         const current = stateRef.current.tabs.find(
           (tab) => tab.id === stateRef.current.activeTabId,
         );
-        const deviceScaleFactor = browserDeviceScaleFactor(width, height, window.devicePixelRatio);
+        const deviceScaleFactor = 1;
         if (
           current?.width === width &&
           current.height === height &&
@@ -183,7 +210,17 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
       observer.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [visible, canInput, tab?.id, tab?.width, tab?.height, tab?.deviceScaleFactor, viewport, send]);
+  }, [
+    native,
+    visible,
+    canInput,
+    tab?.id,
+    tab?.width,
+    tab?.height,
+    tab?.deviceScaleFactor,
+    viewport,
+    send,
+  ]);
 
   const refreshConsole = useCallback(async () => {
     const current = stateRef.current;
@@ -585,20 +622,30 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
         data-viewport={viewport}
         data-interactive={Boolean(canInteractPage)}
       >
-        <BrowserPage
-          editingCommands={state.keyboardCommands === true}
-          api={api}
-          scope={scope}
-          tab={tab}
-          interactive={canInteractPage}
-          canvas={canvas}
-          keyboard={keyboard}
-          addressInput={addressInput}
-          painted={Boolean(painted)}
-          copy={copy}
-          setError={setError}
-          send={send}
-        />
+        {native ? (
+          <div ref={nativeSurface} className="browser-native-page h-full w-full shrink-0">
+            <canvas
+              ref={canvas}
+              className="pointer-events-none h-full w-full object-contain object-top"
+              aria-hidden="true"
+            />
+          </div>
+        ) : (
+          <BrowserPage
+            editingCommands={state.keyboardCommands === true}
+            api={api}
+            scope={scope}
+            tab={tab}
+            interactive={canInteractPage}
+            canvas={canvas}
+            keyboard={keyboard}
+            addressInput={addressInput}
+            painted={Boolean(painted)}
+            copy={copy}
+            setError={setError}
+            send={send}
+          />
+        )}
         {(!tab || tab.url === "about:blank") && (
           <div className="browser-empty absolute inset-0 flex flex-col items-center justify-center gap-[9px] p-6 text-center text-muted-ink">
             <span className="browser-empty-icon mb-[7px] grid size-[52px] place-items-center rounded-xl border border-border bg-panel">
@@ -621,14 +668,17 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
             )}
           </div>
         )}
-        {tab && tab.url !== "about:blank" && (!painted || (canInput && !canInteractPage)) && (
-          <div
-            className="browser-waiting absolute inset-x-0 top-5 text-center text-muted-ink"
-            role="status"
-          >
-            {painted ? "Updating preview…" : "Connecting to page…"}
-          </div>
-        )}
+        {!native &&
+          tab &&
+          tab.url !== "about:blank" &&
+          (!painted || (canInput && !canInteractPage)) && (
+            <div
+              className="browser-waiting absolute inset-x-0 top-5 text-center text-muted-ink"
+              role="status"
+            >
+              {painted ? "Updating preview…" : "Connecting to page…"}
+            </div>
+          )}
         {(!connected || disconnected) && (
           <div
             className="browser-reconnecting absolute right-3 bottom-3 left-3 flex flex-wrap items-center gap-2 rounded-[7px] border border-border bg-panel p-3 shadow-[0_4px_16px_#0000000a]"

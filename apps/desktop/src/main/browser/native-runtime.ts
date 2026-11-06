@@ -1,0 +1,691 @@
+import { join } from "node:path";
+import { randomUUID, randomInt } from "node:crypto";
+import { session, WebContentsView, BrowserWindow, BaseWindow, type Session } from "electron";
+import type {
+  BrowserNativeBounds,
+  BrowserState,
+  BrowserOutput,
+} from "../../shared/contracts/browser";
+import { connect, type Browser, type ConnectionTransport, type Page } from "puppeteer-core";
+
+type TargetInfo = {
+  targetId: string;
+  type: string;
+  title: string;
+  url: string;
+  attached: boolean;
+  canAccessOpener: boolean;
+  browserContextId?: string;
+  openerId?: string;
+};
+type Shortcut = Extract<BrowserOutput, { kind: "shortcut" }>["action"];
+type NativePage = {
+  shortcut?(action: Shortcut): void;
+  view: WebContentsView;
+  info: TargetInfo;
+  exposed: boolean;
+  input: boolean;
+  frameId: string;
+  owner?: BaseWindow;
+};
+type NativeContext = {
+  session: Session;
+  anchor: NativePage;
+  downloadPath?: string;
+  downloads: Map<string, Electron.DownloadItem>;
+};
+type Message = { id: number; method: string; sessionId?: string; params?: Record<string, unknown> };
+
+/** CDP stays in-process: no debugging port, renderer bridge, or second browser. */
+export class NativeBrowserRuntime implements ConnectionTransport {
+  readonly native = true;
+  onmessage?: (message: string) => void;
+  onclose?: () => void;
+  private pending?: Promise<Browser>;
+  private parking?: BaseWindow;
+  private readonly opening = new Set<WebContentsView>();
+  private readonly contexts = new Map<string, NativeContext>();
+  private readonly pages = new Map<string, NativePage>();
+  private readonly sessions = new Map<string, NativePage>();
+  private readonly pageCache = new WeakMap<Page, ReturnType<NativeBrowserRuntime["lookupPage"]>>();
+  private readonly presenters = new Map<number, () => void>();
+  private readonly browserSessions = new Set<string>();
+  private discovering = false;
+  private attaching = false;
+  private closed = false;
+  private readonly browserInfo: TargetInfo = {
+    targetId: "native-browser",
+    type: "browser",
+    title: "Tidy browser",
+    url: "",
+    attached: true,
+    canAccessOpener: false,
+  };
+
+  get() {
+    if (this.closed) throw new Error("The browser is closing.");
+    return (this.pending ??= connect({ transport: this, defaultViewport: null }));
+  }
+
+  private emit(message: object) {
+    // Match an asynchronous CDP transport without a timer in the input/render path.
+    queueMicrotask(() => {
+      if (!this.closed) this.onmessage?.(JSON.stringify(message));
+    });
+  }
+
+  send(raw: string) {
+    const message = JSON.parse(raw) as Message;
+    if (
+      !message ||
+      !Number.isSafeInteger(message.id) ||
+      typeof message.method !== "string" ||
+      (message.sessionId !== undefined && typeof message.sessionId !== "string") ||
+      (message.params !== undefined &&
+        (!message.params || typeof message.params !== "object" || Array.isArray(message.params)))
+    )
+      throw new Error("Invalid native browser protocol message.");
+    void this.command(message).then(
+      (result) => this.emit({ id: message.id, sessionId: message.sessionId, result }),
+      (error: unknown) =>
+        this.emit({
+          id: message.id,
+          sessionId: message.sessionId,
+          error: {
+            code: -32000,
+            message: error instanceof Error ? error.message : "Native browser command failed.",
+          },
+        }),
+    );
+  }
+
+  private createView(partition: Session, options: Electron.BrowserWindowConstructorOptions = {}) {
+    const view = new WebContentsView({
+      ...options,
+      webPreferences: {
+        ...options.webPreferences,
+        preload: undefined,
+        session: partition,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        webSecurity: true,
+        webviewTag: false,
+        navigateOnDragDrop: false,
+        safeDialogs: true,
+        backgroundThrottling: false,
+      },
+    });
+    return view;
+  }
+
+  private async createPage(
+    partition: Session,
+    openerId?: string,
+    view = this.createView(partition),
+  ) {
+    if (this.closed) {
+      view.webContents.close();
+      throw new Error("The browser is closing.");
+    }
+    this.opening.add(view);
+    try {
+      view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+      this.parking ??= new BaseWindow({ show: false, width: 1280, height: 800 });
+      this.parking.contentView.addChildView(view);
+      const contents = view.webContents;
+      const allowed = (url: string) => /^(https?:\/\/|about:blank$)/i.test(url);
+      contents.on("will-frame-navigate", (event) => {
+        if (!allowed(event.url)) event.preventDefault();
+      });
+      contents.on("will-redirect", (event) => {
+        if (!allowed(event.url)) event.preventDefault();
+      });
+      // Popup contents are created here with the same isolated session and secure preferences.
+      contents.setWindowOpenHandler((details) => {
+        if (!allowed(details.url)) return { action: "deny" };
+        return {
+          action: "allow",
+          createWindow: (options) => {
+            // Electron requires synchronous WebContents creation; adopt it before any navigation.
+            const popup = this.createView(partition, options);
+            void this.createPage(partition, page.info.targetId, popup)
+              .then((created) => this.expose(created))
+              .catch(() => {
+                if (!popup.webContents.isDestroyed()) popup.webContents.close();
+              });
+            return popup.webContents;
+          },
+        };
+      });
+      if (!openerId) await contents.loadURL("about:blank");
+      contents.debugger.attach("1.3");
+      await contents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+      const { targetInfo } = (await contents.debugger.sendCommand("Target.getTargetInfo")) as {
+        targetInfo: TargetInfo;
+      };
+      const { frameTree } = await contents.debugger.sendCommand("Page.getFrameTree");
+      const page: NativePage = {
+        frameId: frameTree.frame.id,
+        view,
+        info: { ...targetInfo, ...(openerId ? { openerId } : {}) },
+        exposed: false,
+        input: false,
+        owner: this.parking,
+      };
+      this.pages.set(page.info.targetId, page);
+      contents.on("before-input-event", (event, input) => {
+        if (!page.input || input.type !== "keyDown") return;
+        const command = process.platform === "darwin" ? input.meta : input.control;
+        const key = input.key.toLowerCase();
+        const action: Shortcut | undefined =
+          command && !input.alt
+            ? key === "l"
+              ? "address"
+              : key === "f"
+                ? "find"
+                : key === "r"
+                  ? input.shift
+                    ? "reload-ignore-cache"
+                    : "reload"
+                  : key === "["
+                    ? "back"
+                    : key === "]"
+                      ? "forward"
+                      : undefined
+            : input.alt && !command
+              ? key === "arrowleft"
+                ? "back"
+                : key === "arrowright"
+                  ? "forward"
+                  : undefined
+              : undefined;
+        if (action) {
+          event.preventDefault();
+          page.shortcut?.(action);
+        }
+      });
+
+      contents.debugger.on(
+        "message",
+        (_event, method, params: Record<string, unknown>, sessionId) => {
+          if (method === "Page.frameNavigated" && !(params.frame as { parentId?: string }).parentId)
+            page.frameId = (params.frame as { id: string }).id;
+          if (method === "Target.attachedToTarget")
+            this.sessions.set(params.sessionId as string, page);
+          if (method === "Target.detachedFromTarget")
+            this.sessions.delete(params.sessionId as string);
+          // Root discovery must never reveal the trusted app or another browser runtime.
+          if (
+            !sessionId &&
+            method.startsWith("Target.") &&
+            method !== "Target.attachedToTarget" &&
+            method !== "Target.detachedFromTarget"
+          )
+            return;
+          if (method.startsWith("Browser.")) {
+            for (const id of this.browserSessions) this.emit({ method, params, sessionId: id });
+          } else this.emit({ method, params, ...(sessionId ? { sessionId } : {}) });
+        },
+      );
+      const update = () => {
+        page.info = { ...page.info, url: contents.getURL(), title: contents.getTitle() };
+        if (page.exposed)
+          this.emit({ method: "Target.targetInfoChanged", params: { targetInfo: page.info } });
+      };
+      contents.on("did-navigate", update);
+      contents.on("did-navigate-in-page", update);
+      contents.on("page-title-updated", update);
+      contents.debugger.on("detach", () => {
+        if (!contents.isDestroyed() && !this.closed)
+          setImmediate(() => {
+            if (!contents.isDestroyed()) contents.close();
+          });
+      });
+      contents.once("destroyed", () => {
+        this.hide(page);
+        this.pages.delete(page.info.targetId);
+        for (const [id, owner] of this.sessions)
+          if (owner === page) {
+            this.sessions.delete(id);
+            this.emit({
+              method: "Target.detachedFromTarget",
+              params: { sessionId: id, targetId: page.info.targetId },
+            });
+          }
+        if (page.exposed)
+          this.emit({ method: "Target.targetDestroyed", params: { targetId: page.info.targetId } });
+      });
+      return page;
+    } catch (error) {
+      if (!view.webContents.isDestroyed()) view.webContents.close();
+      throw error;
+    } finally {
+      this.opening.delete(view);
+    }
+  }
+
+  private browserEvent(method: string, params: object) {
+    for (const sessionId of this.browserSessions) this.emit({ method, params, sessionId });
+  }
+
+  private async expose(page: NativePage) {
+    page.exposed = true;
+    if (this.discovering)
+      this.emit({ method: "Target.targetCreated", params: { targetInfo: page.info } });
+    if (this.attaching)
+      await page.view.webContents.debugger.sendCommand("Target.attachToTarget", {
+        targetId: page.info.targetId,
+        flatten: true,
+      });
+  }
+
+  private async command({ method, params = {}, sessionId }: Message): Promise<unknown> {
+    if (this.closed) throw new Error("The browser is closing.");
+    const browserLevel = !sessionId || this.browserSessions.has(sessionId);
+    if (browserLevel) {
+      switch (method) {
+        case "Browser.getVersion":
+          return {
+            protocolVersion: "1.3",
+            product: `Chrome/${process.versions.chrome}`,
+            revision: "",
+            userAgent: "Tidy",
+            jsVersion: process.versions.v8,
+          };
+        case "Target.getBrowserContexts":
+          return { browserContextIds: [...this.contexts.keys()] };
+        case "Target.setDiscoverTargets":
+          this.discovering = params.discover === true;
+          if (this.discovering) {
+            this.emit({ method: "Target.targetCreated", params: { targetInfo: this.browserInfo } });
+            for (const page of this.pages.values())
+              if (page.exposed)
+                this.emit({ method: "Target.targetCreated", params: { targetInfo: page.info } });
+          }
+          return {};
+        case "Target.setAutoAttach":
+          this.attaching = params.autoAttach === true;
+          return {};
+        case "Target.createBrowserContext": {
+          const partition = session.fromPartition(`tidy-preview-${randomUUID()}`, { cache: true });
+          partition.webRequest.onBeforeRequest((details, callback) => {
+            callback({
+              cancel: /^(file|chrome|devtools|chrome-extension|tidy):/i.test(details.url),
+            });
+          });
+          partition.setPermissionRequestHandler((_contents, _permission, callback) =>
+            callback(false),
+          );
+          partition.setPermissionCheckHandler(() => false);
+          const anchor = await this.createPage(partition);
+          const id = anchor.info.browserContextId!;
+          const context: NativeContext = { session: partition, anchor, downloads: new Map() };
+          this.contexts.set(id, context);
+          partition.on("will-download", (_event, item, contents) => {
+            if (!context.downloadPath || !contents) {
+              item.cancel();
+              return;
+            }
+            const page = [...this.pages.values()].find(
+              (page) => page.view.webContents === contents,
+            );
+            if (!page?.exposed || !context.downloadPath) {
+              item.cancel();
+              return;
+            }
+            const guid = randomUUID();
+            context.downloads.set(guid, item);
+            item.setSavePath(join(context.downloadPath, guid));
+            const progress = (state: string) =>
+              this.browserEvent("Browser.downloadProgress", {
+                guid,
+                state,
+                receivedBytes: item.getReceivedBytes(),
+                totalBytes: item.getTotalBytes(),
+              });
+            this.browserEvent("Browser.downloadWillBegin", {
+              guid,
+              url: item.getURL(),
+              suggestedFilename: item.getFilename(),
+              frameId: page.frameId,
+            });
+            item.on("updated", () => progress("inProgress"));
+            item.once("done", (_event, state) => {
+              progress(state === "completed" ? "completed" : "canceled");
+              context.downloads.delete(guid);
+            });
+          });
+          return { browserContextId: id };
+        }
+        case "Browser.setDownloadBehavior": {
+          const context = this.contexts.get(params.browserContextId as string);
+          if (
+            !context ||
+            params.behavior !== "allowAndName" ||
+            typeof params.downloadPath !== "string"
+          )
+            throw new Error("Invalid native download configuration.");
+          context.downloadPath = params.downloadPath;
+          return {};
+        }
+        case "Browser.cancelDownload": {
+          this.contexts
+            .get(params.browserContextId as string)
+            ?.downloads.get(params.guid as string)
+            ?.cancel();
+          return {};
+        }
+        case "Target.disposeBrowserContext": {
+          const id = params.browserContextId as string;
+          for (const page of this.pages.values())
+            if (page.info.browserContextId === id) page.view.webContents.close();
+          const context = this.contexts.get(id);
+          this.contexts.delete(id);
+          if (context) {
+            context.session.removeAllListeners("will-download");
+            for (const item of context.downloads.values()) item.cancel();
+            await Promise.all([context.session.clearStorageData(), context.session.clearCache()]);
+          }
+          return {};
+        }
+        case "Target.createTarget": {
+          const context = this.contexts.get(params.browserContextId as string);
+          if (!context) throw new Error("Unknown native browser context.");
+          const page =
+            !context.anchor.exposed && !context.anchor.view.webContents.isDestroyed()
+              ? context.anchor
+              : await this.createPage(context.session);
+          await this.expose(page);
+          return { targetId: page.info.targetId };
+        }
+        case "Target.attachToTarget": {
+          if (params.targetId === this.browserInfo.targetId) {
+            const id = randomUUID();
+            this.browserSessions.add(id);
+            this.emit({
+              method: "Target.attachedToTarget",
+              params: { sessionId: id, targetInfo: this.browserInfo, waitingForDebugger: false },
+            });
+            return { sessionId: id };
+          }
+          const page = this.pages.get(params.targetId as string);
+          if (!page?.exposed) throw new Error("Unknown native browser target.");
+          return page.view.webContents.debugger.sendCommand(method, params);
+        }
+        case "Target.detachFromTarget": {
+          const id = params.sessionId as string;
+          if (this.browserSessions.delete(id)) {
+            this.emit({ method: "Target.detachedFromTarget", params: { sessionId: id } });
+            return {};
+          }
+          const page = this.sessions.get(id);
+          if (!page) throw new Error("Unknown native browser session.");
+          return page.view.webContents.debugger.sendCommand(method, params);
+        }
+        case "Target.closeTarget": {
+          const page = this.pages.get(params.targetId as string);
+          if (!page?.exposed) throw new Error("Unknown native browser target.");
+          page.view.webContents.close();
+          return { success: true };
+        }
+        case "Browser.close":
+          this.close();
+          return {};
+      }
+      const context = this.contexts.get(params.browserContextId as string);
+      if (!context) throw new Error(`Unsupported native browser command: ${method}`);
+      const anchor = [...this.pages.values()].find(
+        (page) => page.info.browserContextId === params.browserContextId,
+      );
+      if (!anchor) throw new Error("The native browser context closed.");
+      return anchor.view.webContents.debugger.sendCommand(method, params);
+    }
+    const page = this.sessions.get(sessionId!);
+    if (method === "Page.bringToFront") return {};
+    if (!page) throw new Error("Unknown native browser session.");
+    return page.view.webContents.debugger.sendCommand(method, params, sessionId);
+  }
+
+  private lookupPage(page: Page) {
+    // Target IDs come from Puppeteer's CDP session, never from renderer input.
+    return page.createCDPSession().then(async (cdp) => {
+      try {
+        const { targetInfo } = await cdp.send("Target.getTargetInfo");
+        return this.pages.get(targetInfo.targetId);
+      } finally {
+        await cdp.detach();
+      }
+    });
+  }
+
+  page(page: Page) {
+    let value = this.pageCache.get(page);
+    if (!value) {
+      value = this.lookupPage(page);
+      this.pageCache.set(page, value);
+    }
+    return value;
+  }
+
+  createPresenter(
+    window: BrowserWindow,
+    resized = () => {},
+    shortcut: (action: Shortcut) => void = () => {},
+    poster: (event: Extract<BrowserOutput, { kind: "frame" }>) => void = () => {},
+  ) {
+    let current: NativePage | undefined;
+    let requested: Page | undefined;
+    let resolved: Page | undefined;
+    let remoteState = false;
+    let state: BrowserState | undefined;
+    let visible = false;
+    let bounds: BrowserNativeBounds | null = null;
+    let closed = false;
+    let shield: WebContentsView | undefined;
+    let sizeKey = "";
+    const park = () => {
+      if (shield && !window.isDestroyed()) {
+        window.contentView.removeChildView(shield);
+        shield.setVisible(false);
+      }
+      if (!current) return;
+      this.hide(current);
+      if (!current.view.webContents.isDestroyed() && this.parking && !this.parking.isDestroyed()) {
+        this.parking.contentView.addChildView(current.view);
+        current.owner = this.parking;
+        current.view.setVisible(true);
+      }
+    };
+    const render = () => {
+      if (closed || window.isDestroyed()) return;
+      if (
+        !visible ||
+        !bounds ||
+        bounds.occluded ||
+        !current ||
+        current.view.webContents.isDestroyed() ||
+        !state ||
+        state.dialog ||
+        state.fileChooser ||
+        current.info.url === "about:blank"
+      ) {
+        park();
+        return;
+      }
+      const other = this.presenters.get(window.id);
+      if (other !== park) {
+        other?.();
+        this.presenters.set(window.id, park);
+      }
+      const zoom = window.webContents.getZoomFactor();
+      const [width, height] = window.getContentSize();
+      const x = Math.max(0, Math.min(width, Math.round(bounds.x * zoom)));
+      const y = Math.max(0, Math.min(height, Math.round(bounds.y * zoom)));
+      const rectangle = {
+        x,
+        y,
+        width: Math.min(width - x, Math.round(bounds.width * zoom)),
+        height: Math.min(height - y, Math.round(bounds.height * zoom)),
+      };
+      if (rectangle.width < 1 || rectangle.height < 1) {
+        park();
+        return;
+      }
+      if (current.owner !== window) {
+        this.hide(current);
+        window.contentView.addChildView(current.view);
+        current.owner = window;
+      }
+      current.input = state.control === "you";
+      current.shortcut = shortcut;
+      current.view.webContents.setZoomMode("isolated");
+      const pageZoom = (bounds.zoom ?? 1) * zoom;
+      if (current.view.webContents.getZoomFactor() !== pageZoom)
+        current.view.webContents.setZoomFactor(pageZoom);
+      current.view.setBounds(rectangle);
+      const nextSize = `${current.info.targetId}:${rectangle.width}:${rectangle.height}:${pageZoom}`;
+      if (sizeKey !== nextSize) {
+        sizeKey = nextSize;
+        setImmediate(resized);
+      }
+      current.view.setVisible(true);
+      if (!current.input) {
+        // A native hit-test shield blocks physical input while CDP continues on the page.
+        shield ??= new WebContentsView({
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        });
+        shield.setBackgroundColor("#00000000");
+        window.contentView.addChildView(shield);
+        shield.setBounds(rectangle);
+        shield.setVisible(true);
+        if (current.view.webContents.isFocused()) shield.webContents.focus();
+      } else if (shield) {
+        window.contentView.removeChildView(shield);
+        shield.setVisible(false);
+      }
+    };
+    const refresh = () => {
+      if (remoteState) {
+        render();
+        return;
+      }
+      const page = requested;
+      if (page && page === resolved && current) {
+        render();
+        return;
+      }
+      if (!page) {
+        park();
+        current = undefined;
+        return;
+      }
+      void this.page(page)
+        .then((native) => {
+          if (closed || requested !== page) return;
+          if (current !== native) park();
+          current = native;
+          render();
+        })
+        .catch(() => park());
+    };
+    const close = () => {
+      closed = true;
+      park();
+      if (this.presenters.get(window.id) === park) this.presenters.delete(window.id);
+      if (shield && !shield.webContents.isDestroyed()) shield.webContents.close();
+      window.removeListener("closed", close);
+      window.removeListener("resize", refresh);
+    };
+    window.once("closed", close);
+    window.on("resize", refresh);
+    return {
+      update: (page: Page | undefined, next: BrowserState, shown: boolean) => {
+        if (requested !== page) park();
+        remoteState = false;
+        requested = page;
+        state = next;
+        visible = shown;
+        refresh();
+      },
+      updateState: (next: BrowserState, shown: boolean) => {
+        remoteState = true;
+        requested = undefined;
+        const native = this.pages.get(
+          next.tabs.find((tab) => tab.id === next.activeTabId)?.nativeTargetId ?? "",
+        );
+        if (current !== native) park();
+        current = native;
+        state = next;
+        visible = shown;
+        render();
+      },
+      layout: (next: BrowserNativeBounds | null) => {
+        if (next?.occluded && !bounds?.occluded && current?.owner === window && state) {
+          const tab = state.tabs.find((tab) => tab.id === state!.activeTabId);
+          if (tab)
+            void current.view.webContents
+              .capturePage()
+              .then((image) => {
+                if (closed || !bounds?.occluded || state?.activeTabId !== tab.id) return;
+                const data = image.toPNG();
+                if (data.byteLength <= 8 * 1024 * 1024)
+                  poster({
+                    kind: "frame",
+                    tabId: tab.id,
+                    viewId: tab.viewId,
+                    frameId: randomInt(1, 2 ** 48),
+                    data,
+                  });
+              })
+              .catch(() => {});
+        }
+        bounds = next;
+        if (!bounds || bounds.occluded) park();
+        else refresh();
+      },
+      close,
+    };
+  }
+
+  private hide(page: NativePage) {
+    page.input = false;
+    page.shortcut = undefined;
+    page.view.setVisible(false);
+    if (page.owner && !page.owner.isDestroyed()) page.owner.contentView.removeChildView(page.view);
+    page.owner = undefined;
+  }
+
+  async reset() {
+    await this.close();
+    this.closed = false;
+    this.pending = undefined;
+    this.browserSessions.clear();
+    this.attaching = false;
+    this.discovering = false;
+    this.parking = undefined;
+  }
+
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const view of this.opening) if (!view.webContents.isDestroyed()) view.webContents.close();
+    for (const page of this.pages.values()) {
+      this.hide(page);
+      page.view.webContents.close();
+    }
+    this.parking?.destroy();
+    this.sessions.clear();
+    const contexts = [...this.contexts.values()];
+    this.contexts.clear();
+    this.onclose?.();
+    await Promise.all(
+      contexts.map(async (context) => {
+        context.session.removeAllListeners("will-download");
+        for (const item of context.downloads.values()) item.cancel();
+        await Promise.all([context.session.clearStorageData(), context.session.clearCache()]);
+      }),
+    );
+  }
+}
