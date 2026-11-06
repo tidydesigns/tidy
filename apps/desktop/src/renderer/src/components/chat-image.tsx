@@ -168,7 +168,7 @@ export function ChatImage({
     };
   }, [api, projectId, threadId, href, attempt, active]);
   return (
-    <span ref={container} className="inline-block max-w-full align-top">
+    <span ref={container} className="block max-w-full">
       {state.kind === "ready" ? (
         <ImagePreview
           key={state.src}
