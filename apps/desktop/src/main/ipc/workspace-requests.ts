@@ -47,7 +47,7 @@ import {
 } from "../repository/project-setup";
 import { projectSetupSchema } from "../../shared/contracts/project-setup";
 import { BranchSwitchError, readRepositoryContext } from "../repository/repository-context";
-import { skillIdSchema } from "../../shared/contracts/skills";
+import { skillSelectionSchema } from "../../shared/contracts/skills";
 import { z } from "zod";
 import { approvalDecisionSchema } from "../../shared/contracts/permissions";
 import { readHarnessDetails } from "../harnesses/harness-details";
@@ -498,7 +498,7 @@ export function createWorkspaceRequests<Context>(
         prompt: z.string().trim().max(32_000),
         naming: threadNamingSchema.optional(),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
-        skillId: skillIdSchema.optional(),
+        skillId: skillSelectionSchema.optional(),
         designIds: z.array(uuid).max(20),
         settings: harnessSettingsSchema.optional(),
       })
@@ -515,7 +515,7 @@ export function createWorkspaceRequests<Context>(
         messageId: uuid.optional(),
         text: z.string().trim().max(32_000),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
-        skillId: skillIdSchema.optional(),
+        skillId: skillSelectionSchema.optional(),
       })
       .strict(),
     (value) => service.sendMessage(value),

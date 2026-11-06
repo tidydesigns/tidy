@@ -1780,6 +1780,51 @@ test.each(["/", "$"])(
   },
 );
 
+test.each(["codex", "claude"] as const)(
+  "multiple %s skills are all resolved or explicitly rejected",
+  async (harness) => {
+    const adapter: SkillAdapter = {
+      async discover() {
+        return ["review", "audit"].map((name) =>
+          harness === "codex"
+            ? { kind: "file" as const, name, description: "", path: `/skills/${name}/SKILL.md` }
+            : { kind: "command" as const, name, description: "" },
+        );
+      },
+    };
+    const skills = new HarnessSkills(async () => "/fixture", {
+      codex: adapter,
+      claude: adapter,
+      opencode: adapter,
+    });
+    const { service, project, runs } = await fixture(undefined, false, skills);
+    const catalog = await skills.list({ harness, cwd: project.path });
+    const skillId = catalog.skills.map((skill) => skill.id);
+    const input = {
+      projectId: project.id,
+      harness,
+      prompt: "Use /review, then $audit.",
+      designIds: [],
+      skillId,
+    };
+    await expect(
+      service.startThread({ ...input, skillId: [...skillId, "foreign"] }),
+    ).rejects.toThrow("no longer available");
+    expect(runs).toHaveLength(0);
+    if (harness === "claude") {
+      await expect(service.startThread(input)).rejects.toThrow("one skill command per message");
+      expect(runs).toHaveLength(0);
+    } else {
+      const thread = await service.startThread({ ...input, skillId: [...skillId, skillId[0]!] });
+      expect(thread.messages[0].text).toBe(input.prompt);
+      expect(runs[0].input.skill).toMatchObject({
+        invocation: { name: "review", kind: "file" },
+        additional: [{ name: "audit", kind: "file" }],
+      });
+    }
+  },
+);
+
 test("workspace threads keep shared designs and attachments separate from each local execution project", async () => {
   const { directory, store, service, project, runs } = await fixture();
   const cloudRoot = join(directory, "cloud-workspace");

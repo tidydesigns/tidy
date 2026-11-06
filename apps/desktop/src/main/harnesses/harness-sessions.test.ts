@@ -64,6 +64,37 @@ test("changing Fast mode replaces a retained session and never uses the permissi
   }
 });
 
+test("Codex transports every selected file skill and clears them on the next turn", async () => {
+  const cwd = await mkdtemp(join(directory, "multiple-skills-"));
+  const session = new HarnessSession({ harness: "codex", executable, cwd });
+  const invocations = ["review", "audit"].map((name) => ({
+    kind: "file" as const,
+    name,
+    description: "",
+    path: join(cwd, name, "SKILL.md"),
+  }));
+  const [invocation, ...additional] = invocations;
+  if (!invocation) throw new Error("Missing fixture invocation");
+  try {
+    await session.start({
+      prompt: "Use /review and $audit.",
+      skill: { invocation, additional, context: "Context", prompt: "Use /review and $audit." },
+      onUpdate() {},
+    }).done;
+    await session.start({ prompt: "Plain follow-up", onUpdate() {} }).done;
+    const turns = (await events(cwd)).filter((event) => event.method === "turn/start");
+    const input = z.object({ input: z.array(z.object({ type: z.string() }).passthrough()) });
+    expect(
+      input.parse(turns[0].value.params).input.filter((item) => item.type === "skill"),
+    ).toEqual(invocations.map(({ name, path }) => ({ type: "skill", name, path })));
+    expect(input.parse(turns[1].value.params).input).toEqual([
+      { type: "text", text: "Plain follow-up", text_elements: [] },
+    ]);
+  } finally {
+    session.close();
+  }
+});
+
 test("a native Claude update preserves compatible follow-ups while its existing session has background work", async () => {
   const { ProjectStore } = await import("../workspace/project-store");
   const { WorkspaceService } = await import("../workspace/workspace-service");

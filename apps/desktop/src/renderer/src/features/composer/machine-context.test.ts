@@ -216,6 +216,7 @@ test("copying a draft adopts the destination project's thread mode without chang
     designIds: [],
     threadMode: "local" as const,
     executionProjectId: source.project.id,
+    recoveredSkills: { ids: ["source-review", "source-audit"], harness: "codex" as const },
   };
   const result = await copyDraft({
     api: {},
@@ -225,6 +226,7 @@ test("copying a draft adopts the destination project's thread mode without chang
   });
   expect(result.draft.threadMode ?? destination.threadMode).toBe("worktree");
   expect(result.draft.executionProjectId).toBeUndefined();
+  expect(result.draft.recoveredSkills).toBeUndefined();
   expect(result.draft.text).toBe(draft.text);
   expect(draft.threadMode).toBe("local");
 });

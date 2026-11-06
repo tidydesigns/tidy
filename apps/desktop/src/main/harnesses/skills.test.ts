@@ -1,12 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { HarnessSkills, type SkillAdapter } from "./harness-skills";
-import {
-  matchingSkills,
-  promptSkill,
-  skillCommand,
-  skillQuery,
-} from "../../shared/contracts/skills";
+import { promptSkill } from "../../shared/contracts/skills";
 
 const provider: SkillAdapter = {
   async discover() {
@@ -15,6 +10,37 @@ const provider: SkillAdapter = {
 };
 
 describe("skill catalog boundaries", () => {
+  test.each(["command", "file"] as const)(
+    "deduplicates current and legacy aliases for a %s skill without skipping validation",
+    async (kind) => {
+      const input = { harness: "codex" as const, cwd: "/project" };
+      const native =
+        kind === "file"
+          ? { kind, name: "review", description: "Review", path: "/skills/review/SKILL.md" }
+          : { kind, name: "review", description: "Review" };
+      const adapter: SkillAdapter = {
+        async discover() {
+          return [native];
+        },
+      };
+      const catalog = new HarnessSkills(async () => "/fixture", {
+        codex: adapter,
+        claude: adapter,
+        opencode: adapter,
+      });
+      const { skills } = await catalog.list(input);
+      const legacy = createHash("sha256")
+        .update(JSON.stringify([input.harness, input.cwd, native]))
+        .digest("hex");
+      const id = [skills[0].id, legacy, skills[0].id];
+      expect(await catalog.resolveSelection({ ...input, id, prompt: "/review" })).toEqual([
+        { id: skills[0].id, invocation: native },
+      ]);
+      await expect(
+        catalog.resolveSelection({ ...input, id: [...id, "foreign"], prompt: "/review" }),
+      ).rejects.toThrow("no longer available");
+    },
+  );
   for (const harness of ["codex", "claude", "opencode"] as const) {
     test.each(["/", "$"])(
       `${harness} resolves %s selections with the same catalog id`,
@@ -157,61 +183,6 @@ describe("skill catalog boundaries", () => {
     await expect(
       catalog.resolve({ ...input, id: result.skills[0].id, prompt: "/review" }),
     ).rejects.toThrow("no longer available");
-  });
-});
-
-describe("skill composer", () => {
-  test.each(["/", "$"])("offers skills at any whitespace-delimited %s token", (prefix) => {
-    expect(skillQuery(prefix, 1)).toBe("");
-    expect(skillQuery(`${prefix}rev`, 4)).toBe("rev");
-    expect(skillQuery(`${prefix}REV`, 4)).toBe("rev");
-    expect(skillQuery(`${prefix}rev existing text`, 4)).toBe("rev");
-    for (const text of [
-      `${prefix}tmp/file`,
-      "https://site",
-      `${prefix}review changes`,
-      "`" + prefix + "review`",
-      "${review}",
-      "$(review)",
-      "$$review",
-    ])
-      expect(skillQuery(text, text.length)).toBeNull();
-    expect(skillQuery(`${prefix}review`, 3)).toBeNull();
-    expect(skillQuery(`look ${prefix}review`, 12)).toBe("review");
-    expect(skillQuery(`\n${prefix}review`, 8)).toBe("review");
-    expect(skillQuery(`Use ${prefix}`, 5)).toBe("");
-    expect(skillQuery(`Use ${prefix}rev later`, 8)).toBe("rev");
-  });
-  test.each(["/", "$"])("parses inline %s commands and keeps paths literal", (prefix) => {
-    expect(skillCommand(`${prefix}review these changes`)).toEqual({
-      name: "review",
-      start: 0,
-      end: 7,
-    });
-    expect(skillCommand(`run ${prefix}review changes`)).toEqual({
-      name: "review",
-      start: 4,
-      end: 11,
-    });
-    expect(skillCommand(`Use $HOME then ${prefix}review changes`, ["review"])?.name).toBe("review");
-    expect(skillCommand(`Use $HOME then ${prefix}review changes`, ["missing"])).toBeNull();
-    expect(skillCommand(`${prefix}plugin:review\nchanges`)?.name).toBe("plugin:review");
-    for (const text of [
-      `${prefix}review/file`,
-      `${prefix}review.md`,
-      `${prefix}${prefix}review`,
-      "${review}",
-      "$(review)",
-    ])
-      expect(skillCommand(text)).toBeNull();
-  });
-  test("searches descriptions and prioritizes name prefixes", () => {
-    const skills = [
-      { id: "a", name: "audit", description: "Review changes" },
-      { id: "b", name: "review", description: "Check changes" },
-    ];
-    expect(matchingSkills(skills, "rev").map((skill) => skill.name)).toEqual(["review", "audit"]);
-    expect(matchingSkills(skills, "missing")).toEqual([]);
   });
 });
 

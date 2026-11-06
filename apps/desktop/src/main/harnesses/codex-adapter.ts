@@ -57,14 +57,18 @@ function codexInput(message: Pick<TurnInput, "prompt" | "skill" | "images">) {
         : message.prompt,
       text_elements: [],
     },
-    ...(message.skill?.invocation.kind === "file"
-      ? [
-          {
-            type: "skill",
-            name: message.skill.invocation.name,
-            path: message.skill.invocation.path,
-          },
-        ]
+    ...(message.skill
+      ? [message.skill.invocation, ...(message.skill.additional ?? [])].flatMap((invocation) =>
+          invocation.kind === "file"
+            ? [
+                {
+                  type: "skill",
+                  name: invocation.name,
+                  path: invocation.path,
+                },
+              ]
+            : [],
+        )
       : []),
     ...(message.images ?? []).map((image) => ({ type: "localImage", path: image.path })),
   ];

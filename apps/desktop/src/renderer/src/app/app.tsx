@@ -74,7 +74,13 @@ import type {
 import { useRepositoryContext } from "../features/repository/use-repository-context";
 import { RepositoryIcon } from "../features/repository/repository-icons";
 import { SkillPrompt } from "../features/composer/skill-prompt";
-import { promptSkill, skillCommand, type Skill } from "../../../shared/contracts/skills";
+import { clearUnchangedSkills, recoverSkills } from "../features/composer/skill-recovery";
+import {
+  promptSkill,
+  skillCommand,
+  skillCommands,
+  type Skill,
+} from "../../../shared/contracts/skills";
 import { UserFacingError } from "@tidy/ui/errors";
 import { errorText, type WorkspaceError } from "./workspace-error";
 import { useWorkspaceState } from "./use-workspace-state";
@@ -786,6 +792,10 @@ export function App({
       const key = `${target.projectId}:${failedStarts.current.has(target.id) ? "new" : target.id}`;
       setDrafts((current) => {
         const previous = current[key] ?? { ...emptyDraft, harness: target.harness };
+        const recoveredSkillId = Array.isArray(message.skillId)
+          ? message.skillId[0]
+          : message.skillId;
+        const recoveredSkill = availableSkills.find((skill) => skill.id === recoveredSkillId);
         const command =
           skillCommand(
             message.text,
@@ -798,13 +808,26 @@ export function App({
             text: [previous.text, message.text].filter(Boolean).join("\n\n"),
             skill: previous.text
               ? previous.skill
-              : message.skillId && command
+              : recoveredSkillId && command && (recoveredSkill || !Array.isArray(message.skillId))
                 ? {
-                    id: message.skillId,
-                    name: command.name,
+                    id: recoveredSkillId,
+                    name: recoveredSkill?.name ?? command.name,
                     harness: target.harness,
                   }
                 : undefined,
+            recoveredSkills: Array.isArray(message.skillId)
+              ? {
+                  ids: [
+                    ...new Set([
+                      ...(previous.recoveredSkills?.harness === target.harness
+                        ? previous.recoveredSkills.ids
+                        : []),
+                      ...message.skillId,
+                    ]),
+                  ],
+                  harness: target.harness,
+                }
+              : previous.recoveredSkills,
             attachments: [...(previous.attachments ?? []), ...(message.attachments ?? [])].filter(
               (file, index, all) => all.findIndex((item) => item.id === file.id) === index,
             ),
@@ -1099,6 +1122,8 @@ export function App({
       const next = {
         ...latest,
         text,
+        recoveredSkills:
+          latest.recoveredSkills && skillCommands(text).length ? latest.recoveredSkills : undefined,
         ...(attachments === undefined ? {} : { attachments }),
         skill: skill
           ? { id: skill.id, name: skill.name, harness: selectedHarness }
@@ -1259,14 +1284,24 @@ export function App({
       return;
     const changeExecution = async (executionProjectId?: string) => {
       if (!thread) {
-        updateDraft({ executionProjectId, skill: undefined, threadMode: undefined });
+        updateDraft({
+          executionProjectId,
+          skill: undefined,
+          recoveredSkills: undefined,
+          threadMode: undefined,
+        });
         return;
       }
       if (thread.executionProjectId === executionProjectId) return;
-      updateDraft({ skill: undefined });
-      await changeThreadConfiguration({ executionProjectId }, () =>
+      const key = draftKey;
+      const changed = await changeThreadConfiguration({ executionProjectId }, () =>
         api.setThreadExecutionProject(project.id, thread.id, executionProjectId, running),
       );
+      if (changed)
+        setDrafts((current) => ({
+          ...current,
+          [key]: clearUnchangedSkills(current[key] ?? draft, draft),
+        }));
     };
     if (value !== "open") {
       await changeExecution(value === "design" ? undefined : value);
@@ -1286,10 +1321,9 @@ export function App({
       setDrafts((current) => ({
         ...current,
         [key]: {
-          ...(current[key] ?? fallback),
+          ...clearUnchangedSkills(current[key] ?? fallback, fallback),
           executionProjectId: opened.project.id,
           threadMode: undefined,
-          skill: undefined,
         },
       }));
     } catch (cause) {
@@ -1622,19 +1656,43 @@ export function App({
     )
       return;
     const submitted = resolveAttachmentReferences(draft.text, draft.attachments ?? []);
-    const { command, skill: selectedSkill } = promptSkill(
+    const recovery =
+      draft.recoveredSkills?.harness === selectedHarness ? draft.recoveredSkills : undefined;
+    const recovered = recoverSkills({
+      text: submitted,
+      ids: recovery?.ids ?? [],
+      skills: availableSkills,
+      catalogReady: skillCatalog.key === detailKey && skillCatalog.status === "ready",
+    });
+    if (recovered.kind === "unavailable") {
+      setError({
+        projectId: project.id,
+        text: recovery
+          ? "Reload skills before sending this recovered message. If a selected skill was removed, clear the draft and select its skills again."
+          : "Skills are not available yet. Retry loading skills before sending this command.",
+      });
+      return;
+    }
+    const { skill: selectedSkill } = promptSkill(
       submitted,
       availableSkills,
       draft.skill?.harness === selectedHarness ? draft.skill : undefined,
     );
-    if (
-      command &&
-      !selectedSkill &&
-      (skillCatalog.key !== detailKey || skillCatalog.status !== "ready")
-    ) {
+    const mentioned = new Set(skillCommands(submitted).map((command) => command.name));
+    const selectedIds = [
+      ...new Set([
+        ...(recovered.kind === "ready" ? recovered.skills.map((skill) => skill.id) : []),
+        ...(selectedSkill ? [selectedSkill.id] : []),
+        ...availableSkills
+          .filter((skill) => mentioned.has(skill.name) && skill.name !== selectedSkill?.name)
+          .map((skill) => skill.id),
+      ]),
+    ];
+    const skillId = selectedIds.length > 1 ? selectedIds : selectedIds[0];
+    if (selectedHarness !== "codex" && selectedIds.length > 1) {
       setError({
         projectId: project.id,
-        text: "Skills are not available yet. Retry loading skills before sending this command.",
+        text: "This harness supports one skill command per message. Send each skill in a separate message.",
       });
       return;
     }
@@ -1651,13 +1709,19 @@ export function App({
           id: crypto.randomUUID(),
           text: submitted,
           attachments: draft.attachments,
-          skillId: selectedSkill?.id,
+          skillId,
         },
         delivery,
       );
       setDrafts((current) => ({
         ...current,
-        [draftKey]: { ...draft, text: "", sidebarText: undefined, attachments: [] },
+        [draftKey]: {
+          ...draft,
+          text: "",
+          recoveredSkills: undefined,
+          sidebarText: undefined,
+          attachments: [],
+        },
       }));
       return;
     }
@@ -1724,12 +1788,21 @@ export function App({
       [key]: {
         ...draft,
         text: "",
+        recoveredSkills: undefined,
         sidebarText: undefined,
         attachments: [],
         ...(!thread ? { settings: { ...draft.settings, permissionMode: undefined } } : {}),
       },
       ...(id !== selectedThreadId
-        ? { [pendingKey]: { ...draft, text: "", sidebarText: undefined, attachments: [] } }
+        ? {
+            [pendingKey]: {
+              ...draft,
+              text: "",
+              recoveredSkills: undefined,
+              sidebarText: undefined,
+              attachments: [],
+            },
+          }
         : {}),
     }));
     focusComposerAfterSelection.current = !thread;
@@ -1742,7 +1815,7 @@ export function App({
             threadId: id,
             messageId,
             text: submitted,
-            skillId: selectedSkill?.id,
+            skillId,
             attachmentIds: draft.attachments?.map((file) => file.id),
           })
         : api.startThread({
@@ -1754,7 +1827,7 @@ export function App({
             harness: draft.harness,
             prompt: submitted,
             naming: currentThreadNaming(),
-            skillId: selectedSkill?.id,
+            skillId,
             designIds: referenceDesignIds,
             settings: draft.settings,
             attachmentIds: draft.attachments?.map((file) => file.id),
@@ -3006,6 +3079,9 @@ export function App({
                         id="thread-prompt"
                         aria-label="Message"
                         value={draft.text}
+                        rememberedSkill={
+                          draft.skill?.harness === selectedHarness ? draft.skill : undefined
+                        }
                         onChange={(text) => changePrompt(text)}
                         history={promptHistory}
                         onRecall={(entry) =>

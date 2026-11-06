@@ -15,12 +15,18 @@ import { createPortal } from "react-dom";
 import { PromptEditor, type PromptEditorHandle } from "./prompt-editor";
 import { Button } from "@tidy/ui/button";
 import { codeScrollbarClassName } from "../../styles/code-ui";
-import { matchingSkills, skillQuery, type Skill } from "../../../../shared/contracts/skills";
+import {
+  matchingSkills,
+  skillCommands,
+  skillQuery,
+  type Skill,
+} from "../../../../shared/contracts/skills";
 import type { Message } from "../../../../shared/contracts/desktop";
+import { showToast } from "@tidy/ui/toast";
 
 type HistoryEntry = Pick<Message, "text"> & { attachments?: AttachedFile[] };
 
-type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
+type Props = Omit<ComponentProps<typeof PromptEditor>, "ref" | "skill" | "skills"> & {
   ref?: Ref<PromptEditorHandle>;
   skills: Skill[];
   status: "loading" | "ready" | "error";
@@ -28,6 +34,7 @@ type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
   history?: readonly HistoryEntry[];
   historyDisabled?: boolean;
   onRecall?(entry: HistoryEntry): void;
+  rememberedSkill?: Pick<Skill, "id" | "name">;
 };
 
 export function SkillPrompt({
@@ -41,6 +48,7 @@ export function SkillPrompt({
   history = [],
   historyDisabled = false,
   onRecall,
+  rememberedSkill,
   ...props
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -67,7 +75,20 @@ export function SkillPrompt({
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const query = skillQuery(value, cursor);
-  const matches = useMemo(() => matchingSkills(skills, query ?? ""), [skills, query]);
+  const visible = focused && !props.disabled && !dismissed && query !== null;
+  const catalog = useMemo(() => new Map(skills.map((skill) => [skill.name, skill])), [skills]);
+  const invokedSkills = useMemo(() => {
+    const names = new Set(skillCommands(value).map((command) => command.name));
+    return Array.from(names).flatMap((name) => {
+      const skill =
+        catalog.get(name) ?? (rememberedSkill?.name === name ? rememberedSkill : undefined);
+      return skill ? [skill] : [];
+    });
+  }, [value, catalog, rememberedSkill]);
+  const matches = useMemo(
+    () => (visible ? matchingSkills(skills, query) : []),
+    [skills, query, visible],
+  );
   const [rowHeight, setRowHeight] = useState(34);
   const virtualized = matches.length > 100;
   const virtual = useVirtualWindow(virtualized ? matches.length : 0, rowHeight);
@@ -78,7 +99,6 @@ export function SkillPrompt({
     },
     [virtual.attach],
   );
-  const visible = focused && !props.disabled && !dismissed && query !== null;
   const selected = matches[active] ?? matches[0];
   const selectedIndex = selected ? matches.indexOf(selected) : -1;
   const renderedIndices = virtualized
@@ -145,15 +165,20 @@ export function SkillPrompt({
     const rest = value.slice(cursor);
     const token = `${trigger}${skill.name}`;
     const next = `${prefix}${token}${rest.startsWith(" ") ? rest : ` ${rest}`}`;
-    selection.current = { text: next, cursor: prefix.length + token.length + 1 };
-    onChange(next);
+    if (next.length > (props.maxLength ?? 32_000)) {
+      showToast(`Keep messages under ${(props.maxLength ?? 32_000).toLocaleString()} characters.`);
+      return;
+    }
+    input.current?.focus();
+    input.current?.setSelectionRange(start, cursor);
+    input.current?.insertText(`${token}${rest.startsWith(" ") ? "" : " "}`);
     setDismissed(true);
   }
 
   return (
     <div
       ref={container}
-      className="skill-prompt"
+      className="skill-prompt relative"
       onFocusCapture={() => setFocused(true)}
       onBlurCapture={(event) => {
         if (
@@ -168,7 +193,7 @@ export function SkillPrompt({
         anchor &&
         createPortal(
           <div
-            className={`skill-picker ${codeScrollbarClassName}`}
+            className={`skill-picker absolute inset-x-3 z-3 overflow-y-auto overscroll-contain scroll-py-[5px] rounded-t-xl border border-border bg-(--desktop-surface) p-[5px] shadow-[0_-8px_24px_light-dark(#00000006,#0000001a)] ${codeScrollbarClassName}`}
             ref={attachMenu}
             data-virtual={virtualized || undefined}
           >
@@ -202,21 +227,25 @@ export function SkillPrompt({
                         : undefined
                     }
                     aria-selected={index === selectedIndex}
-                    className="skill-option"
+                    className="skill-option flex min-h-[34px] cursor-pointer items-center rounded-[5px] px-2.5 py-[7px] aria-selected:bg-hover-surface"
                     title={skill.description ? `${skill.name} — ${skill.description}` : skill.name}
                     onPointerMove={() => setActive(index)}
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => choose(skill)}
                   >
-                    <span className="skill-option-content">
-                      <span className="skill-option-name">
-                        <span className="skill-option-slash" aria-hidden="true">
+                    <span className="flex min-w-0 flex-1 items-baseline gap-4 [@container_composer_(max-width:600px)]:flex-col [@container_composer_(max-width:600px)]:items-stretch [@container_composer_(max-width:600px)]:gap-0.5">
+                      <span
+                        className={`skill-option-name min-w-0 flex-[0_1_40%] overflow-hidden text-[13px] leading-[18px] font-medium text-ellipsis whitespace-nowrap text-ink [@container_composer_(max-width:600px)]:flex-auto ${virtualized ? "" : "[@container_composer_(max-width:600px)]:wrap-anywhere [@container_composer_(max-width:600px)]:whitespace-normal"}`}
+                      >
+                        <span className="me-0.5 font-normal text-muted-ink" aria-hidden="true">
                           {value[cursor - (query?.length ?? 0) - 1]}
                         </span>
                         {skill.name}
                       </span>
                       {skill.description && (
-                        <span className="skill-option-description">{skill.description}</span>
+                        <span className="min-w-0 flex-1 overflow-hidden text-xs leading-4 text-ellipsis whitespace-nowrap text-muted-ink">
+                          {skill.description}
+                        </span>
                       )}
                     </span>
                   </div>
@@ -224,7 +253,10 @@ export function SkillPrompt({
               })}
             </div>
             {!matches.length && (
-              <div className="skill-picker-status" role="status">
+              <div
+                className="flex min-h-11 items-center justify-between gap-3 px-2.5 py-2 text-[13px] text-muted-ink"
+                role="status"
+              >
                 {status === "loading"
                   ? "Loading skills…"
                   : status === "error"
@@ -254,6 +286,7 @@ export function SkillPrompt({
         {...props}
         ref={assignInput}
         value={value}
+        skills={invokedSkills}
         role="textbox"
         aria-autocomplete="list"
         aria-haspopup="listbox"
