@@ -23,6 +23,10 @@ describe("skill query and matching", () => {
   test.each([
     ["Show \\` then /review", ["review"]],
     ["Show \\\\` /review ` then /audit", ["audit"]],
+    ["`C:\\temp\\` then /review", ["review"]],
+    ["use `foo then /review", ["review"]],
+    ["```foo``` then /review", ["review"]],
+    ["use `foo `` /review `` then /audit", ["audit"]],
     ["` `` /review ` /audit", ["audit"]],
     ["`` ` /review `` /audit", ["audit"]],
     ["  ```ts\n/review\n  ```\n/audit", ["audit"]],

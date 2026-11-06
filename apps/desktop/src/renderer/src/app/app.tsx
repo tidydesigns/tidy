@@ -74,7 +74,7 @@ import type {
 import { useRepositoryContext } from "../features/repository/use-repository-context";
 import { RepositoryIcon } from "../features/repository/repository-icons";
 import { SkillPrompt } from "../features/composer/skill-prompt";
-import { recoverSkills } from "../features/composer/skill-recovery";
+import { clearUnchangedSkills, recoverSkills } from "../features/composer/skill-recovery";
 import {
   promptSkill,
   skillCommand,
@@ -1293,10 +1293,15 @@ export function App({
         return;
       }
       if (thread.executionProjectId === executionProjectId) return;
-      updateDraft({ skill: undefined, recoveredSkills: undefined });
-      await changeThreadConfiguration({ executionProjectId }, () =>
+      const key = draftKey;
+      const changed = await changeThreadConfiguration({ executionProjectId }, () =>
         api.setThreadExecutionProject(project.id, thread.id, executionProjectId, running),
       );
+      if (changed)
+        setDrafts((current) => ({
+          ...current,
+          [key]: clearUnchangedSkills(current[key] ?? draft, draft),
+        }));
     };
     if (value !== "open") {
       await changeExecution(value === "design" ? undefined : value);
@@ -1316,11 +1321,9 @@ export function App({
       setDrafts((current) => ({
         ...current,
         [key]: {
-          ...(current[key] ?? fallback),
+          ...clearUnchangedSkills(current[key] ?? fallback, fallback),
           executionProjectId: opened.project.id,
           threadMode: undefined,
-          skill: undefined,
-          recoveredSkills: undefined,
         },
       }));
     } catch (cause) {
@@ -1659,20 +1662,18 @@ export function App({
       text: submitted,
       ids: recovery?.ids ?? [],
       skills: availableSkills,
+      catalogReady: skillCatalog.key === detailKey && skillCatalog.status === "ready",
     });
-    if (
-      recovery &&
-      (skillCatalog.key !== detailKey ||
-        skillCatalog.status !== "ready" ||
-        recovered.kind === "unavailable")
-    ) {
+    if (recovered.kind === "unavailable") {
       setError({
         projectId: project.id,
-        text: "Reload skills before sending this recovered message. If a selected skill was removed, clear the draft and select its skills again.",
+        text: recovery
+          ? "Reload skills before sending this recovered message. If a selected skill was removed, clear the draft and select its skills again."
+          : "Skills are not available yet. Retry loading skills before sending this command.",
       });
       return;
     }
-    const { command, skill: selectedSkill } = promptSkill(
+    const { skill: selectedSkill } = promptSkill(
       submitted,
       availableSkills,
       draft.skill?.harness === selectedHarness ? draft.skill : undefined,
@@ -1692,17 +1693,6 @@ export function App({
       setError({
         projectId: project.id,
         text: "This harness supports one skill command per message. Send each skill in a separate message.",
-      });
-      return;
-    }
-    if (
-      command &&
-      !selectedSkill &&
-      (skillCatalog.key !== detailKey || skillCatalog.status !== "ready")
-    ) {
-      setError({
-        projectId: project.id,
-        text: "Skills are not available yet. Retry loading skills before sending this command.",
       });
       return;
     }

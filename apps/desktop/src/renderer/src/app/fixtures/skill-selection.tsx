@@ -143,6 +143,9 @@ export async function runSkillSelectionTests(root: Root) {
     ["  ```ts\n/review\n   ```\nUse /review", 1],
     ["Show \\` then /review", 1],
     ["` `` /review ` then /review", 1],
+    ["`C:\\temp\\` then /review", 1],
+    ["use `foo then /review", 1],
+    ["```foo``` then /review", 1],
   ] as const) {
     flushSync(() => root.render(<Editable key={text} initial={text} />));
     check(

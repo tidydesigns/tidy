@@ -25,17 +25,23 @@ export type SkillCatalog = z.infer<typeof skillCatalogSchema>;
 function skillLiterals(text: string) {
   const ranges: { start: number; end: number }[] = [];
   const markers = /^ {0,3}(`{3,}|~{3,})|(`+)|\\[/$]/gm;
+  const matches = Array.from(text.matchAll(markers));
+  const lastBacktick = new Map<number, number>();
+  for (const match of matches) {
+    const marker = match[1] ?? match[2];
+    if (marker?.startsWith("`")) lastBacktick.set(marker.length, match.index);
+  }
   let fence: { start: number; marker: string } | undefined;
   let inline: { start: number; length: number } | undefined;
-  for (const match of text.matchAll(markers)) {
+  for (const match of matches) {
     const marker = match[1] ?? match[2];
     const markerStart = marker ? match.index + match[0].length - marker.length : match.index;
     let slashes = 0;
     for (let index = markerStart - 1; text[index] === "\\"; index--) slashes++;
-    if (slashes % 2) continue;
+    if (!inline && slashes % 2) continue;
     const end = match.index + match[0].length;
+    const newline = match[1] ? text.indexOf("\n", end) : -1;
     if (fence) {
-      const newline = text.indexOf("\n", end);
       if (
         match[1]?.startsWith(fence.marker.charAt(0)) &&
         match[1].length >= fence.marker.length &&
@@ -49,16 +55,20 @@ function skillLiterals(text: string) {
         ranges.push({ start: inline.start, end });
         inline = undefined;
       }
-    } else if (match[1]) {
+    } else if (
+      match[1] &&
+      (!match[1].startsWith("`") ||
+        !text.slice(end, newline < 0 ? text.length : newline).includes("`"))
+    ) {
       fence = { start: match.index, marker: match[1] };
-    } else if (match[2]) {
-      inline = { start: match.index, length: match[2].length };
-    } else {
+    } else if (marker?.startsWith("`")) {
+      if ((lastBacktick.get(marker.length) ?? -1) > match.index)
+        inline = { start: markerStart, length: marker.length };
+    } else if (!marker) {
       ranges.push({ start: match.index, end });
     }
   }
   if (fence) ranges.push({ start: fence.start, end: text.length });
-  if (inline) ranges.push({ start: inline.start, end: text.length });
   return ranges;
 }
 
