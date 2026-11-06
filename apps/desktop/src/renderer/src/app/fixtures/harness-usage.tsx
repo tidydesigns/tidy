@@ -24,12 +24,13 @@ function required<T>(value: T | undefined | null, label: string): T {
 export async function runHarnessUsageTests(root: Root) {
   const host = required(document.getElementById("root"), "Root missing");
   const projectId = crypto.randomUUID();
+  const expiry = new Date("2099-11-06T21:02:00Z");
   const usage: Usage = {
     account: { plan: "plus", workspace: "Studio", billing: "subscription" },
     windows: [
       { id: "weekly", name: "Weekly limit", usedPercent: 57, resetsAt: Date.now() / 1000 + 86400 },
     ],
-    resets: { availableCount: 3, items: [{ id: "one", expiresAt: Date.now() / 1000 + 86400 }] },
+    resets: { availableCount: 3, items: [{ id: "one", expiresAt: expiry.getTime() / 1000 }] },
     credits: { balance: "120", unlimited: false, hasCredits: true },
     state: "available",
     updatedAt: new Date(Date.now() - 120_000).toISOString(),
@@ -151,6 +152,36 @@ export async function runHarnessUsageTests(root: Root) {
   flushSync(() => pendingRefresh.click());
   await settle();
   check(reads.length === 1, "Opening usage duplicated its pending preload");
+  const resets = required(
+    [...panel().querySelectorAll("summary")].find((item) =>
+      item.textContent?.includes("Banked resets"),
+    ),
+    "Banked resets disclosure missing",
+  );
+  check(!resets.parentElement?.hasAttribute("open"), "Banked resets were not collapsed");
+  flushSync(() => resets.click());
+  const expiryTime = required(
+    panel().querySelector<HTMLTimeElement>(".account-usage-reset-list time"),
+    "Banked reset expiry missing",
+  );
+  check(expiryTime.getClientRects().length > 0, "Banked expiry did not appear immediately");
+  check(expiryTime.dateTime === expiry.toISOString(), "Banked expiry changed its timestamp");
+  const expiryParts = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).formatToParts(expiry);
+  for (const type of ["hour", "minute", "timeZoneName"]) {
+    const part = required(
+      expiryParts.find((part) => part.type === type),
+      `Expiry ${type}`,
+    );
+    check(
+      expiryTime.textContent?.includes(part.value),
+      `Banked expiry did not visibly include its ${type}`,
+    );
+  }
+  check(reads.length === 1, "Expanding banked resets refetched usage");
   const conversation = required(
     [...panel().querySelectorAll("summary")].find((item) =>
       item.textContent?.includes("This conversation"),

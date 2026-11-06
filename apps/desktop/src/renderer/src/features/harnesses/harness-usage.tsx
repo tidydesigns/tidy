@@ -412,6 +412,7 @@ export const HarnessUsage = memo(function HarnessUsage({
                                 day: "numeric",
                                 hour: "numeric",
                                 minute: "2-digit",
+                                timeZoneName: "short",
                               })}
                             </time>
                           ) : item.expiresAt === null ? (
