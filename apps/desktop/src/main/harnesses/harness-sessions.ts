@@ -45,8 +45,9 @@ const contextKey = (input: ManagedContext) =>
     input.executable,
     input.cwd,
     input.additionalDirectories ?? [],
-    input.settings?.model,
-    input.settings?.effort,
+    // Codex applies model/effort on turn/start without replacing the process.
+    input.harness === "codex" ? undefined : input.settings?.model,
+    input.harness === "codex" ? undefined : input.settings?.effort,
     input.settings?.fastMode,
     effectivePermissionMode(input.harness, input.settings?.permissionMode),
     !!input.superviseParent,
@@ -402,7 +403,7 @@ export class HarnessSessions {
       if (!entry.session.idle)
         throw new HarnessNotSubmittedError("This conversation already has a running turn.");
       try {
-        run = entry.session.start(input);
+        run = entry.session.start({ ...input, settings: input.settings ?? {} });
         await run.done;
       } catch (error) {
         if (!entry.session.available || !entry.session.hasBackgroundWork) this.retire(id, entry);

@@ -573,7 +573,7 @@ test("a duplicate start or incompatible preparation cannot close another running
       sessions.prepare({
         kind: "thread",
         id: "thread",
-        context: { ...context, settings: { model: "other" } },
+        context: { ...context, settings: { permissionMode: "auto" } },
       }),
     ).rejects.toThrow("Wait for");
     expect(() => process.kill(pid, 0)).not.toThrow();
@@ -757,6 +757,34 @@ for (const harness of harnessIdSchema.options) {
     }
   });
 
+  test(`${harness} cancels an unsent follow-up without stopping earlier background work`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-cancel-unsent-`));
+    const session = new HarnessSession({ harness, executable, cwd });
+    try {
+      await session.start({ prompt: "background silent", onUpdate() {} }).done;
+      const pid = (await events(cwd))[0].pid;
+      const cancelled = session.start({ prompt: "crash", onUpdate() {} });
+      cancelled.stop();
+      await cancelled.done;
+      expect(session.available).toBe(true);
+      expect(session.hasBackgroundWork).toBe(true);
+      await session.start({ prompt: "continue", onUpdate() {} }).done;
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      const recorded = await events(cwd);
+      expect(
+        recorded.filter(
+          (event) =>
+            event.method === "turn/start" ||
+            event.method === "session/prompt" ||
+            event.type === "user",
+        ),
+      ).toHaveLength(2);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+
   test(`${harness} releases silent background work and shutdown overrides retention`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-silent-`));
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 20, backgroundSilentMs: 200 });
@@ -787,7 +815,7 @@ for (const harness of harnessIdSchema.options) {
   });
 }
 
-test("background work survives idle invalidation and refuses incompatible settings until it finishes", async () => {
+test("background work survives idle invalidation and refuses incompatible permissions until it finishes", async () => {
   const cwd = await mkdtemp(join(directory, "background-invalidation-"));
   const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 100, backgroundSilentMs: 1000 });
   const context = { projectId: "project", harness: "codex" as const, executable, cwd };
@@ -797,7 +825,7 @@ test("background work survives idle invalidation and refuses incompatible settin
     await expect(
       sessions.start("thread", {
         ...context,
-        settings: { model: "different" },
+        settings: { permissionMode: "auto" },
         prompt: "continue",
         onUpdate() {},
       }).done,
@@ -806,6 +834,300 @@ test("background work survives idle invalidation and refuses incompatible settin
     expect(() => process.kill(pid, 0)).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("Codex applies next-turn settings on the same live background session, including resets", async () => {
+  const cwd = await mkdtemp(join(directory, "background-settings-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  const updates: HarnessUpdate[] = [];
+  try {
+    await sessions.start("thread", {
+      ...context,
+      prompt: "background silent",
+      onUpdate: (update) => updates.push(update),
+    }).done;
+    const sessionId = updates.find((update) => update.type === "session");
+    if (sessionId?.type !== "session") throw new Error("Missing fixture session");
+    const resumed = { ...context, sessionId: sessionId.id };
+    const pid = (await events(cwd))[0].pid;
+    const count = updates.length;
+    for (const settings of [
+      { model: "fixture/other", effort: "high" },
+      { model: "fixture/other", effort: "low" },
+      { model: "fixture/other" },
+      {},
+    ]) {
+      await sessions.prepare({ kind: "thread", id: "thread", context: { ...resumed, settings } });
+      const next: HarnessUpdate[] = [];
+      await sessions.start("thread", {
+        ...resumed,
+        settings,
+        prompt: "continue",
+        onUpdate: (update) => next.push(update),
+      }).done;
+      expect(next.some((update) => update.type === "message" && update.text === "OK")).toBe(true);
+      if (settings.effort === "low")
+        expect(next.filter((update) => update.type === "model")).toEqual([
+          { type: "model", model: "fixture/other" },
+        ]);
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      expect(sessions.backgroundContexts).toHaveLength(1);
+    }
+    expect(updates).toHaveLength(count);
+    const recorded = await events(cwd);
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+    expect(recorded.filter((event) => event.method === "thread/start")).toHaveLength(1);
+    expect(recorded.some((event) => event.method === "thread/resume")).toBe(false);
+    expect(recorded.filter((event) => event.method === "config/read")).toHaveLength(2);
+    const turns = recorded.filter((event) => event.method === "turn/start");
+    expect(turns.map((event) => event.value.params)).toEqual([
+      expect.not.objectContaining({ model: expect.any(String) }),
+      expect.objectContaining({ model: "fixture/other", effort: "high" }),
+      expect.objectContaining({ model: "fixture/other", effort: "low" }),
+      expect.objectContaining({ model: "fixture/other", effort: "low" }),
+      expect.objectContaining({ model: "fixture/default", effort: "medium" }),
+    ]);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("Codex defaults resolve only missing values, stop paging early, and remain fresh", async () => {
+  const cwd = await mkdtemp(join(directory, "background-defaults-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  const selected = { model: "fixture/other", effort: "high" };
+  const configure = (value: unknown) =>
+    writeFile(join(cwd, "codex-defaults.json"), JSON.stringify(value));
+  const send = (settings: { model?: string; effort?: string }) =>
+    sessions.start("thread", { ...context, settings, prompt: "continue", onUpdate() {} }).done;
+  try {
+    await sessions.start("thread", {
+      ...context,
+      settings: selected,
+      prompt: "background silent",
+      onUpdate() {},
+    }).done;
+    await configure({
+      config: { model: "configured/default", model_reasoning_effort: "low" },
+      pages: [],
+    });
+    await send({});
+    expect((await events(cwd)).filter((event) => event.method === "model/list")).toHaveLength(0);
+    await send(selected);
+    await configure({
+      config: { model: "configured/updated", model_reasoning_effort: "medium" },
+      pages: [],
+    });
+    await send({});
+    // A known model must not take the catalog default's effort, and later pages
+    // must not be fetched after the matching model has been found.
+    await send(selected);
+    await configure({
+      config: {},
+      pages: [
+        {
+          data: [{ model: "unrelated", isDefault: true, defaultReasoningEffort: "medium" }],
+          nextCursor: "1",
+        },
+        { data: [{ model: "fixture/other", defaultReasoningEffort: "low" }], nextCursor: "2" },
+        { deliberatelyInvalid: true },
+      ],
+    });
+    await send({ model: selected.model });
+    // Returning to defaults may need a later page as well.
+    await configure({
+      config: {},
+      pages: [
+        { data: [{ model: "fixture/other", defaultReasoningEffort: "low" }], nextCursor: "1" },
+        {
+          data: [{ model: "catalog/default", isDefault: true, defaultReasoningEffort: "medium" }],
+          nextCursor: "2",
+        },
+        { deliberatelyInvalid: true },
+      ],
+    });
+    await send({});
+    const recorded = await events(cwd);
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+    expect(recorded.filter((event) => event.method === "config/read")).toHaveLength(4);
+    expect(recorded.filter((event) => event.method === "model/list")).toHaveLength(4);
+    expect(
+      recorded.filter((event) => event.method === "turn/start").map((event) => event.value.params),
+    ).toEqual([
+      expect.objectContaining(selected),
+      expect.objectContaining({ model: "configured/default", effort: "low" }),
+      expect.objectContaining(selected),
+      expect.objectContaining({ model: "configured/updated", effort: "medium" }),
+      expect.objectContaining(selected),
+      expect.objectContaining({ model: "fixture/other", effort: "low" }),
+      expect.objectContaining({ model: "catalog/default", effort: "medium" }),
+    ]);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("cancelling a pending Codex defaults lookup preserves background work and cannot submit later", async () => {
+  const cwd = await mkdtemp(join(directory, "background-cancel-defaults-"));
+  const sessions = new HarnessSessions();
+  const settings = { model: "fixture/other", effort: "high" };
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd, settings };
+  try {
+    await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} }).done;
+    const pid = (await events(cwd))[0].pid;
+    await writeFile(join(cwd, "codex-defaults.json"), JSON.stringify({ delay: 80 }));
+    const cancelled = sessions.start("thread", {
+      ...context,
+      settings: {},
+      prompt: "must not run",
+      onUpdate() {},
+    });
+    const deadline = performance.now() + 1000;
+    while (!(await events(cwd)).some((event) => event.method === "config/read")) {
+      if (performance.now() > deadline) throw new Error("Default lookup never started");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    cancelled.stop();
+    await cancelled.done;
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    const accepted = Promise.withResolvers<void>();
+    const next = sessions.start("thread", {
+      ...context,
+      prompt: "hold",
+      onUpdate(update) {
+        if (update.type === "started") accepted.resolve();
+      },
+    });
+    await accepted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    next.stop();
+    await next.done;
+    const recorded = await events(cwd);
+    expect(recorded.filter((event) => event.method === "turn/start")).toHaveLength(2);
+    expect(recorded.some((event) => event.method === "model/list")).toBe(false);
+    expect(recorded.find((event) => event.method === "turn/interrupt")?.value.params).toMatchObject(
+      { turnId: "turn-2" },
+    );
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+    expect(sessions.backgroundContexts).toHaveLength(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("Codex settings are applied when the turn starts, even before a delayed acknowledgement", async () => {
+  const cwd = await mkdtemp(join(directory, "background-early-completion-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} }).done;
+    const updates: HarnessUpdate[] = [];
+    await sessions.start("thread", {
+      ...context,
+      settings: { model: "fixture/other", effort: "high" },
+      prompt: "delayed-ack",
+      onUpdate(update) {
+        updates.push(update);
+      },
+    }).done;
+    const earlyModel = updates.filter((update) => update.type === "model").at(-1);
+    const accepted = Promise.withResolvers<void>();
+    const next = sessions.start("thread", {
+      ...context,
+      settings: {},
+      prompt: "hold",
+      onUpdate(update) {
+        if (update.type === "started") accepted.resolve();
+      },
+    });
+    await accepted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    next.stop();
+    await next.done;
+    const recorded = await events(cwd);
+    expect(earlyModel).toEqual({ type: "model", model: "fixture/other" });
+    expect(
+      recorded.filter((event) => event.method === "turn/start").at(-1)?.value.params,
+    ).toMatchObject({ model: "fixture/default", effort: "medium" });
+    expect(recorded.find((event) => event.method === "turn/interrupt")?.value.params).toMatchObject(
+      { turnId: "turn-3" },
+    );
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("Codex background reuse still rejects changes to execution and permission boundaries", async () => {
+  const cwd = await mkdtemp(join(directory, "background-boundaries-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} }).done;
+    const pid = (await events(cwd))[0].pid;
+    for (const change of [
+      { projectId: "other" },
+      { executable: `${executable}-other` },
+      { cwd: `${cwd}/other` },
+      { additionalDirectories: [cwd] },
+      { superviseParent: true },
+      { sessionId: "different-session" },
+      { settings: { permissionMode: "auto" as const } },
+    ]) {
+      await expect(
+        sessions.start("thread", { ...context, ...change, prompt: "continue", onUpdate() {} }).done,
+      ).rejects.toThrow("Wait for background work");
+      expect(() => process.kill(pid, 0)).not.toThrow();
+    }
+    await sessions.start("thread", {
+      ...context,
+      settings: { model: "fixture/other", effort: "high" },
+      prompt: "continue",
+      onUpdate() {},
+    }).done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("a rejected Codex model change preserves background work and accepts a corrected follow-up", async () => {
+  const cwd = await mkdtemp(join(directory, "background-rejection-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} }).done;
+    const pid = (await events(cwd))[0].pid;
+    const unresolved = sessions.start("thread", {
+      ...context,
+      settings: { model: "fixture/rejected" },
+      prompt: "continue",
+      onUpdate() {},
+    });
+    await expect(unresolved.done).rejects.toThrow("did not report its default");
+    expect(unresolved.deliveryState).toBe("not-submitted");
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    const rejected = sessions.start("thread", {
+      ...context,
+      settings: { model: "fixture/rejected", effort: "high" },
+      prompt: "continue",
+      onUpdate() {},
+    });
+    await expect(rejected.done).rejects.toThrow("Model unavailable");
+    expect(rejected.deliveryState).toBe("rejected");
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await sessions.start("thread", {
+      ...context,
+      settings: { model: "fixture/other", effort: "high" },
+      prompt: "continue",
+      onUpdate() {},
+    }).done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
   } finally {
     await sessions.clear();
   }
@@ -909,19 +1231,20 @@ test("an unresponsive interrupt closes the connection before a later turn can us
   }
 });
 
-test("idle expiry, settings changes and crashes recreate connections without replaying a prompt", async () => {
+test("idle expiry, permission changes and crashes recreate connections without replaying a prompt", async () => {
   const cwd = await mkdtemp(join(directory, "recovery-"));
   const sessions = new HarnessSessions({ idleLimit: 2, idleMs: 25 });
   const context = { projectId: "project", harness: "codex" as const, executable, cwd };
-  const send = (prompt: string, model?: string) =>
-    sessions.start("thread", { ...context, settings: { model }, prompt, onUpdate() {} }).done;
+  const send = (prompt: string, permissionMode?: "auto") =>
+    sessions.start("thread", { ...context, settings: { permissionMode }, prompt, onUpdate() {} })
+      .done;
   try {
     await send("first");
-    await send("model change", "other");
+    await send("permission change", "auto");
     expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
     await new Promise((resolve) => setTimeout(resolve, 60));
-    await expect(send("crash", "other")).rejects.toThrow();
-    await send("recover", "other");
+    await expect(send("crash", "auto")).rejects.toThrow();
+    await send("recover", "auto");
     const recorded = await events(cwd);
     expect(new Set(recorded.map((event) => event.pid)).size).toBe(4);
     expect(recorded.filter((event) => event.method === "turn/start")).toHaveLength(4);

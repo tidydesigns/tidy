@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 const record = z.record(z.string(), z.unknown());
@@ -13,6 +13,10 @@ if (existsSync("record-startup"))
   );
 const sessionId = acp ? "ses_fixture" : "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
+const defaults = () =>
+  existsSync("codex-defaults.json")
+    ? object(JSON.parse(readFileSync("codex-defaults.json", "utf8")))
+    : {};
 function cost(amount: number) {
   send({
     method: "session/update",
@@ -180,8 +184,31 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
     else send({ id: value.id, error: { code: -32601, message: "Live permissions unsupported" } });
   } else if (method === "thread/start" || method === "thread/resume")
-    reply(value, { thread: { id: sessionId } });
-  else if (method === "session/new" || method === "session/load") {
+    reply(value, {
+      thread: { id: sessionId },
+      model: object(value.params).model ?? "fixture/default",
+    });
+  else if (method === "config/read") {
+    const configured = defaults();
+    const response = { config: configured.config ?? {} };
+    if (typeof configured.delay === "number")
+      setTimeout(() => reply(value, response), configured.delay);
+    else reply(value, response);
+  } else if (method === "model/list") {
+    const pages = defaults().pages;
+    reply(
+      value,
+      Array.isArray(pages)
+        ? pages[Number(object(value.params).cursor ?? 0)]
+        : {
+            data: [
+              { model: "fixture/default", isDefault: true, defaultReasoningEffort: "medium" },
+              { model: "fixture/other", defaultReasoningEffort: "low" },
+            ],
+            nextCursor: null,
+          },
+    );
+  } else if (method === "session/new" || method === "session/load") {
     if (method === "session/load" && existsSync("replay-cost")) cost(0.25);
     if (method === "session/load" && existsSync("replay-tools")) {
       background("started", "lifecycle-pending");
@@ -236,6 +263,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     pendingApproval = false;
     finish(true);
   } else if (method === "turn/start" || method === "session/prompt" || value.type === "user") {
+    if (method === "turn/start" && object(value.params).model === "fixture/rejected") {
+      send({ id: value.id, error: { code: -32602, message: "Model unavailable" } });
+      continue;
+    }
     nativeStarted = false;
     sequence++;
     turnId = `turn-${sequence}`;
@@ -263,7 +294,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
     else if (claude) send({ type: "system", subtype: "init", session_id: sessionId });
     else {
-      reply(value, { turn: { id: turnId } });
+      const response = { turn: { id: turnId } };
+      if (prompt.includes("delayed-ack")) setTimeout(() => reply(value, response), 50);
+      else reply(value, response);
       const begin = () => {
         nativeStarted = true;
         send({ method: "turn/started", params: { threadId: sessionId, turn: { id: turnId } } });

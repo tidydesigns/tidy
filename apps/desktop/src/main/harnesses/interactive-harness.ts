@@ -27,6 +27,7 @@ const approvalText = (value: string) =>
   );
 type Turn = {
   input: TurnInput;
+  abort: AbortController;
   delivery: NonNullable<RunningHarness["deliveryState"]>;
   completion: ReturnType<typeof Promise.withResolvers<void>>;
   error?: HarnessFailureError;
@@ -407,6 +408,7 @@ export class HarnessSession {
     }
     const { turn } = this.state;
     const cancelled = this.state.kind === "cancelling";
+    turn.abort.abort();
     clearTimeout(turn.cancellation);
     this.clearApprovals();
     this.state = { kind: "idle" };
@@ -417,6 +419,7 @@ export class HarnessSession {
     if (!this.available || !this.idle) throw new Error("The harness session is unavailable.");
     const turn: Turn = {
       input,
+      abort: new AbortController(),
       delivery: "not-submitted",
       completion: Promise.withResolvers<void>(),
       started: false,
@@ -427,7 +430,7 @@ export class HarnessSession {
       await this.ready;
       if (this.state.kind !== "running" || this.state.turn !== turn) return;
       for (const update of this.metadata.values()) this.emit(update);
-      await this.adapter.submit(input);
+      await this.adapter.submit(input, turn.abort.signal);
     })();
     void submission.catch((error: unknown) => {
       if (
@@ -439,7 +442,12 @@ export class HarnessSession {
       if (error instanceof HarnessRequestError && turn.delivery !== "accepted")
         turn.delivery = "rejected";
       this.finish(error instanceof Error ? error : new Error("The harness could not start."));
-      this.close();
+      // A rejected follow-up must not kill background commands from an earlier turn.
+      if (
+        !this.hasBackgroundWork ||
+        (turn.delivery !== "not-submitted" && turn.delivery !== "rejected")
+      )
+        this.close();
     });
     return {
       get deliveryState() {
@@ -451,6 +459,13 @@ export class HarnessSession {
         turn.owner.cancelled = true;
         this.state = { kind: "cancelling", turn, acknowledged: false, completed: false };
         this.clearApprovals();
+        // No provider turn exists yet. Cancel only this submission, preserving
+        // earlier background work and fencing any pending settings lookup.
+        if (turn.delivery === "not-submitted" && this.hasBackgroundWork) {
+          this.state.acknowledged = true;
+          this.finish();
+          return;
+        }
         turn.cancellation = setTimeout(() => this.close(), 2000);
         turn.cancellation.unref();
         void this.ready

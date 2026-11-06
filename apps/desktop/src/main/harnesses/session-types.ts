@@ -37,6 +37,7 @@ export type SessionContext = {
 };
 export type TurnInput = {
   prompt: string;
+  settings?: HarnessSettings;
   skill?: {
     invocation: SkillInvocation;
     additional?: SkillInvocation[];
@@ -79,7 +80,7 @@ export type HarnessAdapter = {
   setPermissionMode?(
     mode: import("../../shared/contracts/permissions").PermissionMode,
   ): Promise<boolean>;
-  submit(message: TurnInput): Promise<void>;
+  submit(message: TurnInput, signal: AbortSignal): Promise<void>;
   consume(message: ProtocolMessage): void;
   interrupt(): Promise<void>;
   steer?(message: Parameters<NonNullable<RunningHarness["steer"]>>[0]): Promise<boolean>;
