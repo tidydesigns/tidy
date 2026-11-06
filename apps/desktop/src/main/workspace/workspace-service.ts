@@ -1,4 +1,5 @@
 import { pullRequestURL } from "../../shared/contracts/pull-request";
+import { isDeepStrictEqual } from "node:util";
 import {
   threadRecoveryRequestSchema,
   type ThreadRecoveryRequest,
@@ -568,21 +569,24 @@ export class WorkspaceService {
     };
     this.ports = new ThreadPorts(store.processState);
     this.sessions.onBackgroundChange = (threadId, projectId) => {
-      void this.serialize(threadId, async () => {
-        if (this.closing || this.jobs.has(threadId) || !this.canAccessProject(projectId)) return;
-        await this.assertProjectAccess(projectId);
-        const thread = await this.store.readThread(projectId, threadId);
-        if (!this.sessions.hasBackgroundWork(threadId)) {
-          for (const tool of thread.toolActivities ?? [])
-            if (tool.status === "running") {
-              tool.status = "interrupted";
-              tool.endedAt = new Date().toISOString();
-            }
-        }
-        thread.revision++;
-        await this.store.writeThread(thread);
-        this.emit({ type: "thread", thread });
-      }).catch(() => {});
+      void this.trackRequest(
+        this.serialize(threadId, async () => {
+          if (this.closing || this.jobs.has(threadId) || !this.canAccessProject(projectId)) return;
+          await this.assertProjectAccess(projectId);
+          const thread = await this.store.readThread(projectId, threadId);
+          if (this.closing) return;
+          if (!this.sessions.hasBackgroundWork(threadId)) {
+            for (const tool of thread.toolActivities ?? [])
+              if (tool.status === "running") {
+                tool.status = "interrupted";
+                tool.endedAt = new Date().toISOString();
+              }
+          }
+          thread.revision++;
+          await this.store.writeThread(thread);
+          this.emit({ type: "thread", thread });
+        }),
+      ).catch(() => {});
     };
     this.worktreeCleanupTimer = setInterval(() => {
       void this.cleanupWorktrees().catch(() => {});
@@ -2282,32 +2286,36 @@ export class WorkspaceService {
   async resumeLimitedThreads(input: ThreadRecoveryRequest): Promise<ThreadRecoveryResult> {
     const { projectId, threads } = threadRecoveryRequestSchema.parse(input);
     const result: ThreadRecoveryResult = { resumed: [], skipped: [], failed: [] };
-    // Capture cancellation versions before waiting behind any other thread command.
+    // Stop must win even while authorization or project discovery is pending.
+    const stopVersions = new Map(this.stopVersions);
+    await this.assertProjectAccess(projectId);
+    const selected =
+      threads ??
+      (await this.store.threadSummaries(projectId))
+        .filter(isLimitedThread)
+        .map((thread) => ({ threadId: thread.id, revision: thread.revision }));
     const candidates = [
       ...new Map(
-        threads.map((thread) => [
+        selected.map((thread) => [
           thread.threadId,
           {
             ...thread,
-            stopVersion: this.stopVersions.get(thread.threadId) ?? 0,
+            stopVersion: stopVersions.get(thread.threadId) ?? 0,
           },
         ]),
       ).values(),
     ];
-    await this.assertProjectAccess(projectId);
     for (const candidate of candidates) {
       const { threadId, revision, stopVersion } = candidate;
       try {
         const resumed = await this.serialize(threadId, async () => {
           await this.assertProjectAccess(projectId);
           const thread = await this.mutableThread(projectId, threadId);
-          const current = () =>
-            !this.closing &&
-            !this.jobs.has(threadId) &&
-            !this.starting.has(threadId) &&
-            (this.stopVersions.get(threadId) ?? 0) === stopVersion;
           if (
-            !current() ||
+            this.closing ||
+            this.jobs.has(threadId) ||
+            this.starting.has(threadId) ||
+            (this.stopVersions.get(threadId) ?? 0) !== stopVersion ||
             thread.revision !== revision ||
             !isLimitedThread(thread) ||
             this.tasks.store.parentThreadId(projectId, threadId)
@@ -3054,34 +3062,41 @@ export class WorkspaceService {
     return (update: Extract<HarnessUpdate, { type: "tool" }>["tool"]) => {
       const id = toolIds.get(update.id);
       if (!id || update.status === "running") return;
-      void this.serialize(threadId, async () => {
-        if (this.closing || !this.canAccessProject(projectId)) return;
-        await this.assertProjectAccess(projectId);
-        const thread = await this.mutableThread(projectId, threadId);
-        const existing = thread.toolActivities?.find((tool) => tool.id === id);
-        if (!existing) return; // Truncated history must not be recreated by a late result.
-        const value = toolActivitySchema.parse({
-          ...existing,
-          ...update,
-          id,
-          afterMessageId: existing.afterMessageId,
-          startedAt: existing.startedAt,
-          endedAt: new Date().toISOString(),
-        });
-        Object.assign(existing, value);
-        for (const url of createdPullRequests(value))
-          if (!thread.pullRequests?.includes(url))
-            thread.pullRequests = [...(thread.pullRequests ?? []), url].slice(-20);
-        const tools = thread.toolActivities!;
-        let size = tools.reduce((total, tool) => total + toolLogSize(tool), 0);
-        while (size > MAX_TOOL_LOG_CHARACTERS) {
-          size -= toolLogSize(tools.shift()!);
-          thread.toolActivityTruncated = true;
-        }
-        thread.revision++;
-        await this.store.writeThread(thread);
-        this.emit({ type: "thread", thread });
-      }).catch(() => {});
+      void this.trackRequest(
+        this.serialize(threadId, async () => {
+          if (this.closing || !this.canAccessProject(projectId)) return;
+          await this.assertProjectAccess(projectId);
+          const thread = await this.mutableThread(projectId, threadId);
+          if (this.closing) return;
+          const existing = thread.toolActivities?.find((tool) => tool.id === id);
+          if (!existing) return; // Truncated history must not be recreated by a late result.
+          const value = toolActivitySchema.parse({
+            ...existing,
+            ...update,
+            id,
+            afterMessageId: existing.afterMessageId,
+            startedAt: existing.startedAt,
+            endedAt:
+              existing.status === update.status && existing.endedAt
+                ? existing.endedAt
+                : new Date().toISOString(),
+          });
+          if (isDeepStrictEqual(existing, value)) return;
+          Object.assign(existing, value);
+          for (const url of createdPullRequests(value))
+            if (!thread.pullRequests?.includes(url))
+              thread.pullRequests = [...(thread.pullRequests ?? []), url].slice(-20);
+          const tools = thread.toolActivities!;
+          let size = tools.reduce((total, tool) => total + toolLogSize(tool), 0);
+          while (size > MAX_TOOL_LOG_CHARACTERS) {
+            size -= toolLogSize(tools.shift()!);
+            thread.toolActivityTruncated = true;
+          }
+          thread.revision++;
+          await this.store.writeThread(thread);
+          this.emitThreadPatch(thread, id);
+        }),
+      ).catch(() => {});
     };
   }
 
@@ -3185,23 +3200,7 @@ export class WorkspaceService {
     }
     // Painting and persistence are independent: stream promptly without serializing
     // and writing the complete transcript on every UI update.
-    if (!job.notification)
-      job.notification = setTimeout(() => {
-        job.notification = undefined;
-        const { messages, toolActivities, ...metadata } = thread;
-        delete metadata.queuedMessages;
-        delete metadata.queueError;
-        this.emit({
-          type: "thread-patch",
-          thread: metadata,
-          summary: summarizeThread(thread),
-          messages: messages.filter((message) => job.changedMessages.has(message.id)),
-          toolActivities: (toolActivities ?? []).filter((tool) => job.changedTools.has(tool.id)),
-          toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
-        });
-        job.changedMessages.clear();
-        job.changedTools.clear();
-      }, 32);
+    if (!job.notification) job.notification = setTimeout(() => this.emitThreadPatch(thread), 32);
     if (!job.checkpoint)
       job.checkpoint = setTimeout(() => {
         job.checkpoint = undefined;
@@ -3211,6 +3210,33 @@ export class WorkspaceService {
           job.process?.stop();
         });
       }, 250);
+  }
+
+  private emitThreadPatch(thread: Thread, extraToolId?: string) {
+    const job = this.jobs.get(thread.id);
+    const { messages, toolActivities, ...metadata } = thread;
+    delete metadata.queuedMessages;
+    delete metadata.queueError;
+    const patch: Extract<DesktopEvent, { type: "thread-patch" }> = {
+      type: "thread-patch",
+      thread: metadata,
+      summary: summarizeThread(thread),
+      messages: job?.changedMessages.size
+        ? messages.filter((message) => job.changedMessages.has(message.id))
+        : [],
+      toolActivities: (toolActivities ?? []).filter(
+        (tool) => tool.id === extraToolId || job?.changedTools.has(tool.id),
+      ),
+      toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
+    };
+    if (job) {
+      clearTimeout(job.notification);
+      job.notification = undefined;
+      job.changedMessages.clear();
+      job.changedTools.clear();
+    }
+    // Include buffered live output: a later patch at this revision would be ignored.
+    this.emit(patch);
   }
 
   private async complete(job: Job) {
@@ -3829,10 +3855,15 @@ export class WorkspaceService {
 
   dispatch<T>(action: () => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(new Error("Tidy is closing."));
-    const request = Promise.resolve().then(() => {
-      if (this.closing) throw new Error("Tidy is closing.");
-      return action();
-    });
+    return this.trackRequest(
+      Promise.resolve().then(() => {
+        if (this.closing) throw new Error("Tidy is closing.");
+        return action();
+      }),
+    );
+  }
+
+  private trackRequest<T>(request: Promise<T>): Promise<T> {
     this.requests.add(request);
     return request.finally(() => this.requests.delete(request));
   }

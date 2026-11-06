@@ -97,7 +97,9 @@ export function createWorkspaceRequests<Context>(
           : name === "select-project" || name === "project-snapshot"
             ? value
             : undefined;
-      if (typeof target === "string") await service.assertProjectAccess(target);
+      // Recovery captures Stop's generation before its own authorization await.
+      if (typeof target === "string" && name !== "resume-limited-threads")
+        await service.assertProjectAccess(target);
       try {
         const result = await action(value, context);
         if (typeof target === "string") await service.assertProjectAccess(target);

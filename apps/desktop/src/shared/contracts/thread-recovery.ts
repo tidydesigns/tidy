@@ -3,9 +3,11 @@ import { z } from "zod";
 export const threadRecoveryRequestSchema = z
   .object({
     projectId: z.uuid(),
+    /** Omit to discover limited threads on the host without loading design metadata. */
     threads: z
       .array(z.object({ threadId: z.uuid(), revision: z.number().int().nonnegative() }).strict())
-      .max(1000),
+      .max(1000)
+      .optional(),
   })
   .strict();
 
