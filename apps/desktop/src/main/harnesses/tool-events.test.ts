@@ -326,3 +326,55 @@ test("bounded tool history evicts terminal tools without dropping new calls or u
   parse({ type: "system", subtype: "task_notification", task_id: "pending", status: "completed" });
   expect(updates.at(-1)).toMatchObject({ id: "pending", status: "completed" });
 });
+
+test("Claude message-only parsing leaves tool results to the session parser", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((update) => updates.push(update), { parseTools: false });
+  parse({
+    type: "assistant",
+    message: {
+      id: "message",
+      content: [
+        { type: "text", text: "Running the command." },
+        { type: "tool_use", id: "tool", name: "Bash", input: { command: "echo ok" } },
+      ],
+    },
+  });
+  let outputReads = 0;
+  parse({
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool",
+          get content() {
+            outputReads++;
+            return "ok";
+          },
+        },
+      ],
+    },
+  });
+  expect(updates).toEqual([{ type: "message", id: "message", text: "Running the command." }]);
+  expect(outputReads).toBe(0);
+});
+
+test("Claude task capacity preserves unfinished owners and recovers after one finishes", () => {
+  const { parse, snapshots, latest } = fixture("claude");
+  const start = (id: string) =>
+    parse({ type: "system", subtype: "task_started", task_id: id, tool_use_id: id });
+  const finish = (id: string) =>
+    parse({ type: "system", subtype: "task_notification", task_id: id, status: "completed" });
+  for (let index = 0; index < 1000; index++) start(`pending-${index}`);
+  start("overflow");
+  expect(snapshots).toHaveLength(1000);
+  finish("pending-500");
+  start("new-task");
+  finish("new-task");
+  expect(latest("new-task").status).toBe("completed");
+  finish("pending-0");
+  finish("pending-999");
+  expect(latest("pending-0").status).toBe("completed");
+  expect(latest("pending-999").status).toBe("completed");
+});

@@ -155,14 +155,20 @@ function readUsage(value: Record<string, unknown>): TokenUsage | undefined {
 }
 
 /** Normalize only visible messages and tool progress, never reasoning or credentials. */
-export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
+export function createClaudeParser(
+  emit: (event: HarnessUpdate) => void,
+  options: { parseTools?: boolean } = {},
+) {
   let claudeMessageId = "response";
   let reported: Extract<HarnessUpdate, { type: "error" }> | undefined;
   let refused = false;
-  const tools = createToolEventParser("claude", (tool) => emit({ type: "tool", tool }));
+  const tools =
+    options.parseTools === false
+      ? undefined
+      : createToolEventParser("claude", (tool) => emit({ type: "tool", tool }));
   return (input: unknown) => {
     const value = record(input);
-    if (value.type !== "assistant" || value.parent_tool_use_id) tools(value);
+    if (value.type !== "assistant" || value.parent_tool_use_id) tools?.(value);
     if (value.type === "system" && typeof value.model === "string")
       emit({ type: "model", model: value.model });
     if (typeof value.session_id === "string") emit({ type: "session", id: value.session_id });
@@ -266,7 +272,7 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
       }
       if (visible)
         emit({ type: "message", id: text(message.id) || claudeMessageId, text: visible });
-      tools(value);
+      tools?.(value);
     }
     if (value.type === "result") {
       const failed =

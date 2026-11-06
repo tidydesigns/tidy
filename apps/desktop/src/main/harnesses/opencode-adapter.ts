@@ -320,9 +320,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         update.sessionUpdate === "tool_call_update"
       ) {
         if (!update.toolCallId || update.kind === "think") return;
-        const previous = tools.get(update.toolCallId);
-        if (previous?.finished && update.status !== "completed" && update.status !== "failed")
-          return;
+        const previous = owner;
         const kind =
           update.kind === "read"
             ? "read"
@@ -335,8 +333,11 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
                   : (previous?.kind ?? "tool");
         const title = plainToolText(update.title ?? previous?.title ?? "Tool").slice(0, 240);
         if (!previous && tools.size >= 1000) {
-          const oldest = [...tools].find(([, tool]) => tool.finished)?.[0];
-          if (oldest) tools.delete(oldest);
+          for (const [id, tool] of tools) {
+            if (!tool.finished) continue;
+            tools.delete(id);
+            break;
+          }
         }
         if (
           !previous &&

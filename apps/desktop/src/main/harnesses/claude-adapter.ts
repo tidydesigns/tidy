@@ -67,8 +67,11 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
   const parseTools = createToolEventParser("claude", (tool) => {
     let owner = toolOwners.get(tool.id);
     if (!owner && toolOwners.size >= 1000) {
-      const oldest = [...toolOwners].find(([, item]) => item.finished)?.[0];
-      if (oldest) toolOwners.delete(oldest);
+      for (const [id, item] of toolOwners) {
+        if (!item.finished) continue;
+        toolOwners.delete(id);
+        break;
+      }
     }
     if (
       !owner &&
@@ -114,9 +117,8 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
     },
     async submit(message) {
       turnEmit = context.turnEmitter();
-      parse = createClaudeParser((update) => {
-        if (update.type !== "tool") emit(update);
-      });
+      // The session parser below owns tools that can outlive this turn.
+      parse = createClaudeParser(emit, { parseTools: false });
       context.submitting();
       if (
         !write({

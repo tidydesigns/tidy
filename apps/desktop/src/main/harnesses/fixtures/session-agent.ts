@@ -127,6 +127,7 @@ function background(state: "started" | "progress" | "finished", id: string, owne
       params: {
         threadId: ownerSession,
         turnId: ownerTurn,
+        ...(state === "progress" ? { itemId: id, delta: `output:${ownerTurn}` } : {}),
         item: {
           type: "commandExecution",
           id,
@@ -182,6 +183,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     reply(value, { thread: { id: sessionId } });
   else if (method === "session/new" || method === "session/load") {
     if (method === "session/load" && existsSync("replay-cost")) cost(0.25);
+    if (method === "session/load" && existsSync("replay-tools")) {
+      background("started", "lifecycle-pending");
+      background("started", "lifecycle-1");
+      background("finished", "lifecycle-1");
+    }
     if (method === "session/load")
       send({
         method: "session/update",
@@ -264,6 +270,28 @@ for await (const line of createInterface({ input: process.stdin })) {
       };
       if (prompt.includes("early-stop")) setTimeout(begin, 20);
       else begin();
+    }
+    if (prompt === "lifecycle-owner" || prompt === "lifecycle-reused-id") {
+      background("started", "reused-tool", turnId);
+      if (prompt === "lifecycle-reused-id") {
+        background("progress", "reused-tool", "turn-1");
+        background("finished", "reused-tool", "turn-1");
+        // Only Codex includes a turn ID to distinguish a new call with the same ID.
+        if (!claude && !acp) background("finished", "reused-tool", turnId);
+      }
+      finish();
+      continue;
+    }
+    if (prompt === "lifecycle-step" || prompt === "lifecycle-release") {
+      if (sequence === 1) background("started", "lifecycle-pending", turnId);
+      if (prompt === "lifecycle-release") background("finished", "lifecycle-pending", "turn-1");
+      else {
+        const id = `lifecycle-${sequence}`;
+        background("started", id, turnId);
+        background("finished", id, turnId);
+      }
+      finish();
+      continue;
     }
     if (acp && prompt.startsWith("defer-prompt-response ")) {
       deferredPrompt = { id: promptId, rejected: prompt.endsWith("rejected") };

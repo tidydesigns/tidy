@@ -2256,3 +2256,87 @@ test.each(["rejected", "malformed"])(
     }
   },
 );
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test(`${harness} retains pending tools while cycling more than 1000 fixture turns`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-lifecycle-retention-`));
+    if (harness === "opencode") await writeFile(join(cwd, "replay-tools"), "");
+    const session = new HarnessSession({
+      harness,
+      executable,
+      cwd,
+      ...(harness === "opencode" ? { sessionId: "ses_fixture" } : {}),
+    });
+    const late: Array<Extract<HarnessUpdate, { type: "tool" }>["tool"]> = [];
+    try {
+      for (let turn = 1; turn <= 1005; turn++) {
+        const updates: HarnessUpdate[] = [];
+        await session.start({
+          prompt: "lifecycle-step",
+          onUpdate: (update) => updates.push(update),
+          onLateTool: (tool) => late.push(tool),
+        }).done;
+        expect(updates.filter((update) => update.type === "tool").at(-1)).toMatchObject({
+          tool: {
+            id: `lifecycle-${turn}`,
+            status: harness === "claude" ? "cancelled" : "completed",
+          },
+        });
+        expect(session.hasBackgroundWork).toBe(true);
+      }
+      const release: HarnessUpdate[] = [];
+      await session.start({
+        prompt: "lifecycle-release",
+        onUpdate: (update) => release.push(update),
+      }).done;
+      expect(late).toHaveLength(1);
+      expect(late[0]).toMatchObject({
+        id: "lifecycle-pending",
+        status: harness === "claude" ? "cancelled" : "completed",
+      });
+      expect(release.filter((update) => update.type === "tool")).toEqual([]);
+      expect(session.hasBackgroundWork).toBe(false);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  }, 20000);
+}
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test(`${harness} keeps old tool IDs with their owner when a later turn repeats them`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-reused-tool-`));
+    const session = new HarnessSession({ harness, executable, cwd });
+    const late: Array<Extract<HarnessUpdate, { type: "tool" }>["tool"]> = [];
+    try {
+      await session.start({
+        prompt: "lifecycle-owner",
+        onUpdate() {},
+        onLateTool: (tool) => late.push(tool),
+      }).done;
+      const next: HarnessUpdate[] = [];
+      await session.start({
+        prompt: "lifecycle-reused-id",
+        onUpdate: (update) => next.push(update),
+      }).done;
+      expect(late.at(-1)).toMatchObject({
+        id: "reused-tool",
+        status: harness === "claude" ? "cancelled" : "completed",
+      });
+      const tools = next.flatMap((update) => (update.type === "tool" ? [update.tool] : []));
+      if (harness === "codex") {
+        expect(tools.map((tool) => tool.status)).toEqual(["running", "completed"]);
+        expect(late.at(-1)?.output).toBe("output:turn-1");
+        expect(tools.every((tool) => !tool.output)).toBe(true);
+      } else {
+        // These protocols have no turn discriminator; a known ID keeps its old owner.
+        expect(tools).toEqual([]);
+      }
+      expect(session.hasBackgroundWork).toBe(false);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+}
