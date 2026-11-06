@@ -5,7 +5,7 @@ import {
 } from "../../shared/contracts/worktree-settings";
 import type { ManagedWorktree } from "./worktree-storage";
 import { git } from "../repository/repository-context";
-import { skillCommand, type SkillSelection } from "../../shared/contracts/skills";
+import type { SkillSelection } from "../../shared/contracts/skills";
 import {
   threadCompletionSchema,
   type ThreadCompletion,
@@ -2308,11 +2308,10 @@ export class WorkspaceService {
           harness: thread.harness,
           cwd: this.store.project(project.id).path,
           id: message.skillId,
-          prompt: message.text,
+          prompt: edited.text,
+          unavailable: "omit",
         });
-        const retained = selected.flatMap(({ id, invocation }) =>
-          skillCommand(edited.text, [invocation.name]) ? [id] : [],
-        );
+        const retained = selected.map(({ id }) => id);
         edited.skillId = retained.length > 1 ? retained : retained[0];
       }
       if (edited) await this.store.editQueuedMessage(thread, message, edited);

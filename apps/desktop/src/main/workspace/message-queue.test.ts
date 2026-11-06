@@ -563,6 +563,51 @@ test("multiple queued file skills survive persistence, edits and native steering
   expect((await read()).queuedMessages![0].skillId).toBe(skillId[1]);
 });
 
+test.each([false, true])(
+  "queued edits can remove unavailable selections, including removing all skills: %s",
+  async (removeAll) => {
+    let names = ["review", "audit"];
+    const adapter: SkillAdapter = {
+      async discover() {
+        return names.map((name) => ({
+          kind: "file" as const,
+          name,
+          description: "",
+          path: `/skills/${name}/SKILL.md`,
+        }));
+      },
+    };
+    const skills = new HarnessSkills(async () => "/fixture", {
+      codex: adapter,
+      claude: adapter,
+      opencode: adapter,
+    });
+    const { service, project, thread, runs, read, action } = await fixture(true, true, skills);
+    const input = { harness: thread.harness, cwd: project.path };
+    const catalog = await skills.list(input);
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: "Use /review and $audit",
+      skillId: catalog.skills.map((skill) => skill.id),
+      delivery: "queue",
+    });
+    names = removeAll ? [] : ["audit"];
+    await skills.list({ ...input, refresh: true });
+    const queued = (await read()).queuedMessages![0];
+    await action({
+      kind: "edit",
+      messageId: queued.id,
+      text: removeAll ? "Just explain" : "Only $audit",
+    });
+    expect((await read()).queuedMessages![0].skillId).toBe(
+      removeAll ? undefined : catalog.skills.find((skill) => skill.name === "audit")?.id,
+    );
+    await action({ kind: "steer", messageId: queued.id });
+    expect(runs[0].steers[0].skill?.invocation.name).toBe(removeAll ? undefined : "audit");
+  },
+);
+
 for (const native of [false, true]) {
   test(`queued skills survive persistence and immediate delivery with native steering: ${native}`, async () => {
     const adapter: SkillAdapter = {

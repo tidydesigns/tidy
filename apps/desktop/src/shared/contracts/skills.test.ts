@@ -13,6 +13,23 @@ const review = { id: "current", name: "review", description: "Review changes" };
 const remembered = { id: "outdated", name: "review" };
 
 describe("skill query and matching", () => {
+  test.each(["(/rev", "[$rev", "Use (/rev)", "Use [$rev]"])(
+    "offers bracketed queries in %s",
+    (text) => {
+      const cursor = text.endsWith(")") || text.endsWith("]") ? text.length - 1 : text.length;
+      expect(skillQuery(text, cursor)).toBe("rev");
+    },
+  );
+  test.each([
+    ["Show \\` then /review", ["review"]],
+    ["Show \\\\` /review ` then /audit", ["audit"]],
+    ["` `` /review ` /audit", ["audit"]],
+    ["`` ` /review `` /audit", ["audit"]],
+    ["  ```ts\n/review\n  ```\n/audit", ["audit"]],
+    ["~~~\n/review\n   ~~~\n/audit", ["audit"]],
+  ])("keeps Markdown delimiters and escapes consistent for %s", (text, names) => {
+    expect(skillCommands(text).map((command) => command.name)).toEqual(names);
+  });
   test.each(["/", "$"])("offers skills at any whitespace-delimited %s token", (prefix) => {
     expect(skillQuery(prefix, 1)).toBe("");
     expect(skillQuery(`${prefix}rev`, 4)).toBe("rev");

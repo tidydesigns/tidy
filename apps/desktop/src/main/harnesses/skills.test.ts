@@ -10,6 +10,37 @@ const provider: SkillAdapter = {
 };
 
 describe("skill catalog boundaries", () => {
+  test.each(["command", "file"] as const)(
+    "deduplicates current and legacy aliases for a %s skill without skipping validation",
+    async (kind) => {
+      const input = { harness: "codex" as const, cwd: "/project" };
+      const native =
+        kind === "file"
+          ? { kind, name: "review", description: "Review", path: "/skills/review/SKILL.md" }
+          : { kind, name: "review", description: "Review" };
+      const adapter: SkillAdapter = {
+        async discover() {
+          return [native];
+        },
+      };
+      const catalog = new HarnessSkills(async () => "/fixture", {
+        codex: adapter,
+        claude: adapter,
+        opencode: adapter,
+      });
+      const { skills } = await catalog.list(input);
+      const legacy = createHash("sha256")
+        .update(JSON.stringify([input.harness, input.cwd, native]))
+        .digest("hex");
+      const id = [skills[0].id, legacy, skills[0].id];
+      expect(await catalog.resolveSelection({ ...input, id, prompt: "/review" })).toEqual([
+        { id: skills[0].id, invocation: native },
+      ]);
+      await expect(
+        catalog.resolveSelection({ ...input, id: [...id, "foreign"], prompt: "/review" }),
+      ).rejects.toThrow("no longer available");
+    },
+  );
   for (const harness of ["codex", "claude", "opencode"] as const) {
     test.each(["/", "$"])(
       `${harness} resolves %s selections with the same catalog id`,

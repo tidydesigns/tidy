@@ -24,31 +24,41 @@ export type SkillCatalog = z.infer<typeof skillCatalogSchema>;
 
 function skillLiterals(text: string) {
   const ranges: { start: number; end: number }[] = [];
-  const markers = /^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|\\[/$]/gm;
+  const markers = /^ {0,3}(`{3,}|~{3,})|(`+)|\\[/$]/gm;
   let fence: { start: number; marker: string } | undefined;
+  let inline: { start: number; length: number } | undefined;
   for (const match of text.matchAll(markers)) {
-    const previous = ranges.at(-1);
+    const marker = match[1] ?? match[2];
+    const markerStart = marker ? match.index + match[0].length - marker.length : match.index;
+    let slashes = 0;
+    for (let index = markerStart - 1; text[index] === "\\"; index--) slashes++;
+    if (slashes % 2) continue;
+    const end = match.index + match[0].length;
     if (fence) {
+      const newline = text.indexOf("\n", end);
       if (
         match[1]?.startsWith(fence.marker.charAt(0)) &&
         match[1].length >= fence.marker.length &&
-        !text.slice(match.index + match[1].length, match.index + match[0].length).trim()
+        !text.slice(end, newline < 0 ? text.length : newline).trim()
       ) {
-        ranges.push({ start: fence.start, end: match.index + match[0].length });
+        ranges.push({ start: fence.start, end });
         fence = undefined;
       }
-    } else if (previous && match.index < previous.end) {
-      continue;
+    } else if (inline) {
+      if (marker?.startsWith("`") && marker.length === inline.length) {
+        ranges.push({ start: inline.start, end });
+        inline = undefined;
+      }
     } else if (match[1]) {
       fence = { start: match.index, marker: match[1] };
     } else if (match[2]) {
-      const end = text.indexOf(match[2], match.index + match[2].length);
-      ranges.push({ start: match.index, end: end < 0 ? text.length : end + match[2].length });
+      inline = { start: match.index, length: match[2].length };
     } else {
-      ranges.push({ start: match.index, end: match.index + match[0].length });
+      ranges.push({ start: match.index, end });
     }
   }
   if (fence) ranges.push({ start: fence.start, end: text.length });
+  if (inline) ranges.push({ start: inline.start, end: text.length });
   return ranges;
 }
 
@@ -87,9 +97,9 @@ export function skillInvocationPrompt(text: string, prefix: "/" | "$", name: str
 }
 
 export function skillQuery(text: string, cursor: number) {
-  if (cursor !== text.length && !/\s/.test(text[cursor] ?? "")) return null;
+  if (cursor !== text.length && !/[\s)\]]/.test(text[cursor] ?? "")) return null;
   const before = text.slice(0, cursor);
-  const match = /(?:^|\s)[/$]([a-zA-Z0-9:_-]*)$/.exec(before);
+  const match = /(?:^|\s|[([])[/$]([a-zA-Z0-9:_-]*)$/.exec(before);
   if (!match) return null;
   const start = cursor - match[1].length - 1;
   return skillLiterals(text).some((range) => start >= range.start && start < range.end)

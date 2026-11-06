@@ -228,6 +228,7 @@ export class HarnessSkills {
     cwd: string;
     id: SkillSelection;
     prompt: string;
+    unavailable?: "omit";
   }) {
     const entries = await this.entries(input.harness, input.cwd, false, true);
     const catalog = new Map(
@@ -237,10 +238,16 @@ export class HarnessSkills {
       ]),
     );
     const names = new Set(skillCommands(input.prompt).map((command) => command.name));
-    return [...new Set(Array.isArray(input.id) ? input.id : [input.id])].map((id) => {
+    const seen = new Set<NativeSkill>();
+    return [...new Set(Array.isArray(input.id) ? input.id : [input.id])].flatMap((id) => {
       const invocation = catalog.get(id);
-      if (!invocation || !names.has(invocation.name)) throw new Error(skillMessages.unavailable);
-      return { id, invocation };
+      if (!invocation || !names.has(invocation.name)) {
+        if (input.unavailable === "omit") return [];
+        throw new Error(skillMessages.unavailable);
+      }
+      if (seen.has(invocation)) return [];
+      seen.add(invocation);
+      return [{ id, invocation }];
     });
   }
 }
