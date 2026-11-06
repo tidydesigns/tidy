@@ -37,13 +37,18 @@ test("compact orders round-trip insertions, removals and moves with exact confli
   }
 });
 
-test("single additions, removals and distant moves have bounded order receipts at 10000 layers", () => {
-  const ids = Array.from(
-    { length: 9999 },
-    (_, index) => `layer-${index.toString().padStart(5, "0")}`,
-  );
-  const before = document(ids);
-  for (const changed of [[...ids, "added"], ids.slice(1), [...ids.slice(1), ids[0]]]) {
+for (const [operation, change] of [
+  ["single additions", (ids: string[]) => [...ids, "added"]],
+  ["single removals", (ids: string[]) => ids.slice(1)],
+  ["distant moves", (ids: string[]) => [...ids.slice(1), ids[0]]],
+] as const)
+  test(`${operation} have bounded order receipts at 10000 layers`, () => {
+    const ids = Array.from(
+      { length: 9999 },
+      (_, index) => `layer-${index.toString().padStart(5, "0")}`,
+    );
+    const before = document(ids);
+    const changed = change(ids);
     const after = document(changed);
     const patch = compactCanvasPatch(diffDocument(before, after));
     expect(Buffer.byteLength(JSON.stringify([patch, invertPatch(patch)]))).toBeLessThan(3000);
@@ -52,8 +57,7 @@ test("single additions, removals and distant moves have bounded order receipts a
     expect(
       applyDocumentPatch(result, expandCanvasPatch(invertPatch(patch), result), true).nodes,
     ).toEqual(before.nodes);
-  }
-});
+  });
 
 test("import edit markers and deletion tombstones store set deltas instead of document-sized history", () => {
   const ids = Array.from({ length: 9999 }, (_, index) => `imported-${index}`);
