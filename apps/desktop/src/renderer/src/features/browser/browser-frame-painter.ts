@@ -51,7 +51,8 @@ export function createBrowserFramePainter(options: {
             state.activeTabId === tabId &&
             tab?.viewId === viewId &&
             size &&
-            (state.presentation === "native" ||
+            (tab.nativeTargetId ||
+              state.presentation === "native" ||
               (Math.abs(bitmap.width - size.width) <= 1 &&
                 Math.abs(bitmap.height - size.height) <= 1))
           ) {

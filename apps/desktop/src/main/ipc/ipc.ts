@@ -362,6 +362,7 @@ export function registerWorkspaceIPC(
     {
       native?: ReturnType<NativeBrowserRuntime["createPresenter"]>;
       nativeRemote?: boolean;
+      nativeActive?: boolean;
       nativeVisible?: boolean;
       nativeState?: BrowserState;
       watch?: BrowserWatch;
@@ -381,6 +382,7 @@ export function registerWorkspaceIPC(
     const entry: {
       native?: ReturnType<NativeBrowserRuntime["createPresenter"]>;
       nativeRemote?: boolean;
+      nativeActive?: boolean;
       nativeVisible?: boolean;
       nativeState?: BrowserState;
       watch?: BrowserWatch;
@@ -398,7 +400,22 @@ export function registerWorkspaceIPC(
         return;
       if (output.kind === "state" && entry.native && entry.nativeRemote) {
         entry.nativeState = output.state;
-        entry.native.updateState(output.state, entry.nativeVisible !== false);
+        // Older surviving hosts must keep their existing stream protocol.
+        const supported = output.state.nativePresentationControl === true;
+        const available = entry.native.update(
+          output.state,
+          supported && entry.nativeVisible !== false,
+        );
+        const active = supported && available;
+        if (supported && entry.nativeActive !== active) {
+          entry.nativeActive = active;
+          entry.watch?.input({
+            tabId: null,
+            viewId: null,
+            input: { kind: "native-presentation", enabled: active },
+          });
+        }
+        if (!active) delete output.state.presentation;
       }
       event.sender.send("tidy:browser-output", { watchId, output });
     };
@@ -467,7 +484,7 @@ export function registerWorkspaceIPC(
       const entry = browserWatches.get(`${event.sender.id}:${watchId}`);
       if (entry && input.input.kind === "visibility") {
         entry.nativeVisible = input.input.visible;
-        if (entry.nativeState) entry.native?.updateState(entry.nativeState, entry.nativeVisible);
+        if (entry.nativeState) entry.native?.update(entry.nativeState, entry.nativeVisible);
       }
       if (entry?.watch) entry.watch.input(input);
       else if (entry && entry.pending.length < 16) entry.pending.push(input);

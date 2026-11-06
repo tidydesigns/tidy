@@ -2113,3 +2113,47 @@ test("PR status notifications require per-connection opt-in and keep legacy clie
   expect(legacy.events.some((value) => value.type === "pull-request-state")).toBe(false);
   expect(legacy.client.status.kind).toBe("connected");
 });
+for (const nativeSupported of [false, true]) {
+  test(`native browser presentation negotiates ${nativeSupported ? "current" : "older"} host support`, async () => {
+    const f = await fixture();
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    const fetch = globalThis.fetch;
+    const health = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        async (...args: Parameters<typeof fetch>) => {
+          const response = await fetch(...args);
+          if (String(args[0]) !== `${f.origin()}/health` || nativeSupported) return response;
+          const data = (await response.json()) as { capabilities: string[] };
+          return Response.json({
+            ...data,
+            capabilities: data.capabilities.filter(
+              (value) => value !== "browser-native-presentation",
+            ),
+          });
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    );
+    const attach = f.service.browser.watch.bind(f.service.browser);
+    let native: boolean | undefined;
+    const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+      native = Boolean(args[3]);
+      return attach(...args);
+    });
+    const watch = client.watchBrowser(
+      { projectId: f.project.id, threadId: randomUUID() },
+      randomUUID(),
+      () => {},
+      true,
+    );
+    try {
+      await until(() => native !== undefined);
+      expect(native).toBe(nativeSupported);
+    } finally {
+      watch.close();
+      observe.mockRestore();
+      health.mockRestore();
+    }
+  });
+}

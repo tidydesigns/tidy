@@ -6,7 +6,7 @@ import type {
   BrowserState,
   BrowserOutput,
 } from "../../shared/contracts/browser";
-import { connect, type Browser, type ConnectionTransport, type Page } from "puppeteer-core";
+import { connect, type Browser, type ConnectionTransport } from "puppeteer-core";
 
 type TargetInfo = {
   targetId: string;
@@ -26,7 +26,9 @@ type NativePage = {
   exposed: boolean;
   input: boolean;
   frameId: string;
+  emulationKey?: string;
   owner?: BaseWindow;
+  presenter?: { park(): void };
 };
 type NativeContext = {
   session: Session;
@@ -47,7 +49,6 @@ export class NativeBrowserRuntime implements ConnectionTransport {
   private readonly contexts = new Map<string, NativeContext>();
   private readonly pages = new Map<string, NativePage>();
   private readonly sessions = new Map<string, NativePage>();
-  private readonly pageCache = new WeakMap<Page, ReturnType<NativeBrowserRuntime["lookupPage"]>>();
   private readonly presenters = new Map<number, () => void>();
   private readonly browserSessions = new Set<string>();
   private discovering = false;
@@ -114,9 +115,10 @@ export class NativeBrowserRuntime implements ConnectionTransport {
         webviewTag: false,
         navigateOnDragDrop: false,
         safeDialogs: true,
-        backgroundThrottling: false,
+        backgroundThrottling: true,
       },
     });
+    view.webContents.setZoomMode("isolated");
     return view;
   }
 
@@ -448,27 +450,6 @@ export class NativeBrowserRuntime implements ConnectionTransport {
     return page.view.webContents.debugger.sendCommand(method, params, sessionId);
   }
 
-  private lookupPage(page: Page) {
-    // Target IDs come from Puppeteer's CDP session, never from renderer input.
-    return page.createCDPSession().then(async (cdp) => {
-      try {
-        const { targetInfo } = await cdp.send("Target.getTargetInfo");
-        return this.pages.get(targetInfo.targetId);
-      } finally {
-        await cdp.detach();
-      }
-    });
-  }
-
-  page(page: Page) {
-    let value = this.pageCache.get(page);
-    if (!value) {
-      value = this.lookupPage(page);
-      this.pageCache.set(page, value);
-    }
-    return value;
-  }
-
   createPresenter(
     window: BrowserWindow,
     resized = () => {},
@@ -476,27 +457,37 @@ export class NativeBrowserRuntime implements ConnectionTransport {
     poster: (event: Extract<BrowserOutput, { kind: "frame" }>) => void = () => {},
   ) {
     let current: NativePage | undefined;
-    let requested: Page | undefined;
-    let resolved: Page | undefined;
-    let remoteState = false;
     let state: BrowserState | undefined;
     let visible = false;
     let bounds: BrowserNativeBounds | null = null;
     let closed = false;
     let shield: WebContentsView | undefined;
-    let sizeKey = "";
-    const park = () => {
-      if (shield && !window.isDestroyed()) {
-        window.contentView.removeChildView(shield);
-        shield.setVisible(false);
-      }
-      if (!current) return;
-      this.hide(current);
-      if (!current.view.webContents.isDestroyed() && this.parking && !this.parking.isDestroyed()) {
-        this.parking.contentView.addChildView(current.view);
-        current.owner = this.parking;
-        current.view.setVisible(true);
-      }
+    let shieldAttached = false;
+    let rectangle: Electron.Rectangle | undefined;
+    let geometryDirty = true;
+    const unshield = () => {
+      if (!shieldAttached) return;
+      if (!window.isDestroyed()) window.contentView.removeChildView(shield!);
+      shield!.setVisible(false);
+      shieldAttached = false;
+    };
+    const attachment = {
+      park: () => {
+        unshield();
+        if (current?.presenter !== attachment) return;
+        current.presenter = undefined;
+        this.hide(current);
+        if (
+          !current.view.webContents.isDestroyed() &&
+          this.parking &&
+          !this.parking.isDestroyed()
+        ) {
+          this.parking.contentView.addChildView(current.view);
+          current.owner = this.parking;
+          current.view.setVisible(true);
+        }
+        geometryDirty = true;
+      },
     };
     const render = () => {
       if (closed || window.isDestroyed()) return;
@@ -511,89 +502,94 @@ export class NativeBrowserRuntime implements ConnectionTransport {
         state.fileChooser ||
         current.info.url === "about:blank"
       ) {
-        park();
+        attachment.park();
         return;
+      }
+      if (current.presenter && current.presenter !== attachment) {
+        if (state.control !== "you") return;
+        current.presenter.park();
       }
       const other = this.presenters.get(window.id);
-      if (other !== park) {
+      if (other !== attachment.park) {
         other?.();
-        this.presenters.set(window.id, park);
+        this.presenters.set(window.id, attachment.park);
       }
-      const zoom = window.webContents.getZoomFactor();
-      const [width, height] = window.getContentSize();
-      const x = Math.max(0, Math.min(width, Math.round(bounds.x * zoom)));
-      const y = Math.max(0, Math.min(height, Math.round(bounds.y * zoom)));
-      const rectangle = {
-        x,
-        y,
-        width: Math.min(width - x, Math.round(bounds.width * zoom)),
-        height: Math.min(height - y, Math.round(bounds.height * zoom)),
-      };
-      if (rectangle.width < 1 || rectangle.height < 1) {
-        park();
-        return;
-      }
-      if (current.owner !== window) {
+      if (current.presenter !== attachment) {
         this.hide(current);
         window.contentView.addChildView(current.view);
         current.owner = window;
+        current.view.setVisible(true);
+        current.presenter = attachment;
+        current.shortcut = shortcut;
+        geometryDirty = true;
+        rectangle = undefined;
       }
-      current.input = state.control === "you";
-      current.shortcut = shortcut;
-      current.view.webContents.setZoomMode("isolated");
-      const pageZoom = (bounds.zoom ?? 1) * zoom;
-      if (current.view.webContents.getZoomFactor() !== pageZoom)
-        current.view.webContents.setZoomFactor(pageZoom);
-      current.view.setBounds(rectangle);
-      const nextSize = `${current.info.targetId}:${rectangle.width}:${rectangle.height}:${pageZoom}`;
-      if (sizeKey !== nextSize) {
-        sizeKey = nextSize;
-        setImmediate(resized);
+      if (geometryDirty) {
+        const zoom = window.webContents.getZoomFactor();
+        const [width, height] = window.getContentSize();
+        const x = Math.max(0, Math.min(width, Math.round(bounds.x * zoom)));
+        const y = Math.max(0, Math.min(height, Math.round(bounds.y * zoom)));
+        const next = {
+          x,
+          y,
+          width: Math.min(width - x, Math.round(bounds.width * zoom)),
+          height: Math.min(height - y, Math.round(bounds.height * zoom)),
+        };
+        if (next.width < 1 || next.height < 1) {
+          attachment.park();
+          return;
+        }
+        const resizedView =
+          !rectangle || next.width !== rectangle.width || next.height !== rectangle.height;
+        if (resizedView || next.x !== rectangle?.x || next.y !== rectangle?.y)
+          current.view.setBounds(next);
+        rectangle = next;
+        const viewport = bounds.viewport;
+        const key = viewport ? `${viewport.width}:${viewport.height}:${bounds.zoom}:${zoom}` : "";
+        const emulatedChanged = key !== current.emulationKey;
+        if (emulatedChanged) {
+          if (viewport)
+            current.view.webContents.enableDeviceEmulation({
+              screenPosition: "desktop",
+              screenSize: viewport,
+              viewPosition: { x: 0, y: 0 },
+              deviceScaleFactor: 0,
+              viewSize: viewport,
+              scale: (bounds.zoom ?? 1) * zoom,
+            });
+          else current.view.webContents.disableDeviceEmulation();
+          current.emulationKey = key;
+        }
+        if (resizedView || emulatedChanged) setImmediate(resized);
+        if (shieldAttached) shield!.setBounds(next);
+        geometryDirty = false;
       }
-      current.view.setVisible(true);
-      if (!current.input) {
-        // A native hit-test shield blocks physical input while CDP continues on the page.
-        shield ??= new WebContentsView({
-          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-        });
-        shield.setBackgroundColor("#00000000");
+      const interactive = state.control === "you";
+      current.input = interactive;
+      if (interactive) unshield();
+      else if (!shieldAttached) {
+        if (!shield) {
+          shield = new WebContentsView({
+            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+          });
+          shield.setBackgroundColor("#00000000");
+        }
         window.contentView.addChildView(shield);
-        shield.setBounds(rectangle);
+        shield.setBounds(rectangle!);
         shield.setVisible(true);
+        shieldAttached = true;
         if (current.view.webContents.isFocused()) shield.webContents.focus();
-      } else if (shield) {
-        window.contentView.removeChildView(shield);
-        shield.setVisible(false);
       }
     };
     const refresh = () => {
-      if (remoteState) {
-        render();
-        return;
-      }
-      const page = requested;
-      if (page && page === resolved && current) {
-        render();
-        return;
-      }
-      if (!page) {
-        park();
-        current = undefined;
-        return;
-      }
-      void this.page(page)
-        .then((native) => {
-          if (closed || requested !== page) return;
-          if (current !== native) park();
-          current = native;
-          render();
-        })
-        .catch(() => park());
+      geometryDirty = true;
+      render();
     };
     const close = () => {
+      if (closed) return;
       closed = true;
-      park();
-      if (this.presenters.get(window.id) === park) this.presenters.delete(window.id);
+      attachment.park();
+      if (this.presenters.get(window.id) === attachment.park) this.presenters.delete(window.id);
       if (shield && !shield.webContents.isDestroyed()) shield.webContents.close();
       window.removeListener("closed", close);
       window.removeListener("resize", refresh);
@@ -601,28 +597,28 @@ export class NativeBrowserRuntime implements ConnectionTransport {
     window.once("closed", close);
     window.on("resize", refresh);
     return {
-      update: (page: Page | undefined, next: BrowserState, shown: boolean) => {
-        if (requested !== page) park();
-        remoteState = false;
-        requested = page;
-        state = next;
-        visible = shown;
-        refresh();
-      },
-      updateState: (next: BrowserState, shown: boolean) => {
-        remoteState = true;
-        requested = undefined;
+      update: (next: BrowserState, shown: boolean) => {
+        if (closed) return false;
         const native = this.pages.get(
           next.tabs.find((tab) => tab.id === next.activeTabId)?.nativeTargetId ?? "",
         );
-        if (current !== native) park();
-        current = native;
+        if (current !== native) {
+          attachment.park();
+          current = native;
+          rectangle = undefined;
+          geometryDirty = true;
+        }
         state = next;
         visible = shown;
         render();
+        return (
+          (!next.activeTabId || Boolean(native)) &&
+          (!native?.presenter || native.presenter === attachment || next.control === "you")
+        );
       },
       layout: (next: BrowserNativeBounds | null) => {
-        if (next?.occluded && !bounds?.occluded && current?.owner === window && state) {
+        if (closed) return;
+        if (next?.occluded && !bounds?.occluded && current?.presenter === attachment && state) {
           const tab = state.tabs.find((tab) => tab.id === state!.activeTabId);
           if (tab)
             void current.view.webContents
@@ -642,14 +638,16 @@ export class NativeBrowserRuntime implements ConnectionTransport {
               .catch(() => {});
         }
         bounds = next;
-        if (!bounds || bounds.occluded) park();
-        else refresh();
+        geometryDirty = true;
+        if (!bounds || bounds.occluded) attachment.park();
+        else render();
       },
       close,
     };
   }
 
   private hide(page: NativePage) {
+    page.presenter = undefined;
     page.input = false;
     page.shortcut = undefined;
     page.view.setVisible(false);

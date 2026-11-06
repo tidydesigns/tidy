@@ -208,7 +208,9 @@ export class RemoteClient {
           ...scope,
           viewerId,
           ticket,
-          ...(native ? { native: "1" } : {}),
+          ...(native && capabilities.includes("browser-native-presentation")
+            ? { native: "1" }
+            : {}),
         });
         const next = new WebSocket(
           `${active.origin.replace("http:", "ws:")}/browser-stream?${params}`,

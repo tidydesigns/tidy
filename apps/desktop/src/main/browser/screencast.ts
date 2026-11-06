@@ -8,9 +8,11 @@ export type BrowserViewer = {
   id: string;
   visible: boolean;
   native?: {
-    update(page: Page | undefined, state: BrowserState, visible: boolean): void;
+    update(state: BrowserState, visible: boolean): boolean | void;
     close(): void;
   };
+  nativeEnabled?: boolean;
+  nativeActive?: boolean;
   send(event: BrowserOutput): void;
   inflight: Map<number, number>;
   pending?: Uint8Array;
@@ -102,11 +104,7 @@ export class BrowserScreencast {
         this.dirty = false;
         await this.stream().catch((error: unknown) => {
           for (const viewer of this.viewers)
-            if (
-              viewer.visible &&
-              !viewer.closed &&
-              !(viewer.native && this.options.currentTab()?.state.nativeTargetId)
-            )
+            if (viewer.visible && !viewer.closed && !viewer.nativeActive)
               viewer.send({
                 kind: "error",
                 message:
@@ -151,10 +149,7 @@ export class BrowserScreencast {
     if (!capture || capture.paused) return;
     const blocked = ![...this.viewers].some(
       (viewer) =>
-        viewer.visible &&
-        !viewer.closed &&
-        !(viewer.native && this.options.currentTab()?.state.nativeTargetId) &&
-        this.hasCredit(viewer),
+        viewer.visible && !viewer.closed && !viewer.nativeActive && this.hasCredit(viewer),
     );
     if (!blocked) {
       clearTimeout(capture.stallTimer);
@@ -185,10 +180,7 @@ export class BrowserScreencast {
     const viewers = this.pauses
       ? []
       : [...this.viewers].filter(
-          (viewer) =>
-            viewer.visible &&
-            !viewer.closed &&
-            !(viewer.native && this.options.currentTab()?.state.nativeTargetId),
+          (viewer) => viewer.visible && !viewer.closed && !viewer.nativeActive,
         );
     const current = this.capture;
     const size = tab ? browserFrameSize(tab.state) : undefined;
@@ -254,12 +246,7 @@ export class BrowserScreencast {
       if (generation !== this.generation || this.options.closed() || capture.paused) return;
       capture.lastFrame = Buffer.from(data, "base64");
       for (const viewer of this.viewers) {
-        if (
-          !viewer.visible ||
-          viewer.closed ||
-          (viewer.native && this.options.currentTab()?.state.nativeTargetId)
-        )
-          continue;
+        if (!viewer.visible || viewer.closed || viewer.nativeActive) continue;
         viewer.view = view;
         viewer.pending = capture.lastFrame;
         this.pushFrame(viewer);

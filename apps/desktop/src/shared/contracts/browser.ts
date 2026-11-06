@@ -26,6 +26,7 @@ export const browserTabSchema = z.object({
 });
 export const browserStateSchema = z.object({
   keyboardCommands: z.boolean().optional(),
+  nativePresentationControl: z.literal(true).optional(),
   presentation: z.literal("native").optional(),
   phase: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("idle") }),
@@ -144,6 +145,7 @@ export const browserResultSchema = z.object({
 export type BrowserResult = z.infer<typeof browserResultSchema>;
 const point = { x: z.number().finite().min(0).max(7680), y: z.number().finite().min(0).max(4320) };
 export const browserInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("native-presentation"), enabled: z.boolean() }).strict(),
   z.object({ kind: z.literal("ack"), frameId: z.number().int().positive().safe() }).strict(),
   z.object({ kind: z.literal("take-control") }).strict(),
   z.object({ kind: z.literal("release-control") }).strict(),
@@ -260,7 +262,14 @@ export const browserOutputEnvelopeSchema = z.object({
 export type BrowserOutput = z.infer<typeof browserOutputSchema>;
 export const browserNativeBoundsSchema = z
   .object({
-    zoom: z.number().finite().min(0.25).max(5).optional(),
+    zoom: z.number().finite().positive().max(5).optional(),
+    viewport: z
+      .object({
+        width: z.number().int().min(320).max(2560),
+        height: z.number().int().min(240).max(1600),
+      })
+      .strict()
+      .optional(),
     occluded: z.boolean().optional(),
     x: z.number().finite().min(0).max(32768),
     y: z.number().finite().min(0).max(32768),

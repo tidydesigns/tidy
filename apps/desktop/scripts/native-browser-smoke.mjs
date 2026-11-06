@@ -1,10 +1,10 @@
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, session, webContents, nativeImage } from "electron";
 import { mkdtemp, rm, writeFile, readFile, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { join } from "node:path";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 app.on("window-all-closed", () => {});
@@ -23,15 +23,20 @@ const deadline = setTimeout(() => {
     bundle = join(dir, "browser.mjs");
   await writeFile(
     entry,
-    `export {NativeBrowserRuntime} from ${JSON.stringify(join(root, "src/main/browser/native-runtime.ts"))};\nexport {BrowserService} from ${JSON.stringify(join(root, "src/main/browser/browser-service.ts"))};\nexport {serveNativeBrowser} from ${JSON.stringify(join(root, "src/main/browser/native-broker.ts"))};\nexport {connectNativeBrowser} from ${JSON.stringify(join(root, "src/main/browser/native-connection.ts"))};`,
+    `export {NativeBrowserRuntime} from ${JSON.stringify(join(root, "src/main/browser/native-runtime.ts"))};\nexport {BrowserService} from ${JSON.stringify(join(root, "src/main/browser/browser-service.ts"))};\nexport {serveNativeBrowser} from ${JSON.stringify(join(root, "src/main/browser/native-broker.ts"))};\nexport {connectNativeBrowser} from ${JSON.stringify(join(root, "src/main/browser/native-connection.ts"))};\nexport {serveBrowserStream} from ${JSON.stringify(join(root, "src/main/browser/stream-socket.ts"))};`,
   );
   execFileSync(
     "bun",
     ["build", entry, "--target=node", "--format=esm", "--external=electron", "--outfile=" + bundle],
     { stdio: "pipe" },
   );
-  const { NativeBrowserRuntime, BrowserService, serveNativeBrowser, connectNativeBrowser } =
-    await import(pathToFileURL(bundle).href);
+  const {
+    NativeBrowserRuntime,
+    BrowserService,
+    serveNativeBrowser,
+    connectNativeBrowser,
+    serveBrowserStream,
+  } = await import(pathToFileURL(bundle).href);
   const runtime = new NativeBrowserRuntime(),
     browser = new BrowserService(async (s) => {
       if (s.projectId !== scope.projectId) throw Error("Project access denied.");
@@ -164,11 +169,144 @@ const deadline = setTimeout(() => {
     modifiers: [process.platform === "darwin" ? "meta" : "control"],
   });
   await until(() => shortcut === "address");
-  presenter.layout({ x: 100, y: 100, width: 500, height: 350, zoom: 0.5 });
+  const methods = [
+    [page, "setBounds"],
+    [page, "setVisible"],
+    [page.webContents, "setZoomMode"],
+    [page.webContents, "getZoomFactor"],
+    [page.webContents, "setZoomFactor"],
+  ];
+  let nativeCalls = 0;
+  const originals = methods.map(([object, key]) => {
+    const original = object[key];
+    object[key] = (...args) => {
+      nativeCalls++;
+      return original.apply(object, args);
+    };
+    return original;
+  });
+  for (let i = 0; i < 1000; i++)
+    presenter.update(
+      { ...state, tabs: state.tabs.map((tab) => ({ ...tab, title: `Progress ${i}` })) },
+      true,
+    );
+  methods.forEach(([object, key], i) => {
+    object[key] = originals[i];
+  });
+  assert.equal(nativeCalls, 0, "Metadata must not relayout or refocus the native page");
+  presenter.update(state, true);
+  for (const zoom of [0.8, 1, 1.25]) {
+    window.webContents.setZoomFactor(zoom);
+    presenter.layout({
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 200,
+      zoom: 320 / 1440,
+      viewport: { width: 1440, height: 900 },
+    });
+    await until(() => state.tabs[0].width === 1440 && state.tabs[0].height === 900);
+    assert.deepEqual(
+      await page.webContents.executeJavaScript("({width:innerWidth,height:innerHeight})"),
+      { width: 1440, height: 900 },
+    );
+    const point = await page.webContents.executeJavaScript(
+      `(()=>{window.nativeClicks=0;document.querySelector('#apply').onclick=()=>window.nativeClicks++;const r=document.querySelector('#apply').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
+    );
+    const x = Math.round(((point.x * 320) / 1440) * zoom),
+      y = Math.round(((point.y * 320) / 1440) * zoom);
+    page.webContents.focus();
+    page.webContents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+    page.webContents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+    await tick(30);
+    assert.equal(await page.webContents.executeJavaScript("window.nativeClicks"), 1);
+  }
+  window.webContents.setZoomFactor(1);
+  presenter.layout({
+    x: 0,
+    y: 0,
+    width: 320,
+    height: 200,
+    zoom: 320 / 1440,
+    viewport: { width: 1440, height: 900 },
+  });
+  await tick(50);
+  let mirroredFrame;
+  const mirrored = await browser.watch(scope, randomUUID(), (event) => {
+    if (event.kind === "frame") mirroredFrame = event;
+  });
+  await until(() => mirroredFrame);
+  assert.deepEqual(nativeImage.createFromBuffer(Buffer.from(mirroredFrame.data)).getSize(), {
+    width: 640,
+    height: 400,
+  });
+  mirrored.close();
+  const secondWindow = new BrowserWindow({ show: true, width: 800, height: 600 });
+  const secondPresenter = runtime.createPresenter(secondWindow);
+  secondPresenter.layout({ x: 0, y: 0, width: 600, height: 400 });
+  let secondState;
+  const secondWatch = await browser.watch(
+    scope,
+    randomUUID(),
+    (event) => {
+      if (event.kind === "state") secondState = event.state;
+    },
+    secondPresenter,
+  );
+  assert.ok(window.contentView.children.includes(page));
+  secondWatch.input({ tabId: null, viewId: null, input: { kind: "take-control" } });
+  assert.ok(
+    secondWindow.contentView.children.includes(page),
+    "The controller must own the native page",
+  );
+  assert.equal(state.presentation, undefined, "Other viewers must fall back to frames");
+  watch.input({ tabId: null, viewId: null, input: { kind: "take-control" } });
+  assert.ok(window.contentView.children.includes(page));
+  assert.equal(secondState.presentation, undefined);
+  secondWatch.input({ tabId: null, viewId: null, input: { kind: "take-control" } });
+  secondWindow.destroy();
+  assert.equal(
+    page.webContents.isDestroyed(),
+    false,
+    "Closing a viewer window must preserve the shared browser session",
+  );
+  watch.input({ tabId: null, viewId: null, input: { kind: "take-control" } });
+  assert.ok(window.contentView.children.includes(page));
+  secondWatch.close();
+  secondPresenter.close();
+  if (!secondWindow.isDestroyed()) secondWindow.destroy();
+  assert.ok(
+    window.contentView.children.includes(page),
+    "Closing the former presenter must not detach the controller's page",
+  );
+  presenter.layout({
+    x: 100,
+    y: 100,
+    width: 500,
+    height: 350,
+    zoom: 0.5,
+    viewport: { width: 1000, height: 700 },
+  });
   await until(() => Math.abs(state.tabs[0].width - 1000) <= 1);
-  presenter.layout({ x: 100, y: 100, width: 500, height: 350, zoom: 0.5, occluded: true });
+  presenter.layout({
+    x: 100,
+    y: 100,
+    width: 500,
+    height: 350,
+    zoom: 0.5,
+    viewport: { width: 1000, height: 700 },
+    occluded: true,
+  });
   await until(() => posterCount === 1);
-  presenter.layout({ x: 100, y: 100, width: 500, height: 350, zoom: 0.5, occluded: true });
+  presenter.layout({
+    x: 100,
+    y: 100,
+    width: 500,
+    height: 350,
+    zoom: 0.5,
+    viewport: { width: 1000, height: 700 },
+    occluded: true,
+  });
   await tick(30);
   assert.equal(posterCount, 1);
   presenter.layout({ x: 100, y: 100, width: 600, height: 500 });
@@ -189,6 +327,12 @@ const deadline = setTimeout(() => {
   await browser.command(scope, { kind: "click", tabId, selector: "#popup" });
   await until(() => state.tabs.length === 2);
   assert.match(state.tabs[1].url, /next/);
+  await browser.command(scope, { kind: "close", tabId: state.activeTabId });
+  assert.equal(state.activeTabId, tabId);
+  assert.ok(
+    window.contentView.children.includes(page),
+    "Closing the active popup must restore the original native tab",
+  );
   const isolatedScope = { ...scope, threadId: randomUUID() };
   await browser.command(scope, {
     kind: "evaluate",
@@ -231,6 +375,51 @@ const deadline = setTimeout(() => {
   watch.close();
   await browser.close();
   window.destroy();
+  const layoutBundle = join(dir, "native-layout.js");
+  execFileSync(
+    "bun",
+    [
+      "build",
+      join(root, "src/renderer/src/app/fixtures/native-browser.tsx"),
+      "--target=browser",
+      "--format=esm",
+      "--outfile=" + layoutBundle,
+    ],
+    { stdio: "pipe" },
+  );
+  const layoutHTML = join(dir, "native-layout.html");
+  await writeFile(
+    layoutHTML,
+    '<!doctype html><style>body{margin:0}</style><div id="root"></div><script type="module" src="./native-layout.js"></script>',
+  );
+  const layoutWindow = new BrowserWindow({
+    show: false,
+    width: 1000,
+    height: 700,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+  cleanups.push(() => {
+    if (!layoutWindow.isDestroyed()) layoutWindow.destroy();
+  });
+  layoutWindow.showInactive();
+  await layoutWindow.loadFile(layoutHTML);
+  let layoutResult;
+  for (let i = 0; i < 250; i++) {
+    layoutResult = await layoutWindow.webContents.executeJavaScript("window.nativeLayoutTest");
+    if (layoutResult) break;
+    await tick(20);
+  }
+  assert.equal(
+    layoutResult?.passed,
+    true,
+    layoutResult?.message ?? "Native layout fixture timed out",
+  );
+  layoutWindow.destroy();
   const bridge = new NativeBrowserRuntime();
   process.env.TIDY_HOST_STATE = dir;
   const stopBridge = await serveNativeBrowser(bridge, dir);
@@ -264,10 +453,13 @@ const deadline = setTimeout(() => {
     shared = await context.newPage();
   await shared.goto("http://127.0.0.1:" + server.address().port);
   await shared.locator("#name").fill("private connection");
-  const target = await bridge.page(shared);
+  const targetSession = await shared.createCDPSession();
+  const { targetInfo } = await targetSession.send("Target.getTargetInfo");
+  await targetSession.detach();
+  const target = webContents.fromDevToolsTargetId(targetInfo.targetId);
   assert.ok(target);
   assert.equal(
-    await target.view.webContents.executeJavaScript('document.querySelector("#name").value'),
+    await target.executeJavaScript('document.querySelector("#name").value'),
     "private connection",
   );
   connection.disconnect();
@@ -298,6 +490,56 @@ const deadline = setTimeout(() => {
   assert.equal(survivingState.presentation, "native");
   assert.ok(survivingOpen.state.tabs[0].nativeTargetId);
   assert.equal(survivingFrames, 0);
+  const streams = new WebSocketServer({ server, path: "/native-stream-test" });
+  streams.on("connection", (socket) => {
+    void serveBrowserStream({
+      socket,
+      browser: surviving,
+      scope,
+      viewerId: randomUUID(),
+      native: true,
+      authorized: async () => true,
+    });
+  });
+  const streamed = new WebSocket(`ws://127.0.0.1:${server.address().port}/native-stream-test`);
+  let streamState,
+    pixels = 0;
+  streamed.on("message", (data, binary) => {
+    if (binary) pixels++;
+    else {
+      const event = JSON.parse(data.toString());
+      if (event.kind === "state") streamState = event.state;
+    }
+  });
+  await until(() => streamState?.presentation === "native");
+  assert.equal(streamState.nativePresentationControl, true);
+  assert.equal(pixels, 0);
+  streamed.send(
+    JSON.stringify({
+      tabId: null,
+      viewId: null,
+      input: { kind: "native-presentation", enabled: false },
+    }),
+  );
+  await until(() => pixels > 0);
+  assert.equal(streamState.presentation, undefined);
+  assert.equal(streamState.control, "available");
+  streamed.send(
+    JSON.stringify({
+      tabId: null,
+      viewId: null,
+      input: { kind: "native-presentation", enabled: true },
+    }),
+  );
+  await until(() => streamState.presentation === "native");
+  const stoppedAt = pixels;
+  await tick(50);
+  assert.equal(pixels, stoppedAt);
+  await new Promise((resolve) => {
+    streamed.once("close", resolve);
+    streamed.close();
+  });
+  await new Promise((resolve) => streams.close(resolve));
   survivingWatch.close();
   await surviving.close();
   await tick(50);
@@ -307,7 +549,7 @@ const deadline = setTimeout(() => {
   server.close();
   await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   console.log(
-    "Native browser smoke passed: shared automation, direct input, Retina, control, isolation, downloads, uploads, popups, view lifecycle, overlay posters, and private backend reconnection.",
+    "Native browser smoke passed: shared automation, direct input, Retina, control, isolation, downloads, uploads, popups, view lifecycle, overlay posters, renderer layout/occlusion, and private backend reconnection.",
   );
 })()
   .then(async () => {

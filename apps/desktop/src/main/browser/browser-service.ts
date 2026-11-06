@@ -166,6 +166,7 @@ export class BrowserService {
     const tab = workspace.activeTabId ? workspace.tabs.get(workspace.activeTabId) : undefined;
     return {
       keyboardCommands: true,
+      nativePresentationControl: true,
       phase: workspace.phase,
       tabs: [...workspace.tabs.values()].map((tab) => ({ ...tab.state })),
       activeTabId: workspace.activeTabId,
@@ -203,15 +204,21 @@ export class BrowserService {
   }
 
   private broadcast(workspace: Workspace) {
-    for (const viewer of workspace.stream.viewers) {
+    const viewers = [...workspace.stream.viewers].sort(
+      (a, b) => Number(b.id === workspace.controller) - Number(a.id === workspace.controller),
+    );
+    for (const viewer of viewers) {
       const state = this.snapshot(workspace, viewer.id);
-      if (viewer.native && this.runtime.native) {
-        state.presentation = "native";
-        viewer.native.update(
-          workspace.tabs.get(workspace.activeTabId ?? "")?.page,
-          state,
-          viewer.visible,
-        );
+      const active = Boolean(
+        viewer.native &&
+        this.runtime.native &&
+        viewer.nativeEnabled !== false &&
+        viewer.native.update(state, viewer.visible) !== false,
+      );
+      if (active) state.presentation = "native";
+      if (viewer.nativeActive !== active) {
+        viewer.nativeActive = active;
+        workspace.stream.refresh();
       }
       viewer.send({ kind: "state", state });
     }
@@ -901,6 +908,14 @@ export class BrowserService {
     return {
       input: ({ input, tabId, viewId }) => {
         if (viewer.closed) return;
+        if (input.kind === "native-presentation") {
+          if (viewer.native && viewer.nativeEnabled !== input.enabled) {
+            viewer.nativeEnabled = input.enabled;
+            this.broadcast(workspace);
+            workspace.stream.refresh();
+          }
+          return;
+        }
         if (input.kind === "ack") {
           workspace.stream.acknowledge(viewer, input.frameId);
           return;
@@ -1166,6 +1181,7 @@ export class BrowserService {
           this.broadcast(workspace);
         }
         break;
+      case "native-presentation":
       case "ack":
       case "take-control":
       case "release-control":
