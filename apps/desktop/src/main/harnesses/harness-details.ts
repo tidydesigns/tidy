@@ -19,11 +19,14 @@ const codexModels = z.object({
       isDefault: z.boolean().optional(),
       defaultReasoningEffort: effort.optional(),
       supportedReasoningEfforts: z.array(z.object({ reasoningEffort: effort })).default([]),
+      serviceTiers: z.array(z.object({ id: z.string() })).optional(),
+      defaultServiceTier: z.string().nullish(),
     }),
   ),
   nextCursor: z.string().nullish(),
 });
 const claudeInit = z.object({
+  fast_mode_state: z.enum(["off", "on", "cooldown"]).optional(),
   models: z.array(
     z.object({
       value: z.string().max(200),
@@ -31,6 +34,7 @@ const claudeInit = z.object({
       description: z.string().optional(),
       supportsEffort: z.boolean().optional(),
       supportedEffortLevels: z.array(effort).optional(),
+      supportsFastMode: z.boolean().optional(),
     }),
   ),
   account: z
@@ -84,10 +88,13 @@ export async function inspectHarness(
           name: model.displayName,
           description: model.description,
           efforts: model.supportsEffort === false ? [] : (model.supportedEffortLevels ?? []),
+          supportsFastMode: model.supportsFastMode === true,
         }));
         return {
           models,
           defaultModel: models.find((model) => model.id === "default")?.id,
+          defaultFastMode:
+            result.fast_mode_state === undefined ? undefined : result.fast_mode_state !== "off",
           windows: [],
           usage,
           updatedAt: new Date().toISOString(),
@@ -118,6 +125,14 @@ export async function inspectHarness(
             description: model.description,
             efforts: model.supportedReasoningEfforts.map((item) => item.reasoningEffort),
             defaultEffort: model.defaultReasoningEffort,
+            // This metadata arrived with explicit standard routing (Codex 0.133+).
+            // Earlier protocols cannot reliably turn a Fast catalog default off.
+            supportsFastMode:
+              model.defaultServiceTier !== undefined &&
+              model.serviceTiers?.some((tier) => tier.id === "fast" || tier.id === "priority") ===
+                true,
+            defaultFastMode:
+              model.defaultServiceTier === "fast" || model.defaultServiceTier === "priority",
           });
           if (model.isDefault) {
             defaultModel = model.model;
@@ -132,6 +147,7 @@ export async function inspectHarness(
           config: z.object({
             model: z.string().nullish(),
             model_reasoning_effort: z.string().nullish(),
+            service_tier: z.string().nullish(),
           }),
         })
         .safeParse(config);
@@ -146,6 +162,10 @@ export async function inspectHarness(
         models,
         defaultModel,
         defaultEffort,
+        defaultFastMode:
+          parsedConfig.success && parsedConfig.data.config.service_tier != null
+            ? ["fast", "priority"].includes(parsedConfig.data.config.service_tier)
+            : undefined,
         windows: usage.windows,
         usage,
         usageError: usage.note,
@@ -189,7 +209,7 @@ export async function validateHarnessSettings(
   load = readHarnessDetails,
 ) {
   validatePermissionMode(harness, settings?.permissionMode);
-  if (!settings?.model && !settings?.effort) return;
+  if (!settings?.model && !settings?.effort && !settings?.fastMode) return;
   const details = await load(harness, cwd);
   const model = details.models.find(
     (model) => model.id === (settings.model ?? details.defaultModel),
@@ -197,4 +217,6 @@ export async function validateHarnessSettings(
   if (settings.model && !model) throw new Error("Choose a model offered by the connected harness.");
   if (settings.effort && !model?.efforts.includes(settings.effort))
     throw new Error("This model does not offer that effort level.");
+  if (settings.fastMode && !model?.supportsFastMode)
+    throw new Error("This model does not offer Fast mode through the connected harness.");
 }

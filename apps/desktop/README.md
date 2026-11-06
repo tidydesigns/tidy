@@ -531,6 +531,15 @@ composer shows the resolved model name and effort. If the harness does not repor
 a value, choose it from the menu. Settings cannot change during a run. Checking
 models and limits never starts an inference turn.
 
+Supported Codex and Claude models offer a separate **Fast** checkbox below the
+effort options; the trigger shows, for example, **High | Fast**. Speed and effort
+persist independently per thread. Fast mode can use more credits or incur higher
+provider charges. Codex requires its modern tier catalog and explicit standard
+routing support (CLI 0.133+); Claude Code's documented headless opt-in requires
+2.1.205+. Model and account eligibility still apply. OpenCode's ACP connection
+does not expose an independent speed control, so its effort variants remain
+unchanged.
+
 Usage shows Codex account limits when available and recorded thread token counts
 for either harness. Claude Code does not expose live account limits through its
 connection; Open provider usage opens the appropriate provider page instead.

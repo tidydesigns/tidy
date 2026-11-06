@@ -55,18 +55,21 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
         codex
           ? {}
           : {
+              fast_mode_state: existsSync("fast-default") ? "on" : "off",
               models: [
                 {
                   value: "default",
                   displayName: "Default Claude",
                   supportsEffort: true,
                   supportedEffortLevels: ["low", "high"],
+                  supportsFastMode: true,
                 },
                 {
                   value: "fixture-claude",
                   displayName: "Fixture Claude",
                   supportsEffort: true,
                   supportedEffortLevels: ["low", "high"],
+                  supportsFastMode: true,
                 },
               ],
               account: { email: "private@example.invalid", tokenSource: "oauth" },
@@ -82,13 +85,24 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
             isDefault: true,
             defaultReasoningEffort: "medium",
             supportedReasoningEfforts: [{ reasoningEffort: "medium" }, { reasoningEffort: "high" }],
+            ...(existsSync("legacy-speed-catalog")
+              ? { additionalSpeedTiers: ["fast"] }
+              : {
+                  serviceTiers: [{ id: "priority" }],
+                  defaultServiceTier: existsSync("fast-default") ? "priority" : null,
+                }),
           },
         ],
         nextCursor: null,
       });
     else if (method === "config/read")
       reply({
-        config: { model: "fixture-codex", model_reasoning_effort: "high", secret: "do-not-expose" },
+        config: {
+          model: "fixture-codex",
+          model_reasoning_effort: "high",
+          secret: "do-not-expose",
+          ...(existsSync("standard-config-default") ? { service_tier: "default" } : {}),
+        },
       });
     else if (method === "account/rateLimits/read")
       reply({

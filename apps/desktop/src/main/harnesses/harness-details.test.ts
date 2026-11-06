@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, copyFile, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectHarness, validateHarnessSettings } from "./harness-details";
@@ -16,6 +16,28 @@ async function fixture() {
   await chmod(executable, 0o700);
   return { directory, executable };
 }
+
+test("older Codex catalogs cannot offer a toggle without explicit standard routing", async () => {
+  const { directory, executable } = await fixture();
+  await writeFile(join(directory, "legacy-speed-catalog"), "");
+  const details = await inspectHarness(executable, "codex", directory);
+  expect(details.models[0].supportsFastMode).toBe(false);
+  await expect(
+    validateHarnessSettings("codex", directory, { fastMode: true }, async () => details),
+  ).rejects.toThrow("Fast mode");
+});
+
+test("Fast defaults come from the model catalog or native settings, including explicit standard", async () => {
+  const { directory, executable } = await fixture();
+  await writeFile(join(directory, "fast-default"), "");
+  let details = await inspectHarness(executable, "codex", directory);
+  expect(details.models[0].defaultFastMode).toBe(true);
+  expect(details.defaultFastMode).toBeUndefined();
+  await writeFile(join(directory, "standard-config-default"), "");
+  details = await inspectHarness(executable, "codex", directory);
+  expect(details.defaultFastMode).toBe(false);
+  expect((await inspectHarness(executable, "claude", directory)).defaultFastMode).toBe(true);
+});
 for (const harness of ["codex", "claude"] as HarnessId[])
   test(`${harness} discovers models without starting a turn or exposing account details`, async () => {
     const { directory, executable } = await fixture();
@@ -24,6 +46,9 @@ for (const harness of ["codex", "claude"] as HarnessId[])
     expect(details.models.find((model) => model.id === `fixture-${harness}`)?.efforts).toContain(
       "high",
     );
+    expect(
+      details.models.find((model) => model.id === `fixture-${harness}`)?.supportsFastMode,
+    ).toBe(true);
     const invocation = JSON.parse(
       await readFile(join(directory, "capability-invocation.json"), "utf8"),
     );
@@ -41,6 +66,19 @@ for (const harness of ["codex", "claude"] as HarnessId[])
       { model: `fixture-${harness}`, effort: "high" },
       async () => details,
     );
+    await validateHarnessSettings(
+      harness,
+      directory,
+      { model: `fixture-${harness}`, effort: "high", fastMode: true },
+      async () => details,
+    );
+    await expect(
+      validateHarnessSettings(harness, directory, { fastMode: true }, async () => ({
+        ...details,
+        models: details.models.map((model) => ({ ...model, supportsFastMode: false })),
+      })),
+    ).rejects.toThrow("Fast mode");
+    await validateHarnessSettings(harness, directory, { fastMode: false }, async () => details);
     await expect(
       validateHarnessSettings(
         harness,

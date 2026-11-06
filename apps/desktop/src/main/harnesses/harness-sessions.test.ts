@@ -37,6 +37,33 @@ const eventsSchema = z.array(
   }),
 );
 
+test("changing Fast mode replaces a retained session and never uses the permissions-only shortcut", async () => {
+  const cwd = await mkdtemp(join(directory, "fast-mode-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", {
+      ...context,
+      settings: { fastMode: true },
+      prompt: "first",
+      onUpdate() {},
+    }).done;
+    expect(await sessions.updatePermissions("thread", "project", { fastMode: false })).toBe(false);
+    await sessions.start("thread", {
+      ...context,
+      settings: { fastMode: false },
+      prompt: "next",
+      onUpdate() {},
+    }).done;
+    const started = (await events(cwd)).filter((event) => event.method === "turn/start");
+    expect(started).toHaveLength(2);
+    expect(started[0].pid).not.toBe(started[1].pid);
+    expect(started[1].value.params).toMatchObject({ serviceTier: "default" });
+  } finally {
+    await sessions.clear();
+  }
+});
+
 test("a native Claude update preserves compatible follow-ups while its existing session has background work", async () => {
   const { ProjectStore } = await import("../workspace/project-store");
   const { WorkspaceService } = await import("../workspace/workspace-service");

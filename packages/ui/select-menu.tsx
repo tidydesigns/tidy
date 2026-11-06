@@ -19,6 +19,7 @@ export type SelectMenuOption = {
   disabled?: boolean;
   ariaLabel?: string;
   checked?: boolean;
+  separatorBefore?: boolean;
 };
 
 export function SelectMenu({
@@ -407,13 +408,20 @@ export function SelectMenu({
                         )}
                       </button>
                     );
-                    return optionAction ? (
-                      <div key={option.value} className="select-menu-option-row">
-                        {button}
-                        {optionAction(option)}
-                      </div>
-                    ) : (
-                      <Fragment key={option.value}>{button}</Fragment>
+                    return (
+                      <Fragment key={option.value}>
+                        {option.separatorBefore && (
+                          <div role="separator" className="my-1 border-t border-primary-grey" />
+                        )}
+                        {optionAction ? (
+                          <div className="select-menu-option-row">
+                            {button}
+                            {optionAction(option)}
+                          </div>
+                        ) : (
+                          button
+                        )}
+                      </Fragment>
                     );
                   })}
                 </div>

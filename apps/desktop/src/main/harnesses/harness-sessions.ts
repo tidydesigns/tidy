@@ -47,6 +47,7 @@ const contextKey = (input: ManagedContext) =>
     input.additionalDirectories ?? [],
     input.settings?.model,
     input.settings?.effort,
+    input.settings?.fastMode,
     effectivePermissionMode(input.harness, input.settings?.permissionMode),
     !!input.superviseParent,
     input.agentTools?.identity,
@@ -103,7 +104,8 @@ export class HarnessSessions {
       entry.invalidated ||
       entry.retireWhenIdle ||
       settings.model !== entry.context.settings?.model ||
-      settings.effort !== entry.context.settings?.effort
+      settings.effort !== entry.context.settings?.effort ||
+      settings.fastMode !== entry.context.settings?.fastMode
     )
       return false;
     if (
