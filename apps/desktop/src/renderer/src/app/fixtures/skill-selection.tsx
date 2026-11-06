@@ -100,13 +100,83 @@ export async function runSkillSelectionTests(root: Root) {
   for (const [text, count] of [
     ["Use /review, then /review.", 2],
     ["```\n/review\n```", 0],
+    ["  ```ts\n/review\n   ```\nUse /review", 1],
+    ["Show \\` then /review", 1],
+    ["` `` /review ` then /review", 1],
   ] as const) {
     flushSync(() => root.render(<Editable key={text} initial={text} />));
     check(
       host.querySelectorAll("[data-skill-command]").length === count,
       "Skill tokens disagree with invocation parsing",
     );
+    check(
+      Boolean(promptSkill(text, demo).skill) === Boolean(count),
+      "Selected identity disagrees with literal parsing",
+    );
   }
+
+  const backwardText = "Before /review after";
+  const backward = () => {
+    const editor = host.querySelector<HTMLElement>('[role="textbox"]');
+    if (!editor?.firstChild || !editor.lastChild)
+      throw new Error("Missing backward selection editor");
+    const selected = window.getSelection();
+    check(
+      selected?.anchorNode === editor.lastChild &&
+        selected.anchorOffset === 6 &&
+        selected.focusNode === editor.firstChild &&
+        selected.focusOffset === 2,
+      "Backward selection across a skill lost its anchor or focus",
+    );
+  };
+  flushSync(() => root.render(<Editable key="backward" initial={backwardText} />));
+  input.current?.focus();
+  input.current?.setSelectionRange(backwardText.length, 2);
+  backward();
+  flushSync(() => root.render(<Editable key="backward" initial={backwardText} skills={[]} />));
+  const undecorated = host.querySelector<HTMLElement>('[role="textbox"]');
+  const selection = window.getSelection();
+  check(
+    selection?.anchorNode === undecorated?.firstChild &&
+      selection?.anchorOffset === backwardText.length &&
+      selection?.focusNode === undecorated?.firstChild &&
+      selection?.focusOffset === 2,
+    "Removing skill decoration reversed the selection",
+  );
+  flushSync(() => root.render(<Editable key="backward" initial={backwardText} />));
+  backward();
+  flushSync(() => input.current?.insertText("X"));
+  check(edited === "BeX", "Replacing a backward selection damaged the draft");
+  input.current?.setSelectionRange(3, 1);
+  const backwardEditor = host.querySelector<HTMLElement>('[role="textbox"]');
+  if (!backwardEditor) throw new Error("Missing backward undo editor");
+  flushSync(() =>
+    backwardEditor.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  check(edited === backwardText, "Backward replacement undo lost text");
+  backward();
+  flushSync(() =>
+    backwardEditor.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  const redone = window.getSelection();
+  check(
+    edited === "BeX" &&
+      redone?.anchorNode === backwardEditor.firstChild &&
+      redone.anchorOffset === 3 &&
+      redone.focusNode === backwardEditor.firstChild &&
+      redone.focusOffset === 1,
+    "Redo reversed the saved backward selection",
+  );
 
   for (const prefix of ["/", "$"]) {
     const initial = `Before ${prefix}review after`;

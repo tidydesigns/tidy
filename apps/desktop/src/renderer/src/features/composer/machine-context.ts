@@ -27,6 +27,7 @@ export type Draft = {
   settings?: HarnessSettings;
   attachments?: AttachedFile[];
   skill?: { id: string; name: string; harness: HarnessId };
+  recoveredSkills?: { ids: string[]; harness: HarnessId };
 };
 
 export type MachineSelection = { project: Project; contextProjectId: string; draft: Draft };
@@ -126,6 +127,7 @@ export async function copyDraft({
       executionProjectId: undefined,
       threadMode: undefined,
       skill: undefined,
+      recoveredSkills: undefined,
     },
   };
 }
