@@ -15,6 +15,13 @@ wordmark in its production position. Colour and application name distinguish bet
 Windows and Linux retain their existing white wordmark artwork (`icon.ico` and
 `icon.png`).
 
+The new-thread screen uses the same `isDesktopBeta` version check on all platforms:
+beta versions show the coral/pink/violet cloud artwork and a Beta label; stable
+versions show the green/yellow/cyan spectrum artwork and a Production label. The
+neutral background clouds follow the light or dark theme. These assets are bundled
+locally in the renderer; no release flag, cloud setting or image request to another
+service is needed. The branding is removed when opening a conversation.
+
 ## Export and regenerate
 
 The two 1024 × 1024 masters are real exports of the selected design subtrees,

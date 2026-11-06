@@ -29,6 +29,12 @@ import { promptThreadTitle } from "../../../shared/models/thread-naming";
 import { currentThreadNaming } from "../features/settings/thread-naming-preferences";
 import { useThreadNames } from "../features/threads/use-thread-names";
 import { ThreadTitle } from "../features/threads/thread-title";
+import { useNewThreadTransition } from "../features/threads/use-new-thread-transition";
+import {
+  ThreadAtmosphere,
+  ThreadBranding,
+  desktopReleaseLabel,
+} from "../features/threads/thread-branding";
 import {
   browserDraftKey as draftKeyForBrowser,
   getBrowserDraft,
@@ -425,6 +431,7 @@ export function App({
   const selectedThreadId = project ? selectedThreads[project.id] : null;
   const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
+  const newThreadTransition = useNewThreadTransition(draftKey, selectedThreadId);
   const activeDraftKey = project && mode === "code" && !settingsOpen ? draftKey : null;
   const activeDraftKeyRef = useRef(activeDraftKey);
   useLayoutEffect(() => {
@@ -1691,6 +1698,7 @@ export function App({
       !selectedThreadId && browserScope
         ? reserveBrowserDraft(draftBrowserIds, browserDraftKey, id)
         : undefined;
+    newThreadTransition.begin(id);
     sendingKeys.current.add(key);
     setSending((current) => ({ ...current, [key]: true }));
     setThreads((current) => ({ ...current, [id]: optimistic }));
@@ -2588,9 +2596,10 @@ export function App({
                 )}
               >
                 <div
-                  className={`thread-workspace @container/repository-conversation relative flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
+                  className={`thread-workspace @container/repository-conversation relative isolate flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
                   data-new-thread={!selectedThreadId || undefined}
                 >
+                  {!selectedThreadId && <ThreadAtmosphere />}
                   <div
                     className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active flex-wrap gap-y-1! max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
                   >
@@ -2654,6 +2663,11 @@ export function App({
                         </Button>
                       )}
                     </div>
+                    {!selectedThreadId && (
+                      <span className="shrink-0 rounded-[5px] bg-hover-surface px-2 py-[3px] text-[11px] leading-4 text-muted-ink">
+                        {desktopReleaseLabel}
+                      </span>
+                    )}
                     {thread && (
                       <div className="thread-context ms-auto! min-w-0 max-w-[min(30rem,100%)]! [&_.composer-context]:flex-wrap [&_.composer-context]:justify-end! [&_.composer-context]:gap-x-4! [&_.composer-context]:gap-y-1.5! [&_.composer-context>*]:max-w-full [&_.composer-context>*]:shrink-0 [&_.composer-context>*]:leading-normal [&_.composer-context>*]:whitespace-nowrap [&_.thread-references]:m-0 [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
@@ -2741,6 +2755,7 @@ export function App({
                     />
                   ) : null}
                   <form
+                    ref={newThreadTransition.composer}
                     className={`composer @container/composer [@container_repository-conversation_(max-width:560px)]:mb-4 relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
@@ -2760,6 +2775,7 @@ export function App({
                       void send();
                     }}
                   >
+                    {!selectedThreadId && <ThreadBranding />}
                     {folderBusy && (
                       <p role="status" className="m-0 px-3 pb-2 text-xs text-muted-ink">
                         Another thread is using this folder. Wait for it to finish or choose New
