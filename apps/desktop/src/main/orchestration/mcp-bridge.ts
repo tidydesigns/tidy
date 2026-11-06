@@ -33,6 +33,7 @@ type Session = {
   scope: Omit<AgentScope, "signal">;
   controller: AbortController;
   authorize(): Promise<AbortSignal | void>;
+  resolveDesignIds?(): string[];
   createdAt: number;
   usedAt: number;
   active: number;
@@ -190,7 +191,7 @@ export class AgentMcpBridge {
       }
       const scope: AgentScope = {
         ...session.scope,
-        designIds: [...session.scope.designIds],
+        designIds: [...(session.resolveDesignIds?.() ?? session.scope.designIds)],
         signal,
       };
       const handler = createMcpHandler(
@@ -426,9 +427,11 @@ export class AgentMcpBridge {
 
   async session({
     authorize,
+    resolveDesignIds,
     ...scope
   }: Omit<AgentScope, "signal"> & {
     authorize(): Promise<AbortSignal | void>;
+    resolveDesignIds?(): string[];
   }): Promise<AgentMcpConnection> {
     if (this.closing) throw new Error("Application tools are closing.");
     this.expire();
@@ -441,6 +444,7 @@ export class AgentMcpBridge {
     this.sessions.set(token, {
       scope: { ...scope, designIds: [...scope.designIds] },
       authorize,
+      resolveDesignIds,
       controller,
       createdAt: Date.now(),
       usedAt: Date.now(),

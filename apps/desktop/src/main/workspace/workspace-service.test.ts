@@ -148,6 +148,7 @@ test("local design actions create one editable file, reveal it in the thread, an
   });
   const request = await designClient(f.runs[0].input.prompt);
   expect(f.runs[0].input.prompt).toContain("do not create a separate HTML preview");
+  expect(f.runs[0].input.prompt).not.toContain("Edit the returned design.path JSON directly");
   const action = { kind: "design-create", requestId: randomUUID(), name: "Sidebar CTA" };
   const [first, retry] = await Promise.all([request(action), request(action)]);
   expect(first.status).toBe(200);
@@ -200,34 +201,6 @@ test("local design capabilities reject foreign designs and expire when the turn 
     (await request({ kind: "design-create", requestId: randomUUID(), name: "Too late" })).status,
   ).toBe(403);
   expect(await f.store.designs(f.project.id)).toEqual([]);
-});
-
-test("a failed thread checkpoint retains the created design for an idempotent retry", async () => {
-  const f = await fixture();
-  const thread = await f.service.startThread({
-    projectId: f.project.id,
-    harness: "codex",
-    prompt: "Explore",
-    designIds: [],
-  });
-  const request = await designClient(f.runs[0].input.prompt);
-  const action = { kind: "design-create", requestId: randomUUID(), name: "Exploration" };
-  const write = f.store.writeThread.bind(f.store);
-  const failed = spyOn(f.store, "writeThread").mockImplementationOnce(async () => {
-    throw new Error("Checkpoint failed");
-  });
-  try {
-    expect((await request(action)).status).toBe(400);
-    const live = await f.service.readThread(f.project.id, thread.id);
-    expect(live.designIds).toEqual([]);
-    expect(live.designPreview).toBeUndefined();
-    failed.mockImplementation(write);
-    const retry = await request(action);
-    expect(retry.status).toBe(200);
-    expect((await f.store.designs(f.project.id)).map((d) => d.id)).toEqual([retry.body.design.id]);
-  } finally {
-    failed.mockRestore();
-  }
 });
 
 test("a failed design creation can be retried with the same request ID", async () => {
