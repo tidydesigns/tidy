@@ -84,3 +84,17 @@ diff --git a/dist/api/routes/sign-out.mjs b/dist/api/routes/sign-out.mjs
  	}
  	deleteSessionCookie(ctx);
  	const providerLogoutResult = await (async () => {
+diff --git a/dist/db/with-hooks.mjs b/dist/db/with-hooks.mjs
+--- a/dist/db/with-hooks.mjs
++++ b/dist/db/with-hooks.mjs
+@@ -122,7 +122,9 @@
+ 				where,
+ 				limit: 1
+ 			}))[0] || null;
+-		} catch {}
++		} catch (error) {
++			if (model === "session") throw error;
++		}
+ 		if (entityToDelete) for (const { source, hooks } of hooksEntries) {
+ 			const toRun = hooks[model]?.delete?.before;
+ 			if (toRun) {

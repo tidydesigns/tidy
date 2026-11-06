@@ -9,10 +9,23 @@ import { openTunnel } from "./tunnel";
 class LocalSession extends SshSession {
   child?: ReturnType<typeof spawn>;
   stopped?: Promise<unknown>;
-  override launch() {
-    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "pipe" });
+  hold = false;
+  launched = Promise.withResolvers<void>();
+  override launch({ command = [] }: Parameters<SshSession["launch"]>[0]) {
+    const marker = command.join(" ").match(/TIDY_FORWARD_[a-f0-9]{32}/)?.[0];
+    if (!marker) throw new Error("The tunnel command has no readiness marker.");
+    const emit = `() => process.stdout.write(${JSON.stringify(`${marker}\n`)})`;
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        `const ready = ${emit}; ${this.hold ? 'process.stdin.once("data", ready)' : "ready()"}; setInterval(() => {}, 1000)`,
+      ],
+      { stdio: "pipe" },
+    );
     this.child = child;
     this.stopped = once(child, "close");
+    this.launched.resolve();
     return child;
   }
 }
@@ -69,6 +82,57 @@ for (const outcome of ["ready", "cancelled", "closed"] as const) {
       }
     } finally {
       release.resolve();
+      session.child?.kill();
+      await session.stopped;
+      await pending.catch(() => {});
+      fetching.mockRestore();
+    }
+  });
+}
+
+for (const outcome of ["ready", "closed"] as const) {
+  test(`tunnel admission waits for SSH forwarding readiness: ${outcome}`, async () => {
+    const session = new LocalSession({
+      target: "fixture",
+      temporaryDirectory: "unused",
+      prompt: async () => null,
+    });
+    session.hold = true;
+    const host = preparedHostSchema.parse({
+      protocol: 3,
+      hostId: randomUUID(),
+      instanceId: randomUUID(),
+      buildId: "fixture",
+      pid: process.pid,
+      port: 1234,
+      managed: false,
+      clientId: randomUUID(),
+      token: "a".repeat(64),
+    });
+    const originalFetch = globalThis.fetch;
+    const fetching = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(async () => Response.json({ ...host, activeRuns: 0 }), {
+        preconnect: originalFetch.preconnect,
+      }),
+    );
+    const controller = new AbortController();
+    const pending = openTunnel({ ssh: session, host, signal: controller.signal });
+    try {
+      await session.launched.promise;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(fetching).not.toHaveBeenCalled();
+      if (outcome === "closed") {
+        session.child?.kill();
+        await expect(pending).rejects.toThrow("SSH tunnel closed");
+        expect(fetching).not.toHaveBeenCalled();
+      } else {
+        session.child?.stdin?.write("\n");
+        const tunnel = await pending;
+        expect(fetching).toHaveBeenCalledTimes(1);
+        tunnel.close();
+      }
+    } finally {
+      controller.abort();
       session.child?.kill();
       await session.stopped;
       await pending.catch(() => {});

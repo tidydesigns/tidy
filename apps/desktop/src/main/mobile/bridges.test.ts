@@ -4,6 +4,8 @@ import { mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readEmulatorEndpoint } from "./bridges";
+import { Server, ServerCredentials, type ServerUnaryCall, type sendUnaryData } from "@grpc/grpc-js";
+import { MobileRPC } from "./rpc";
 
 const endpoint = "grpc.port=8554\ngrpc.token=dummy-device-token\nport.serial=5554\n";
 
@@ -72,6 +74,55 @@ test.skipIf(!process.getuid)("endpoint ownership is checked against the opened f
     expect(await readEmulatorEndpoint(path, "emulator-5554")).toBeNull();
   } finally {
     currentUser.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a validated endpoint retains bearer authentication through the real Android RPC transport", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tidy-endpoint-rpc-"));
+  const server = new Server();
+  let authorization: unknown[] = [];
+  server.addService(
+    {
+      sendKey: {
+        path: "/android.emulation.control.EmulatorController/sendKey",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value: Buffer) => value,
+        requestDeserialize: (value: Buffer) => value,
+        responseSerialize: () => Buffer.alloc(0),
+        responseDeserialize: () => ({}),
+      },
+    },
+    {
+      sendKey(call: ServerUnaryCall<Buffer, object>, respond: sendUnaryData<object>) {
+        authorization = call.metadata.get("authorization");
+        respond(null, {});
+      },
+    },
+  );
+  let rpc: MobileRPC | undefined;
+  try {
+    const port = await new Promise<number>((resolve, reject) => {
+      server.bindAsync("127.0.0.1:0", ServerCredentials.createInsecure(), (error, port) =>
+        error ? reject(error) : resolve(port),
+      );
+    });
+    const path = join(root, "pid_1.ini");
+    await writeFile(path, endpoint.replace("8554", String(port)));
+    const discovered = await readEmulatorEndpoint(path, "emulator-5554");
+    if (!discovered) throw new Error("The valid endpoint was not discovered.");
+    rpc = new MobileRPC(
+      `127.0.0.1:${discovered.port}`,
+      "android.emulation.control.EmulatorController",
+      discovered.token,
+    );
+    await rpc.ready(AbortSignal.timeout(2000));
+    await rpc.unary("sendKey", "Keyboard", "Empty", { text: "Hello" });
+    expect(authorization).toEqual(["Bearer dummy-device-token"]);
+  } finally {
+    rpc?.close();
+    server.forceShutdown();
     await rm(root, { recursive: true, force: true });
   }
 });

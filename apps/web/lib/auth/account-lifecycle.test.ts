@@ -11,6 +11,7 @@ function fixture() {
   const messages: { kind: "confirmation" | "verification"; email: string; url: string }[] = [];
   const memory = memoryAdapter({ user: [], session: [], account: [], verification: [] });
   let failDeletion = false;
+  let failDeletionLookup = false;
   let sessionCreation:
     | {
         entered: ReturnType<typeof Promise.withResolvers<void>>;
@@ -29,6 +30,11 @@ function fixture() {
           await paused.release.promise;
         }
         return adapter.create(input);
+      },
+      async findMany(input) {
+        if (failDeletionLookup && input.model === "session")
+          throw new Error("Test session lookup unavailable");
+        return adapter.findMany(input);
       },
       async delete(input) {
         if (failDeletion && input.model === "session") throw new Error("Test deletion unavailable");
@@ -94,9 +100,9 @@ function fixture() {
     if (!result) throw new Error("Expected test email was not sent.");
     return result.url;
   }
-  function follow(link: string) {
+  function follow(link: string, cookie?: string) {
     const url = new URL(link);
-    return request(`${url.pathname.slice("/api/auth".length)}${url.search}`);
+    return request(`${url.pathname.slice("/api/auth".length)}${url.search}`, undefined, cookie);
   }
   function session(cookie: string) {
     return auth.api.getSession({ headers: new Headers({ cookie }) });
@@ -148,6 +154,9 @@ function fixture() {
           ),
         },
       });
+    },
+    failDeletionLookup(value: boolean) {
+      failDeletionLookup = value;
     },
     failDeletion(value: boolean) {
       failDeletion = value;
@@ -277,4 +286,60 @@ test("the sign-out client returns the error the existing UI handles and succeeds
   expect(retried.data?.url).toBeUndefined();
   expect(retried.data?.redirect).toBeUndefined();
   expect(await f.session(account.cookie)).toBeNull();
+});
+
+test("failed revocation lookup retains the session cookie and allows a successful retry", async () => {
+  const f = fixture();
+  const account = await f.signup("lookup@example.test");
+  f.failDeletionLookup(true);
+  const failed = await f.request("/sign-out", {}, account.cookie);
+  expect(failed.status).toBe(503);
+  expect(failed.headers.getSetCookie().some((value) => value.includes("Max-Age=0"))).toBe(false);
+  f.failDeletionLookup(false);
+  expect((await f.session(account.cookie))?.user.id).toBe(account.id);
+  expect((await f.request("/sign-out", {}, account.cookie)).status).toBe(200);
+  expect(await f.session(account.cookie)).toBeNull();
+});
+
+for (const kind of ["confirmation", "verification"] as const) {
+  test(`email-change ${kind} accepts its account session and rejects a different signed-in account`, async () => {
+    const f = fixture();
+    const alice = await f.signup("alice@example.test");
+    const bob = await f.signup("bob@example.test");
+    await f.request("/change-email", { newEmail: "changed@example.test" }, alice.cookie);
+    const confirmation = f.message("confirmation", "alice@example.test");
+    if (kind === "verification") await f.follow(confirmation, alice.cookie);
+    const link =
+      kind === "confirmation" ? confirmation : f.message("verification", "changed@example.test");
+    const rejected = await f.follow(link, bob.cookie);
+    expect(rejected.headers.get("location")).toContain("error=INVALID_USER");
+    expect(f.cookie(rejected)).toBe("");
+    expect((await f.session(alice.cookie))?.user.email).toBe("alice@example.test");
+    expect((await f.session(bob.cookie))?.user.email).toBe("bob@example.test");
+    const accepted = await f.follow(link, alice.cookie);
+    expect(accepted.status).toBeLessThan(400);
+    if (kind === "verification") {
+      expect((await f.session(f.cookie(accepted)))?.user).toMatchObject({
+        id: alice.id,
+        email: "changed@example.test",
+        emailVerified: true,
+      });
+    } else {
+      const verified = await f.follow(
+        f.message("verification", "changed@example.test"),
+        alice.cookie,
+      );
+      expect((await f.session(f.cookie(verified)))?.user.id).toBe(alice.id);
+    }
+  });
+}
+
+test("sign-out of an already revoked session remains idempotent", async () => {
+  const f = fixture();
+  const account = await f.signup("repeat@example.test");
+  expect((await f.request("/sign-out", {}, account.cookie)).status).toBe(200);
+  expect(await f.session(account.cookie)).toBeNull();
+  const repeated = await f.request("/sign-out", {}, account.cookie);
+  expect(repeated.status).toBe(200);
+  expect(repeated.headers.getSetCookie().some((value) => value.includes("Max-Age=0"))).toBe(true);
 });
