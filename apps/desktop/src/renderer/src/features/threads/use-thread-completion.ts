@@ -11,7 +11,7 @@ import {
   subscribeThreadCompletion,
 } from "../settings/thread-completion-preferences";
 
-/** Background checks never delay navigation or load conversations into the renderer. */
+/** Register rules and recover missed external changes; merge/idle triggers live in the host. */
 export function useThreadCompletion(
   api: DesktopAPI | undefined,
   projects: Project[],
@@ -26,11 +26,10 @@ export function useThreadCompletion(
     const scope = owner.current;
     let disposed = false;
     const requests = new Map<string, object>();
-    const check = (only?: string, force = false) => {
+    const check = (force = false) => {
       const preferences = currentThreadCompletion();
       for (const projectId of JSON.parse(projectIds) as string[]) {
         if (disposed) return;
-        if (only && projectId !== only) continue;
         const request = {};
         requests.set(projectId, request);
         const report = (failed: boolean) => {
@@ -51,52 +50,12 @@ export function useThreadCompletion(
     check();
     const all = () => check();
     const unsubscribe = subscribeThreadCompletion(all);
-    const retry = subscribeCompletionRetry(() => check(undefined, true));
-    const refresh = subscribePullRequestRefresh((force) => check(undefined, force));
-    const settled = new Map<string, string>();
-    const events = api.onEvent?.((event) => {
-      if (event.type === "pull-request-state") {
-        if (event.state === "merged" || event.state === "closed") check(event.projectId);
-        return;
-      }
-      if (
-        (event.type === "thread" ||
-          event.type === "thread-summary" ||
-          event.type === "thread-patch") &&
-        !event.thread.doneAt &&
-        ["completed", "idle", "stopped"].includes(event.thread.status)
-      ) {
-        const summary =
-          event.type === "thread-patch"
-            ? event.summary
-            : event.type === "thread-summary"
-              ? event.thread
-              : undefined;
-        const key = JSON.stringify([
-          summary?.queuedMessageCount ??
-            (event.type === "thread" ? event.thread.queuedMessages?.length : undefined),
-          summary?.pendingApprovalCount ??
-            (event.type === "thread" ? event.thread.pendingApprovals?.length : undefined),
-          event.thread.status,
-          event.thread.pullRequests,
-          event.thread.autoDoneAfter,
-        ]);
-        if (settled.get(event.thread.id) === key) return;
-        settled.set(event.thread.id, key);
-        check(event.thread.projectId, true);
-      } else if (
-        event.type === "thread" ||
-        event.type === "thread-summary" ||
-        event.type === "thread-patch"
-      ) {
-        settled.delete(event.thread.id);
-      }
-    });
+    const retry = subscribeCompletionRetry(() => check(true));
+    const refresh = subscribePullRequestRefresh((force) => check(force));
     return () => {
       disposed = true;
       unsubscribe();
       retry();
-      events?.();
       clearCompletionHealth(scope);
       refresh();
     };

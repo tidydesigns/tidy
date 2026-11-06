@@ -6,7 +6,7 @@ import type { DesktopAPI, DesktopEvent, Project } from "../../../../shared/contr
 import { useThreadCompletion } from "./use-thread-completion";
 import { completionHealth, retryCompletionChecks } from "../settings/thread-completion-health";
 
-test("completion checks expose failures, retry, react to finished threads, and ignore stale responses", async () => {
+test("completion registration exposes failures, retries, refreshes on focus, and ignores stale responses", async () => {
   const window = new Window({ url: "https://fixture.invalid" });
   const globals = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({
@@ -66,42 +66,12 @@ test("completion checks expose failures, retry, react to finished threads, and i
       await Promise.resolve();
     });
     expect(completionHealth()).toEqual([]);
-    await act(async () =>
-      receive?.({
-        type: "thread-summary",
-        thread: {
-          id: crypto.randomUUID(),
-          projectId: project.id,
-          revision: 1,
-          title: "Finished",
-          harness: "codex",
-          designIds: [],
-          status: "completed",
-          updatedAt: new Date().toISOString(),
-        },
-      }),
-    );
+    // Completion events are handled by the host; the renderer adds no event subscriber.
+    expect(receive).toBeUndefined();
+    await act(async () => window.dispatchEvent(new window.Event("focus")));
     expect(calls).toHaveLength(4);
     expect(forced[3]).toBe(true);
-    await act(async () =>
-      receive?.({
-        type: "pull-request-state",
-        projectId: project.id,
-        url: "https://github.com/owner/repo/pull/42",
-        state: "merged",
-      }),
-    );
-    expect(calls).toHaveLength(5);
-    await act(async () => calls[4].resolve());
-    await act(async () => {
-      calls[3].resolve();
-      window.dispatchEvent(new window.Event("focus"));
-    });
-    expect(calls).toHaveLength(6);
-    expect(forced[5]).toBe(true);
-    await act(async () => {
-      calls[5].resolve();
-    });
+    await act(async () => calls[3].resolve());
   } finally {
     await act(async () => root.unmount());
     expect(completionHealth()).toEqual([]);

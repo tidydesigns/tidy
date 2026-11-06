@@ -663,6 +663,7 @@ export class WorkspaceService {
       if (job.projectId === projectId) job.controller.abort();
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
+    this.completionPreferences.delete(projectId);
     this.terminal.removeProject(projectId);
     this.mobile.removeProject(projectId);
     await this.browser.removeProject(projectId);
@@ -1144,13 +1145,19 @@ export class WorkspaceService {
   }
 
   private readonly completionPullRequests = new CompletionPullRequests();
+  private readonly completionPreferences = new Map<string, ThreadCompletion>();
   private readonly completionChecks = new Map<
     string,
     { key: string; pending: Promise<void>; repeat: boolean; force: boolean }
   >();
   private readonly publishedPullRequests = new Map<string, string>();
 
-  private async readPullRequest(projectId: string, href: string, force = false) {
+  private async readPullRequest(
+    projectId: string,
+    href: string,
+    force = false,
+    notifyCompletion = true,
+  ) {
     const value = await this.completionPullRequests.read(href, force);
     const url = pullRequestURL(href);
     if (value && url && this.canAccessProject(projectId)) {
@@ -1162,9 +1169,22 @@ export class WorkspaceService {
         if (this.publishedPullRequests.size > 256)
           this.publishedPullRequests.delete(this.publishedPullRequests.keys().next().value!);
         this.emit({ type: "pull-request-state", projectId, url, state: value.state });
+        if (notifyCompletion && (value.state === "merged" || value.state === "closed"))
+          this.requestThreadCompletion(projectId);
       }
     }
     return value;
+  }
+
+  /** The host already knows about merge and idle transitions; no renderer round trip is needed. */
+  private requestThreadCompletion(projectId: string, force = false) {
+    void this.dispatch(() => {
+      // Read rules at execution time: disabling completion must win over queued triggers.
+      const preferences = this.completionPreferences.get(projectId);
+      if (!preferences || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
+        return Promise.resolve();
+      return this.autoCompleteThreads(projectId, preferences, undefined, force);
+    }).catch(() => {});
   }
 
   async pullRequestState(projectId: string, href: string, force = false) {
@@ -1407,6 +1427,8 @@ export class WorkspaceService {
     force = false,
   ): Promise<void> {
     const preferences = threadCompletionSchema.parse(input);
+    if (!load && this.canAccessProject(projectId))
+      this.completionPreferences.set(projectId, preferences);
     const key = JSON.stringify(preferences);
     const previous = this.completionChecks.get(projectId);
     if (previous?.key === key) {
@@ -1427,7 +1449,7 @@ export class WorkspaceService {
           await this.checkThreadCompletion(
             projectId,
             preferences,
-            load ?? ((url) => this.readPullRequest(projectId, url, refresh)),
+            load ?? ((url) => this.readPullRequest(projectId, url, refresh, false)),
             check,
           );
         } catch (error) {
@@ -1450,7 +1472,9 @@ export class WorkspaceService {
     if (this.closing || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
       return;
     await this.assertProjectAccess(projectId);
-    const summaries = await this.store.threadSummaries(projectId);
+    const summaries = (await this.store.threadSummaries(projectId)).filter(
+      (summary) => !summary.doneAt && (preferences.inactiveDays || summary.pullRequests?.length),
+    );
     let unavailable = false;
     const lookups = new Map<string, Promise<CompletionPullRequest | null>>();
     const read = (url: string) => {
@@ -1461,9 +1485,8 @@ export class WorkspaceService {
       }
       return result;
     };
-    for (const summary of summaries) {
+    const checkThread = async (summary: ThreadSummary) => {
       if (this.completionChecks.get(projectId) !== check || this.closing) return;
-      if (summary.doneAt || (!preferences.inactiveDays && !summary.pullRequests?.length)) continue;
       try {
         const requests =
           preferences.merged || preferences.closed
@@ -1486,7 +1509,7 @@ export class WorkspaceService {
           summary.pendingApprovalCount ||
           !threadCompletionReason(summary, preferences, requests)
         )
-          continue;
+          return;
         await this.serialize(summary.id, async () => {
           if (
             this.completionChecks.get(projectId) !== check ||
@@ -1501,6 +1524,7 @@ export class WorkspaceService {
           if (
             this.completionChecks.get(projectId) !== check ||
             this.closing ||
+            !this.canAccessProject(projectId) ||
             this.jobs.has(summary.id) ||
             this.starting.has(summary.id) ||
             current.revision !== summary.revision ||
@@ -1518,7 +1542,13 @@ export class WorkspaceService {
       } catch {
         unavailable = true;
       }
-    }
+    };
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, summaries.length) }, async () => {
+        while (next < summaries.length) await checkThread(summaries[next++]);
+      }),
+    );
     if (unavailable)
       throw new Error(
         "Automatic completion could not check or update some threads. Tidy will retry automatically.",
@@ -2752,6 +2782,8 @@ export class WorkspaceService {
     job.toolsController.abort();
     await this.tasks.finished(job.thread).catch(() => {});
     this.emit({ type: "thread", thread: job.thread });
+    if (!job.thread.doneAt && ["completed", "idle", "stopped"].includes(job.thread.status))
+      this.requestThreadCompletion(job.thread.projectId, true);
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
     if (request.kind === "done" && writeFailure) throw writeFailure.cause;
     const next = job.thread.queuedMessages?.[0];
@@ -3157,6 +3189,7 @@ export class WorkspaceService {
 
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
+    this.completionPreferences.clear();
     clearInterval(this.worktreeCleanupTimer);
     await this.worktreeCleanup?.catch(() => {});
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));

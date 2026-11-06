@@ -88,7 +88,20 @@ try {
   const reopened = await store.readThread(project.id,thread.id);
   if (reopened.doneAt || !reopened.autoDoneAfter) throw Error("Old merge undid a manual reopen");
   unsubscribe();
-  console.log(JSON.stringify({links:done.pullRequests,reason:done.doneReason,doneEvents,offlineReported:failed,reopened:!reopened.doneAt}));
+  const second = await invoke("start-thread",{projectId:project.id,harness:"codex",prompt:"Ship another",designIds:[],threadMode:"local"});
+  const secondURL = "https://github.com/owner/repo/pull/43";
+  run.input.onUpdate({type:"message",id:"second-receipt",text:"Created pull request: "+secondURL});
+  await store.writeThread(await service.readThread(project.id,second.id));
+  await invoke("pull-request-state",{projectId:project.id,href:secondURL,force:true});
+  if ((await store.readThread(project.id,second.id)).doneAt) throw Error("Merge stopped running work");
+  const autoDone = Promise.withResolvers();
+  const stopDone = service.subscribe(event => {
+    if (event.type === "thread" && event.thread.id === second.id && event.thread.doneReason === "merged") autoDone.resolve();
+  });
+  const timeout = setTimeout(() => autoDone.reject(Error("Host never completed the idle thread")),2000);
+  try { run.complete(); await autoDone.promise; } finally { clearTimeout(timeout); stopDone(); }
+  if (!(await store.readThread(project.id,second.id)).doneAt) throw Error("Host did not persist Done");
+  console.log(JSON.stringify({links:done.pullRequests,reason:done.doneReason,doneEvents,offlineReported:failed,reopened:!reopened.doneAt,hostCompletedWithoutRenderer:true}));
 } finally {await service.close();}
 `;
       const child = Bun.spawn([process.execPath, "-e", script], {
@@ -114,6 +127,7 @@ try {
         doneEvents: 1,
         offlineReported: true,
         reopened: true,
+        hostCompletedWithoutRenderer: true,
       });
     } finally {
       await rm(directory, { recursive: true, force: true });
