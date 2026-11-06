@@ -15,6 +15,7 @@ export const harnessSettingsSchema = z
       .string()
       .regex(/^[a-z][a-z0-9_-]{0,29}$/)
       .optional(),
+    fastMode: z.boolean().optional(),
   })
   .strict();
 export const tokenUsageSchema = z.object({
@@ -33,10 +34,13 @@ export const harnessDetailsSchema = z.object({
       description: z.string().optional(),
       efforts: z.array(z.string()),
       defaultEffort: z.string().optional(),
+      supportsFastMode: z.boolean().optional(),
+      defaultFastMode: z.boolean().optional(),
     }),
   ),
   defaultModel: z.string().optional(),
   defaultEffort: z.string().optional(),
+  defaultFastMode: z.boolean().optional(),
   windows: z.array(
     z.object({
       name: z.string(),

@@ -508,9 +508,14 @@ test("an expired duplicate follow-up cannot cancel its accepted queued run", asy
   expect((await f.store.get(task.task_id))?.state).toBe("queued");
 });
 
-test("delegation preserves effort only for an unchanged harness and model", async () => {
+test("delegation preserves effort and Fast mode only for an unchanged harness and model", async () => {
   const f = await fixture();
-  f.parent.settings = { permissionMode: "auto", model: "original-model", effort: "xhigh" };
+  f.parent.settings = {
+    permissionMode: "auto",
+    model: "original-model",
+    effort: "xhigh",
+    fastMode: true,
+  };
   for (const input of [
     { harness: "opencode", model: "other-provider-model", expected: undefined },
     { harness: "claude", expected: undefined },
@@ -525,6 +530,9 @@ test("delegation preserves effort only for an unchanged harness and model", asyn
       ...selection,
     });
     expect((await f.store.get(result.task_id))?.settings.effort).toBe(expected);
+    expect((await f.store.get(result.task_id))?.settings.fastMode).toBe(
+      expected ? true : undefined,
+    );
   }
 });
 

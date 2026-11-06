@@ -331,6 +331,11 @@ export class TaskService {
             permissionMode: mode,
             model,
             effort,
+            fastMode:
+              harness === parent.harness &&
+              (!request.model || request.model === (parent.settings?.model ?? parent.actualModel))
+                ? parent.settings?.fastMode
+                : undefined,
           },
           designIds,
           depth,

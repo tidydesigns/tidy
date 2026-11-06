@@ -410,6 +410,37 @@ test("model and effort reach the native harness protocol literally", async () =>
   }
 });
 
+test("Fast mode reaches native requests, explicitly disables on resume, and otherwise inherits", async () => {
+  const { directory, executable } = await fixture();
+  for (const harness of ["codex", "claude"] as const) {
+    for (const fastMode of [true, false, undefined]) {
+      await startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        sessionId: "b56ba7bb-00aa-4a56-a64c-593c3c377dcc",
+        prompt: "Run with speed settings",
+        settings: { model: `fixture-${harness}`, effort: "high", fastMode },
+        onUpdate() {},
+      }).done;
+      const invocation = JSON.parse(
+        await readFile(join(directory, "harness-invocation.json"), "utf8"),
+      );
+      if (harness === "codex") {
+        const tier = fastMode === undefined ? undefined : fastMode ? "priority" : "default";
+        expect(invocation.threadParams.serviceTier).toBe(tier);
+        expect(invocation.turnParams.serviceTier).toBe(tier);
+        expect(invocation.turnParams.effort).toBe("high");
+      } else {
+        const index = invocation.args.indexOf("--settings");
+        if (fastMode === undefined) expect(index).toBe(-1);
+        else expect(JSON.parse(invocation.args[index + 1])).toEqual({ fastMode });
+        expect(invocation.args).toContain("--resume");
+      }
+    }
+  }
+});
+
 test("Claude reports the thinking phase without retaining reasoning text or signatures", () => {
   const updates: HarnessUpdate[] = [];
   const parse = createClaudeParser((update) => updates.push(update));

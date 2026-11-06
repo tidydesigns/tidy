@@ -100,6 +100,9 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
         cwd: input.cwd,
         ...codexPermissions(mode),
         model: input.settings?.model ?? null,
+        ...(input.settings?.fastMode !== undefined
+          ? { serviceTier: input.settings.fastMode ? "priority" : "default" }
+          : {}),
         ...(input.settings?.effort ||
         ((mode === "default" || mode === "provider-auto") && input.additionalDirectories?.length)
           ? {
@@ -178,6 +181,9 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
           threadId,
           input: codexInput(message),
           ...(input.settings?.effort ? { effort: input.settings.effort } : {}),
+          ...(input.settings?.fastMode !== undefined
+            ? { serviceTier: input.settings.fastMode ? "priority" : "default" }
+            : {}),
         }),
       );
       accepted();

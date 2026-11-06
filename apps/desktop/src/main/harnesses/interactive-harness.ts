@@ -108,6 +108,9 @@ export function harnessArguments(input: SessionContext) {
         ...(input.sessionId ? ["--resume", input.sessionId] : []),
         ...(input.settings?.model ? ["--model", input.settings.model] : []),
         ...(input.settings?.effort ? ["--effort", input.settings.effort] : []),
+        ...(input.settings?.fastMode !== undefined
+          ? ["--settings", JSON.stringify({ fastMode: input.settings.fastMode })]
+          : []),
       ];
     default: {
       const _exhaustive: never = input.harness;
