@@ -178,7 +178,7 @@ test("direct steering stays visibly pending and sending indicators follow the se
 });
 
 test("editing then sending preserves request order and delivers the confirmed edit", async () => {
-  await queueProbe(async ({ queue, initial, requests, actions }) => {
+  await queueProbe(async ({ queue, initial, requests, actions, select }) => {
     const [first, second] = initial.queuedMessages;
     const edited = { ...first, text: "Corrected instruction" };
     await act(async () => {
@@ -189,11 +189,17 @@ test("editing then sending preserves request order and delivers the confirmed ed
     const confirmed = { ...initial, revision: 2, queuedMessages: [edited, second] };
     await act(async () => requests[0].resolve(confirmed));
     expect(actions.at(-1)).toEqual({ kind: "steer", messageId: first.id });
+    await select({
+      ...confirmed,
+      revision: 3,
+      queuedMessages: [second],
+      messages: [{ ...edited, role: "user" }],
+    });
     expect(queue().messages[0]).toEqual(edited);
     await act(async () =>
       requests[1].resolve({
         ...confirmed,
-        revision: 3,
+        revision: 4,
         queuedMessages: [second],
         messages: [{ ...edited, role: "user" }],
       }),
@@ -249,3 +255,29 @@ test("Stop remains immediate during an outstanding send and repeats after the pe
     expect(queue().messages).toEqual(initial.queuedMessages);
   });
 });
+
+for (const delivery of ["queued", "direct"] as const) {
+  test(`${delivery} sending rows survive replacement startup events until the request settles`, async () => {
+    await queueProbe(async ({ queue, initial, requests, select }) => {
+      const [first] = initial.queuedMessages;
+      await select({ ...initial, queuedMessages: delivery === "queued" ? [first] : [] });
+      const sending = delivery === "queued" ? first : { id: crypto.randomUUID(), text: "Send now" };
+      await act(async () => {
+        if (delivery === "queued") queue().change({ kind: "steer", messageId: sending.id });
+        else queue().enqueue(sending, "steer");
+      });
+      const replacement: Thread = {
+        ...initial,
+        revision: 2,
+        queuedMessages: [],
+        messages: [{ ...sending, role: "user", turn: { startedAt: initial.updatedAt } }],
+      };
+      await select(replacement);
+      expect(queue().messages).toEqual([sending]);
+      expect(queue().sending.has(sending.id)).toBe(true);
+      await act(async () => requests[0].resolve({ ...replacement, revision: 3 }));
+      expect(queue().messages).toEqual(replacement.queuedMessages ?? []);
+      expect(queue().sending.size).toBe(0);
+    });
+  });
+}

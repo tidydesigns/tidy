@@ -12,7 +12,8 @@ type Pending = {
   threadId: string;
   change:
     | { kind: "enqueue"; message: QueuedMessage; delivery: MessageDelivery }
-    | { kind: "action"; action: QueueAction }
+    | { kind: "action"; action: Exclude<QueueAction, { kind: "steer" }> }
+    | { kind: "steer"; message: QueuedMessage; index: number }
     | { kind: "stop" };
 };
 
@@ -33,23 +34,28 @@ export function useMessageQueue({
 }) {
   const [pending, setPending] = useState<Pending[]>([]);
   const requests = useRef(new Map<string, Promise<boolean>>());
-  const edits = useRef(new Map<string, Promise<boolean>>());
+  const edits = useRef(new Map<string, { message: QueuedMessage; request: Promise<boolean> }>());
   const deliveries = useRef(new Set<string>());
   const sending = new Set<string>();
   let messages = thread?.queuedMessages ?? [];
   for (const item of pending) {
     if (item.threadId !== thread?.id) continue;
     const change = item.change;
-    if (change.kind === "action") {
-      if (change.action.kind === "steer") sending.add(change.action.messageId);
-      else messages = applyQueueAction(messages, change.action);
-    } else if (
-      change.kind === "enqueue" &&
-      !thread.messages.some((message) => message.id === change.message.id)
-    ) {
-      if (!messages.some((message) => message.id === change.message.id))
-        messages = [...messages, change.message];
+    if (change.kind === "steer") {
+      if (!messages.some((message) => message.id === change.message.id)) {
+        const index = Math.min(change.index, messages.length);
+        messages = [...messages.slice(0, index), change.message, ...messages.slice(index)];
+      }
+      sending.add(change.message.id);
+    } else if (change.kind === "action") messages = applyQueueAction(messages, change.action);
+    else if (change.kind === "enqueue") {
       if (change.delivery === "steer") sending.add(change.message.id);
+      if (
+        !messages.some((message) => message.id === change.message.id) &&
+        (change.delivery === "steer" ||
+          !thread.messages.some((message) => message.id === change.message.id))
+      )
+        messages = [...messages, change.message];
     }
   }
 
@@ -61,8 +67,8 @@ export function useMessageQueue({
     if (!thread || !api) return;
     const target = thread;
     const messageId =
-      change.kind === "action" && change.action.kind === "steer"
-        ? change.action.messageId
+      change.kind === "steer"
+        ? change.message.id
         : change.kind === "enqueue" && change.delivery === "steer"
           ? change.message.id
           : undefined;
@@ -132,25 +138,30 @@ export function useMessageQueue({
     },
     change(action: QueueAction) {
       if (!api || !thread) return;
-      const original = messages.find((message) => message.id === action.messageId);
+      const index = messages.findIndex((message) => message.id === action.messageId);
+      const original = messages[index];
+      if (!original) return;
+      const edited = action.kind === "edit" ? { ...original, text: action.text } : undefined;
       const key = `${thread.id}:${action.messageId}`;
       const editing = edits.current.get(key);
       const request = submit(
-        { kind: "action", action },
+        action.kind === "steer"
+          ? { kind: "steer", message: editing?.message ?? original, index }
+          : { kind: "action", action },
         async () => {
-          if (action.kind === "steer" && editing && !(await editing)) return;
+          if (action.kind === "steer" && editing && !(await editing.request)) return;
           return api.updateMessageQueue({
             projectId: thread.projectId,
             threadId: thread.id,
             action,
           });
         },
-        action.kind === "edit" && original ? { ...original, text: action.text } : undefined,
+        edited,
       );
-      if (action.kind === "edit" && request) {
-        edits.current.set(key, request);
+      if (edited && request) {
+        edits.current.set(key, { message: edited, request });
         void request.finally(() => {
-          if (edits.current.get(key) === request) edits.current.delete(key);
+          if (edits.current.get(key)?.request === request) edits.current.delete(key);
         });
       }
     },
