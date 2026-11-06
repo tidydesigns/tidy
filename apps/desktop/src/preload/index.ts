@@ -454,6 +454,7 @@ function workspaceApi(machineId?: string): DesktopAPI {
     respondToApproval: (projectId, threadId, approvalId, decision) =>
       scopedRequest("respond-approval", { projectId, threadId, approvalId, decision }),
     stopThread: (projectId, threadId) => scopedRequest("stop-thread", { projectId, threadId }),
+    resumeLimitedThreads: (input) => scopedRequest("resume-limited-threads", input),
     threadPorts: (projectId, threadId) => scopedRequest("thread-ports", { projectId, threadId }),
     stopThreadPort: (projectId, threadId, portId) =>
       scopedRequest("stop-thread-port", { projectId, threadId, portId }),

@@ -1,4 +1,5 @@
 import { worktreePreferencesSchema } from "../../shared/contracts/worktree-settings";
+import { threadRecoveryRequestSchema } from "../../shared/contracts/thread-recovery";
 import { repositoryReadError } from "../repository/repository-errors";
 import { resolveRepositoryReference } from "../repository/repository-link";
 import { threadModeSchema } from "../../shared/contracts/thread-workspace";
@@ -563,6 +564,9 @@ export function createWorkspaceRequests<Context>(
   );
   handle("stop-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.stopThread(value.projectId, value.threadId),
+  );
+  handle("resume-limited-threads", threadRecoveryRequestSchema, (value) =>
+    service.resumeLimitedThreads(value),
   );
   handle("thread-ports", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.threadPorts(value.projectId, value.threadId),

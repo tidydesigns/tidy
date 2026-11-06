@@ -4,7 +4,14 @@ import { codexFailure, providerFailureKind } from "./provider-failure";
 for (const [code, kind] of [
   ["contextWindowExceeded", "context"],
   ["sessionBudgetExceeded", "budget"],
-  ["usageLimitExceeded", "rate-limit"],
+  ["usageLimitExceeded", "usage-limit"],
+  ["usage_limit_exceeded", "usage-limit"],
+  ["usage-limit-exceeded", "usage-limit"],
+  ["usage_limit_reached", "usage-limit"],
+  ["usage_limit", "usage-limit"],
+  ["quota_exceeded", "usage-limit"],
+  ["quota_exhausted", "usage-limit"],
+  ["insufficient_quota", "billing"],
   ["rateLimitExceeded", "rate-limit"],
   ["flexUnavailable", "unavailable"],
   ["serverOverloaded", "unavailable"],
@@ -77,6 +84,41 @@ test("specific failure codes take priority over incidental status text", () => {
   expect(
     codexFailure({ message: "Limit reached", codexErrorInfo: "sessionBudgetExceeded" }).kind,
   ).toBe("budget");
+});
+
+test("Codex usage-limit incident preserves the provider reset date", () => {
+  const message =
+    "You’ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 12th, 2026 9:02 PM.";
+  for (const code of ["usageLimitExceeded", "usage_limit_exceeded", "rateLimitExceeded", ""]) {
+    expect(providerFailureKind(message, code)).toBe("usage-limit");
+    expect(codexFailure({ message, codexErrorInfo: code })).toMatchObject({
+      kind: "usage-limit",
+      message,
+    });
+  }
+  for (const code of ["usageLimitExceeded", "httpConnectionFailed"]) {
+    expect(
+      codexFailure({
+        message,
+        codexErrorInfo: { [code]: { httpStatusCode: 429 } },
+      }).kind,
+    ).toBe("usage-limit");
+  }
+  for (const [code, kind] of [
+    ["cyberPolicy", "policy"],
+    ["sessionBudgetExceeded", "budget"],
+    ["billing_error", "billing"],
+    ["insufficient_quota", "billing"],
+  ] as const) {
+    expect(providerFailureKind(message, code)).toBe(kind);
+  }
+});
+
+test("temporary rate limits retain their classification", () => {
+  expect(providerFailureKind("Too many requests; resets in 30 seconds", "rateLimitExceeded")).toBe(
+    "rate-limit",
+  );
+  expect(providerFailureKind("429 Too many requests", "")).toBe("rate-limit");
 });
 
 test("error details remain bounded without copying arbitrary provider payloads", () => {

@@ -101,6 +101,7 @@ import { Conversations, prepareConversation } from "../features/threads/conversa
 import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadWorkPermission } from "../features/threads/thread-work-permission";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
+import { ResumeLimitedThreads } from "../features/threads/resume-limited-threads";
 import { ApprovalRequests } from "../features/threads/approval-requests";
 import {
   removeAttachmentReference,
@@ -815,6 +816,7 @@ export function App({
   });
   const hasMessage = Boolean(draft.text.trim() || draft.attachments?.length);
   const running = thread?.status === "running" || queue.stopping;
+  const canStop = running || Boolean(thread?.backgroundWork);
   const submitLabel = busy
     ? "Starting…"
     : running || queue.messages.length
@@ -2411,6 +2413,7 @@ export function App({
           aria-label="Design folders"
           hidden={mode !== "design"}
         />
+        <ResumeLimitedThreads api={api} projects={projects} />
         <div className="sidebar-footer mt-auto flex shrink-0 items-center gap-2 p-2">
           <Button
             ref={settingsTrigger}
@@ -3158,19 +3161,23 @@ export function App({
                         <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
                           <span ref={canvasDockHome} className="canvas-dock-home" />
                           <div className="composer-delivery ml-auto flex shrink-0 items-center gap-1.5">
-                            {running && !hasMessage ? (
+                            {canStop && !hasMessage ? (
                               <Button
                                 type="button"
                                 className={`${codeSubmitClassName} composer-stop bg-[#e83545] text-white`}
                                 aria-label={
                                   queue.stopping || thread?.activity === "Stopping"
                                     ? "Stopping…"
-                                    : "Stop"
+                                    : thread?.backgroundWork && thread.status !== "running"
+                                      ? "Stop background work"
+                                      : "Stop"
                                 }
                                 title={
                                   queue.stopping || thread?.activity === "Stopping"
                                     ? "Stopping…"
-                                    : "Stop"
+                                    : thread?.backgroundWork && thread.status !== "running"
+                                      ? "Stop background work"
+                                      : "Stop"
                                 }
                                 disabled={queue.stopping || thread?.activity === "Stopping"}
                                 onClick={() => queue.stop()}

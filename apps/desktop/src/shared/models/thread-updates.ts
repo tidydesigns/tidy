@@ -44,6 +44,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     queuedMessageCount: thread.queuedMessages?.length ?? 0,
     designIds: thread.designIds,
     status: thread.status,
+    backgroundWork: thread.backgroundWork,
     activity: thread.activity,
     recovery: thread.recovery,
     pendingApprovalCount: thread.pendingApprovals?.length,
@@ -94,6 +95,7 @@ export function applyThreadPatch(previous: Thread, patch: ThreadPatch): Thread {
     error: patch.thread.error,
     errorKind: patch.thread.errorKind,
     recovery: patch.thread.recovery,
+    backgroundWork: patch.thread.backgroundWork,
     messages: merge(previous.messages, patch.messages),
     toolActivities: nextTools,
   };

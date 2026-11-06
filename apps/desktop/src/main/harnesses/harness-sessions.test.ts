@@ -367,10 +367,14 @@ test("a retained-session conflict leaves the follow-up unsent and can recover a 
     async () => executable,
     async () => {},
   );
-  const finished = () =>
+  const finished = (afterMessages = 0) =>
     new Promise<import("../../shared/contracts/desktop").Thread>((resolve) => {
       const off = service.subscribe((event) => {
-        if (event.type === "thread" && event.thread.status !== "running") {
+        if (
+          event.type === "thread" &&
+          event.thread.status !== "running" &&
+          event.thread.messages.length > afterMessages
+        ) {
           off();
           resolve(event.thread);
         }
@@ -405,7 +409,7 @@ test("a retained-session conflict leaves the follow-up unsent and can recover a 
     expect(await events(cwd)).toEqual(before);
     // Stop releases the stale background session even if an old app saved incompatible settings.
     await service.stopThread(project.id, thread.id);
-    done = finished();
+    done = finished(original.messages.length);
     await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" });
     expect((await done).status).toBe("completed");
     expect(() => process.kill(pid, 0)).toThrow();
@@ -2062,4 +2066,151 @@ for (const harness of ["codex", "claude", "opencode"] as const) {
       });
     }
   }
+}
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test.each([false, true])(
+    `${harness} failed background work reconciles only its originating turn (next turn: %s)`,
+    async (active) => {
+      const cwd = await mkdtemp(join(directory, `${harness}-late-failure-`));
+      const sessions = new HarnessSessions();
+      const context = { projectId: "project", harness, executable, cwd };
+      const changes: boolean[] = [];
+      sessions.onBackgroundChange = (id, projectId) => {
+        expect(id).toBe("thread");
+        expect(projectId).toBe("project");
+        changes.push(sessions.hasBackgroundWork(id));
+      };
+      const first: HarnessUpdate[] = [];
+      const late: Array<Extract<HarnessUpdate, { type: "tool" }>["tool"]> = [];
+      const second: HarnessUpdate[] = [];
+      const secondLate: unknown[] = [];
+      try {
+        await expect(
+          sessions.start("thread", {
+            ...context,
+            prompt: "background fail-turn",
+            onUpdate: (update) => first.push(update),
+            onLateTool: (tool) => late.push(tool),
+          }).done,
+        ).rejects.toThrow("Turn failed");
+        expect(sessions.hasBackgroundWork("thread")).toBe(true);
+        const firstCount = first.length;
+        const next = active
+          ? sessions.start("thread", {
+              ...context,
+              prompt: "hold",
+              onUpdate: (update) => second.push(update),
+              onLateTool: (tool) => secondLate.push(tool),
+            })
+          : undefined;
+        void next?.done.catch(() => {});
+        if (!active) await sessions.clear({ threadId: "thread", idleOnly: true });
+        for (let attempt = 0; sessions.hasBackgroundWork("thread") && attempt < 200; attempt++)
+          await Bun.sleep(5);
+        expect(sessions.hasBackgroundWork("thread")).toBe(false);
+        expect(changes).toEqual([true, false]);
+        expect(first).toHaveLength(firstCount);
+        expect(late.some((tool) => tool.status !== "running")).toBe(true);
+        const originalIds = new Set(
+          first.flatMap((event) => (event.type === "tool" ? [event.tool.id] : [])),
+        );
+        expect(late.every((tool) => originalIds.has(tool.id))).toBe(true);
+        expect(
+          second.filter(
+            (event) =>
+              ["tool", "error", "approval"].includes(event.type) ||
+              (event.type === "message" && event.text.includes("must not leak")),
+          ),
+        ).toEqual([]);
+        expect(secondLate).toEqual([]);
+        await sessions.clear();
+        await next?.done.catch(() => {});
+      } finally {
+        await sessions.clear();
+      }
+    },
+  );
+
+  test(`${harness} retained work remains stoppable until actual process exit`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-late-stop-`));
+    const sessions = new HarnessSessions();
+    let exited = false;
+    const changes: boolean[] = [];
+    sessions.onBackgroundChange = (id) => {
+      const work = sessions.hasBackgroundWork(id);
+      if (!work) expect(exited).toBe(true);
+      changes.push(work);
+    };
+    try {
+      await expect(
+        sessions.start("thread", {
+          projectId: "project",
+          harness,
+          executable,
+          cwd,
+          prompt: "background silent slow-exit fail-turn",
+          onUpdate() {},
+          onExit: () => {
+            exited = true;
+          },
+        }).done,
+      ).rejects.toThrow("Turn failed");
+      const stopping = sessions.clear({ threadId: "thread" });
+      expect(sessions.hasBackgroundWork("thread")).toBe(true);
+      expect(sessions.backgroundContexts.map((item) => item.threadId)).toEqual(["thread"]);
+      await Bun.sleep(30);
+      expect(exited).toBe(false);
+      expect(sessions.hasBackgroundWork("thread")).toBe(true);
+      await stopping;
+      expect(exited).toBe(true);
+      expect(sessions.hasBackgroundWork("thread")).toBe(false);
+      expect(changes).toEqual([true, false]);
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test(`${harness} cancelled turn ownership fences late tools during a successor turn`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-cancelled-owner-`));
+    const sessions = new HarnessSessions();
+    const context = { projectId: "project", harness, executable, cwd };
+    const observed = Promise.withResolvers<void>();
+    const late: unknown[] = [];
+    const nextTools: unknown[] = [];
+    try {
+      const first = sessions.start("thread", {
+        ...context,
+        prompt: "background hold",
+        onUpdate(update) {
+          if (update.type === "tool") observed.resolve();
+        },
+        onLateTool: (tool) => late.push(tool),
+      });
+      await observed.promise;
+      first.stop();
+      await first.done;
+      expect(sessions.hasBackgroundWork("thread")).toBe(true);
+      const next = sessions.start("thread", {
+        ...context,
+        prompt: "hold",
+        onUpdate(update) {
+          if (update.type === "tool") nextTools.push(update.tool);
+        },
+        onLateTool: (tool) => nextTools.push(tool),
+      });
+      void next.done.catch(() => {});
+      for (let attempt = 0; sessions.hasBackgroundWork("thread") && attempt < 200; attempt++)
+        await Bun.sleep(5);
+      expect(sessions.hasBackgroundWork("thread")).toBe(false);
+      expect(late).toEqual([]);
+      expect(nextTools).toEqual([]);
+      await sessions.clear();
+      await next.done.catch(() => {});
+    } finally {
+      await sessions.clear();
+    }
+  });
 }

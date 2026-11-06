@@ -294,3 +294,35 @@ test("shell commands classify common test runners and local searches without inv
   expect(commandKind('rg -n "Button" src')).toBe("search");
   expect(commandKind("git status --short")).toBe("command");
 });
+
+test("Claude task patches settle the original tool and late progress cannot reopen it", () => {
+  const updates: ToolActivityUpdate[] = [];
+  const parse = createToolEventParser("claude", (tool) => updates.push(tool));
+  parse({ type: "system", subtype: "task_started", task_id: "task", tool_use_id: "tool" });
+  parse({ type: "system", subtype: "task_updated", task_id: "task", patch: { status: "killed" } });
+  expect(updates.at(-1)).toMatchObject({ id: "tool", status: "cancelled" });
+  const count = updates.length;
+  parse({ type: "system", subtype: "task_progress", task_id: "task" });
+  parse({ type: "system", subtype: "task_updated", task_id: "task", patch: { status: "running" } });
+  expect(updates).toHaveLength(count);
+});
+
+test("bounded tool history evicts terminal tools without dropping new calls or unfinished work", () => {
+  const updates: ToolActivityUpdate[] = [];
+  const parse = createToolEventParser("claude", (tool) => updates.push(tool));
+  parse({ type: "system", subtype: "task_started", task_id: "pending", tool_use_id: "pending" });
+  for (let index = 0; index < 1005; index++) {
+    const id = `tool-${index}`;
+    parse({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo ok" } }] },
+    });
+    parse({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] },
+    });
+  }
+  expect(updates.at(-1)).toMatchObject({ id: "tool-1004", status: "completed" });
+  parse({ type: "system", subtype: "task_notification", task_id: "pending", status: "completed" });
+  expect(updates.at(-1)).toMatchObject({ id: "pending", status: "completed" });
+});

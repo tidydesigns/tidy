@@ -61,8 +61,14 @@ export function createToolEventParser(
   const tasks = new Map<string, string>();
   const messageIds = new Map<string, string>();
   function publish(update: ToolActivityUpdate) {
-    if (!update.id || update.id.length > 200 || (!tools.has(update.id) && tools.size >= 1000))
-      return;
+    if (!update.id || update.id.length > 200) return;
+    if (!tools.has(update.id) && tools.size >= 1000) {
+      const oldest = [...tools].find(([, tool]) => tool.status !== "running")?.[0];
+      if (!oldest) return;
+      tools.delete(oldest);
+      for (const [task, tool] of tasks) if (tool === oldest) tasks.delete(task);
+      for (const [key, block] of blocks) if (block.id === oldest) blocks.delete(key);
+    }
     const previous = tools.get(update.id);
     const next = { ...previous, ...update };
     const input = plainToolText(next.input ?? ""),
@@ -320,7 +326,9 @@ export function createToolEventParser(
     }
     if (
       value.type === "system" &&
-      ["task_started", "task_progress", "task_notification"].includes(text(value.subtype))
+      ["task_started", "task_progress", "task_notification", "task_updated"].includes(
+        text(value.subtype),
+      )
     ) {
       if (value.ambient || value.skip_transcript) return;
       const taskId = text(value.task_id),
@@ -329,19 +337,32 @@ export function createToolEventParser(
       if (!tasks.has(taskId) && tasks.size >= 1000) return;
       tasks.set(taskId, id);
       const previous = tools.get(id);
+      const status = text(record(value.patch).status) || text(value.status);
+      const terminal = ["completed", "failed", "stopped", "killed"].includes(status);
+      if (
+        (value.subtype === "task_progress" || (value.subtype === "task_updated" && !terminal)) &&
+        previous &&
+        previous.status !== "running"
+      )
+        return;
+      if (
+        value.subtype === "task_updated" &&
+        !terminal &&
+        !["running", "pending", "paused"].includes(status)
+      )
+        return;
       publish({
         id,
         kind: previous?.kind ?? "tool",
         title: previous?.title ?? (text(value.description) || "Background task"),
         toolName: previous?.toolName ?? "Task",
-        status:
-          value.subtype === "task_notification"
-            ? value.status === "completed"
-              ? "completed"
-              : value.status === "stopped"
-                ? "cancelled"
-                : "failed"
-            : "running",
+        status: terminal
+          ? status === "completed"
+            ? "completed"
+            : status === "stopped" || status === "killed"
+              ? "cancelled"
+              : "failed"
+          : "running",
         ...(value.subtype === "task_notification" && text(value.summary)
           ? { output: [previous?.output, text(value.summary)].filter(Boolean).join("\n") }
           : {}),

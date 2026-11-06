@@ -1,5 +1,11 @@
 import { pullRequestURL } from "../../shared/contracts/pull-request";
 import {
+  threadRecoveryRequestSchema,
+  type ThreadRecoveryRequest,
+  type ThreadRecoveryResult,
+} from "../../shared/contracts/thread-recovery";
+import { isLimitedThread, recoveryPrompt } from "../../shared/models/thread-recovery";
+import {
   type WorktreePreferences,
   type WorktreeStorage as WorktreeStorageResult,
 } from "../../shared/contracts/worktree-settings";
@@ -561,6 +567,23 @@ export class WorkspaceService {
       }).catch(() => {});
     };
     this.ports = new ThreadPorts(store.processState);
+    this.sessions.onBackgroundChange = (threadId, projectId) => {
+      void this.serialize(threadId, async () => {
+        if (this.closing || this.jobs.has(threadId) || !this.canAccessProject(projectId)) return;
+        await this.assertProjectAccess(projectId);
+        const thread = await this.store.readThread(projectId, threadId);
+        if (!this.sessions.hasBackgroundWork(threadId)) {
+          for (const tool of thread.toolActivities ?? [])
+            if (tool.status === "running") {
+              tool.status = "interrupted";
+              tool.endedAt = new Date().toISOString();
+            }
+        }
+        thread.revision++;
+        await this.store.writeThread(thread);
+        this.emit({ type: "thread", thread });
+      }).catch(() => {});
+    };
     this.worktreeCleanupTimer = setInterval(() => {
       void this.cleanupWorktrees().catch(() => {});
     }, 15 * 60_000);
@@ -1114,6 +1137,7 @@ export class WorkspaceService {
   private withThreadLineage<T extends { projectId: string; id: string }>(thread: T) {
     return {
       ...thread,
+      backgroundWork: this.sessions.hasBackgroundWork(thread.id),
       parentThreadId: this.tasks.store.parentThreadId(thread.projectId, thread.id),
       acceptsThreadWork: Boolean(this.tasks.store.receiverGrant(thread.projectId, thread.id)),
     };
@@ -2255,6 +2279,87 @@ export class WorkspaceService {
     });
   }
 
+  async resumeLimitedThreads(input: ThreadRecoveryRequest): Promise<ThreadRecoveryResult> {
+    const { projectId, threads } = threadRecoveryRequestSchema.parse(input);
+    const result: ThreadRecoveryResult = { resumed: [], skipped: [], failed: [] };
+    // Capture cancellation versions before waiting behind any other thread command.
+    const candidates = [
+      ...new Map(
+        threads.map((thread) => [
+          thread.threadId,
+          {
+            ...thread,
+            stopVersion: this.stopVersions.get(thread.threadId) ?? 0,
+          },
+        ]),
+      ).values(),
+    ];
+    await this.assertProjectAccess(projectId);
+    for (const candidate of candidates) {
+      const { threadId, revision, stopVersion } = candidate;
+      try {
+        const resumed = await this.serialize(threadId, async () => {
+          await this.assertProjectAccess(projectId);
+          const thread = await this.mutableThread(projectId, threadId);
+          const current = () =>
+            !this.closing &&
+            !this.jobs.has(threadId) &&
+            !this.starting.has(threadId) &&
+            (this.stopVersions.get(threadId) ?? 0) === stopVersion;
+          if (
+            !current() ||
+            thread.revision !== revision ||
+            !isLimitedThread(thread) ||
+            this.tasks.store.parentThreadId(projectId, threadId)
+          )
+            return false;
+          let original: Thread["messages"][number] | undefined;
+          for (let index = thread.messages.length - 1; index >= 0; index--) {
+            if (thread.messages[index].role === "user") {
+              original = thread.messages[index];
+              break;
+            }
+          }
+          // A rejected queued submission is restored to the queue. Never resume the
+          // previous completed request in its place or bypass private queue authority.
+          const queued = thread.queuedMessages?.find(
+            (message) => message.id === thread.failedMessageId,
+          );
+          if (
+            (!thread.failedMessageId && thread.queuedMessages?.length) ||
+            (thread.failedMessageId && thread.failedMessageId !== original?.id && !queued)
+          )
+            throw new Error("Open this thread to choose the request to resume.");
+          // A provider may reject a direct request before saving it in its native
+          // session. Include the original input even when a session ID exists.
+          const resumed = queued
+            ? await this.deliverQueued(thread, queued, false)
+            : await this.run(
+                thread,
+                `${recoveryPrompt}\n\nOriginal user request:\n${original?.text ?? ""}`,
+                original?.attachments?.map((file) => file.id),
+                undefined,
+                undefined,
+                true,
+              );
+          if (resumed.status === "failed")
+            throw new Error(resumed.error || "The thread could not resume.");
+          return resumed.status === "running" || resumed.status === "completed";
+        });
+        result[resumed ? "resumed" : "skipped"].push(threadId);
+      } catch (error) {
+        result.failed.push({
+          threadId,
+          error: (error instanceof Error ? error.message : "The thread could not resume.").slice(
+            0,
+            4000,
+          ),
+        });
+      }
+    }
+    return result;
+  }
+
   private async mutableThread(projectId: string, threadId: string) {
     if (this.closing) throw new Error("Tidy is closing.");
     const thread =
@@ -2420,6 +2525,8 @@ export class WorkspaceService {
         if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
           return structuredClone(thread);
       }
+      if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
+        return structuredClone(thread);
       this.automaticQueues.add(thread.id);
       return await this.run(
         thread,
@@ -2784,6 +2891,7 @@ export class WorkspaceService {
     thread.revision++;
     thread.error = undefined;
     thread.errorKind = undefined;
+    thread.failedMessageId = undefined;
     thread.activity = continuation ? "Resuming" : "Starting";
     thread.updatedAt = new Date().toISOString();
     delete thread.actualModel;
@@ -2880,6 +2988,7 @@ export class WorkspaceService {
         return structuredClone(thread);
       }
       this.sessionGeneration++;
+      const lateTool = this.lateToolHandler(thread.projectId, thread.id, job.tools);
       const launchInput = {
         agentTools: await this.agentToolsFor(thread),
         processRegistration: () =>
@@ -2901,6 +3010,7 @@ export class WorkspaceService {
         settings: launchSettings,
         images,
         onUpdate: (update: HarnessUpdate) => this.update(job, update),
+        onLateTool: lateTool,
         superviseParent: this.superviseHarnessParent,
       };
       const registration = this.launch ? await launchInput.processRegistration() : undefined;
@@ -2932,14 +3042,51 @@ export class WorkspaceService {
       turn.endedAt = new Date().toISOString();
       thread.activity = undefined;
       thread.error = error instanceof Error ? error.message : "The harness could not start.";
+      thread.failedMessageId = job.submission.messageId;
       thread.errorKind = error instanceof HarnessFailureError ? error.kind : undefined;
       await this.finish({ job, kind: "complete" });
     }
     return structuredClone(thread);
   }
 
+  private lateToolHandler(projectId: string, threadId: string, toolIds: Map<string, string>) {
+    // Capture only tool identities, never an obsolete Job or its transcript.
+    return (update: Extract<HarnessUpdate, { type: "tool" }>["tool"]) => {
+      const id = toolIds.get(update.id);
+      if (!id || update.status === "running") return;
+      void this.serialize(threadId, async () => {
+        if (this.closing || !this.canAccessProject(projectId)) return;
+        await this.assertProjectAccess(projectId);
+        const thread = await this.mutableThread(projectId, threadId);
+        const existing = thread.toolActivities?.find((tool) => tool.id === id);
+        if (!existing) return; // Truncated history must not be recreated by a late result.
+        const value = toolActivitySchema.parse({
+          ...existing,
+          ...update,
+          id,
+          afterMessageId: existing.afterMessageId,
+          startedAt: existing.startedAt,
+          endedAt: new Date().toISOString(),
+        });
+        Object.assign(existing, value);
+        for (const url of createdPullRequests(value))
+          if (!thread.pullRequests?.includes(url))
+            thread.pullRequests = [...(thread.pullRequests ?? []), url].slice(-20);
+        const tools = thread.toolActivities!;
+        let size = tools.reduce((total, tool) => total + toolLogSize(tool), 0);
+        while (size > MAX_TOOL_LOG_CHARACTERS) {
+          size -= toolLogSize(tools.shift()!);
+          thread.toolActivityTruncated = true;
+        }
+        thread.revision++;
+        await this.store.writeThread(thread);
+        this.emit({ type: "thread", thread });
+      }).catch(() => {});
+    };
+  }
+
   private update(job: Job, update: HarnessUpdate) {
-    if (job.stopped) return;
+    if (job.stopped || this.jobs.get(job.thread.id) !== job) return;
     const thread = job.thread;
     if (
       thread.recovery &&
@@ -3096,6 +3243,8 @@ export class WorkspaceService {
     const recoveryGeneration = this.store.updateResumes.generation(job.thread.id);
     const stopVersion = this.stopVersions.get(job.thread.id) ?? 0;
     const delivery = job.queuedDelivery;
+    job.thread.failedMessageId =
+      job.thread.status === "failed" ? job.submission.messageId : undefined;
     if (
       delivery &&
       (job.process?.deliveryState === "not-submitted" || job.process?.deliveryState === "rejected")
@@ -3111,8 +3260,12 @@ export class WorkspaceService {
     clearTimeout(job.checkpoint);
     clearTimeout(job.notification);
     const ownedTools = new Set(job.tools.values());
+    const backgroundWork = this.sessions.hasBackgroundWork(job.thread.id);
     for (const tool of job.thread.toolActivities ?? [])
-      if (tool.status === "running" && ownedTools.has(tool.id)) {
+      if (
+        tool.status === "running" &&
+        (!backgroundWork || (job.stopped && ownedTools.has(tool.id)))
+      ) {
         tool.status = job.stopped ? "cancelled" : "interrupted";
         tool.endedAt = new Date().toISOString();
       }

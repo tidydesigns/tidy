@@ -6,6 +6,7 @@ export const harnessFailureKindSchema = z.enum([
   "session",
   "context",
   "rate-limit",
+  "usage-limit",
   "authentication",
   "model",
   "permission",

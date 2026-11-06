@@ -119,11 +119,15 @@ export const storedThreadSchema = z.object({
   pullRequestDetectionVersion: z.union([z.literal(1), z.literal(2)]).optional(),
   error: z.string().max(4000).optional(),
   errorKind: harnessFailureKindSchema.optional(),
+  /** Identifies the failed submission, including messages returned to the queue. */
+  failedMessageId: id.optional(),
   updatedAt: z.string().datetime(),
 });
 
 export const threadMessageSourceSchema = z.object({ threadId: z.uuid() }).strict();
 export const liveThreadSchema = storedThreadSchema.extend({
+  /** Provider-owned work still unresolved in a live session; never restored from disk. */
+  backgroundWork: z.boolean().optional(),
   messageSources: z.record(z.uuid(), threadMessageSourceSchema).optional(),
   parentThreadId: z.string().uuid().optional(),
   acceptsThreadWork: z.boolean().optional(),
@@ -366,6 +370,9 @@ export type DesktopAPI = {
   ): Promise<void>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
+  resumeLimitedThreads?(
+    input: import("./thread-recovery").ThreadRecoveryRequest,
+  ): Promise<import("./thread-recovery").ThreadRecoveryResult>;
   threadPorts(projectId: string, threadId: string): Promise<ThreadPort[]>;
   stopThreadPort(projectId: string, threadId: string, portId: string): Promise<void>;
   respondToApproval(

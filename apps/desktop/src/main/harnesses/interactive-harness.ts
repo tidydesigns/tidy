@@ -32,6 +32,7 @@ type Turn = {
   error?: HarnessFailureError;
   started: boolean;
   cancellation?: ReturnType<typeof setTimeout>;
+  owner: { cancelled: boolean };
 };
 type State =
   | { kind: "idle" }
@@ -189,22 +190,35 @@ export class HarnessSession {
       },
     });
     this.done = this.transport.done;
+    void this.done.then(() => {
+      this.backgroundTasks.clear();
+      this.backgroundOverflow = false;
+      this.onActivity();
+    });
     const context: AdapterContext = {
       input,
       transport: this.transport,
       activity: (event) => {
+        const backgroundCount = this.backgroundTasks.size;
+        const overflow = this.backgroundOverflow;
         if (event?.state === "started") {
           if (this.backgroundTasks.has(event.id) || this.backgroundTasks.size < 1000)
             this.backgroundTasks.add(event.id);
           else this.backgroundOverflow = true;
         } else if (event?.state === "finished") this.backgroundTasks.delete(event.id);
         this.activityAt = performance.now();
-        if (this.idle) this.onActivity();
+        if (
+          this.idle ||
+          backgroundCount !== this.backgroundTasks.size ||
+          overflow !== this.backgroundOverflow
+        )
+          this.onActivity();
       },
       isActive: () =>
         (this.state.kind === "running" || this.state.kind === "cancelling") &&
         this.state.turn.delivery !== "not-submitted",
       emit: (update) => this.emit(update),
+      turnEmitter: () => this.turnEmitter(),
       complete: (error) => this.finish(error),
       submitting: () => {
         if (this.state.kind === "running") this.state.turn.delivery = "unknown";
@@ -311,6 +325,22 @@ export class HarnessSession {
   get lastProviderActivity() {
     return this.activityAt;
   }
+  private turnEmitter(): (update: HarnessUpdate) => void {
+    if (this.state.kind !== "running") return () => {};
+    // Retained parsers must not keep the old Turn/input/onUpdate (and its Job) alive.
+    const owner = this.state.turn.owner;
+    const onLateTool = this.state.turn.input.onLateTool;
+    const known = new Set<string>();
+    return (update) => {
+      if (owner.cancelled || !this.available) return;
+      if (this.state.kind === "running" && this.state.turn.owner === owner) {
+        if (update.type === "tool" && known.size < 1000) known.add(update.tool.id);
+        this.emit(update);
+      } else if (update.type === "tool" && known.has(update.tool.id)) {
+        onLateTool?.(update.tool);
+      }
+    };
+  }
   private emit(update: HarnessUpdate) {
     if (update.type === "session") this.sessionId = update.id;
     if (update.type === "session" || update.type === "model")
@@ -390,6 +420,7 @@ export class HarnessSession {
       delivery: "not-submitted",
       completion: Promise.withResolvers<void>(),
       started: false,
+      owner: { cancelled: false },
     };
     this.state = { kind: "running", turn };
     const submission = (async () => {
@@ -417,6 +448,7 @@ export class HarnessSession {
       done: turn.completion.promise,
       stop: () => {
         if (this.state.kind !== "running" || this.state.turn !== turn) return;
+        turn.owner.cancelled = true;
         this.state = { kind: "cancelling", turn, acknowledged: false, completed: false };
         this.clearApprovals();
         turn.cancellation = setTimeout(() => this.close(), 2000);

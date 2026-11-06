@@ -13,7 +13,7 @@ type Failure = Pick<
 >;
 
 const failureColor = (kind: HarnessFailureKind) =>
-  kind === "billing" || kind === "rate-limit"
+  kind === "billing" || kind === "rate-limit" || kind === "usage-limit"
     ? "text-(--desktop-status-warning)"
     : "text-(--desktop-status-danger)";
 
@@ -152,7 +152,10 @@ export function HarnessFailureDialog({
             .
           </p>
         )}
-        <details className="mt-3.5 ml-[26px] text-xs leading-[18px]">
+        <details
+          open={failure.kind === "usage-limit"}
+          className="mt-3.5 ml-[26px] text-xs leading-[18px]"
+        >
           <summary className="w-fit cursor-pointer rounded-xs text-muted-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-border">
             Error details
           </summary>

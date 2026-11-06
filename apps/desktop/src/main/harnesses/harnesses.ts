@@ -9,7 +9,7 @@ import { executablePath } from "../platform/executable-path";
 import { promisify } from "node:util";
 export { startInteractiveHarness as startHarness } from "./interactive-harness";
 import type { ApprovalRequest, ApprovalDecision } from "../../shared/contracts/permissions";
-import { createToolEventParser } from "./tool-events";
+import { createToolEventParser, plainToolText } from "./tool-events";
 import type { ToolActivityUpdate } from "../../shared/contracts/tool-activity";
 import type { TokenUsage } from "../../shared/contracts/harness-settings";
 import {
@@ -168,10 +168,48 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
     if (typeof value.session_id === "string") emit({ type: "session", id: value.session_id });
     if (value.parent_tool_use_id) return;
     if (value.type === "rate_limit_event" && record(value.rate_limit_info).status === "rejected") {
+      const info = record(value.rate_limit_info);
+      const window =
+        info.rateLimitType === "five_hour"
+          ? "5-hour"
+          : info.rateLimitType === "seven_day"
+            ? "weekly"
+            : undefined;
+      const details = plainToolText(
+        [...new Set([info.message, value.message, info.details, value.details].map(text))]
+          .filter(Boolean)
+          .join("\n\n"),
+      ).slice(0, 3000);
+      const reset =
+        typeof info.resetsAt === "number" &&
+        Number.isFinite(info.resetsAt) &&
+        info.resetsAt >= 0 &&
+        info.resetsAt <= 8_640_000_000_000
+          ? new Date(info.resetsAt * 1000).toISOString()
+          : plainToolText(text(info.resetsAt)).slice(0, 200);
+      const code =
+        text(info.code) ||
+        text(record(info.error).code) ||
+        text(info.error) ||
+        text(value.code) ||
+        text(record(value.error).code) ||
+        text(value.error);
+      const windowMessage = window ? `The provider’s ${window} usage limit was reached.` : "";
+      const kind = providerFailureKind([details, windowMessage].filter(Boolean).join("\n\n"), code);
+      const message = [
+        details ||
+          (!window || kind !== "usage-limit"
+            ? "The provider rejected this request because a limit was reached."
+            : ""),
+        window ? (kind === "usage-limit" ? windowMessage : `Allowance window: ${window}.`) : "",
+        reset ? `Resets at ${reset}.` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       reported = {
         type: "error",
-        text: "The provider usage limit was reached.",
-        kind: "rate-limit",
+        text: message,
+        kind: kind === "unknown" ? "rate-limit" : kind,
       };
       emit(reported);
     }
