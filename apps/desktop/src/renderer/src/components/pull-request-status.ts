@@ -13,6 +13,7 @@ export class PullRequestStatus {
   private queued?: Promise<void>;
   private version = 0;
   private unsubscribe?: () => void;
+  private readonly canonicalURL: string | null;
 
   constructor(
     private input: {
@@ -24,6 +25,7 @@ export class PullRequestStatus {
       onState?: (state: PullRequestState) => void;
     },
   ) {
+    this.canonicalURL = pullRequestURL(input.url);
     this.snapshot = { state: input.initialState ?? null, checking: false };
   }
 
@@ -39,7 +41,7 @@ export class PullRequestStatus {
         if (
           event.type === "pull-request-state" &&
           event.projectId === this.input.projectId &&
-          event.url === pullRequestURL(this.input.url)
+          event.url === this.canonicalURL
         ) {
           this.version++;
           this.accept(event.state);

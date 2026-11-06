@@ -291,3 +291,43 @@ test("focus bypasses freshness and a forced refresh burst waits for one trailing
   expect(status.read().state).toBe("merged");
   expect(calls).toBe(2);
 });
+
+test("canonical URL variants receive scoped broadcasts and invalid destinations stay unchanged", () => {
+  const listeners = new Set<
+    (event: import("../../../shared/contracts/desktop").DesktopEvent) => void
+  >();
+  const api = {
+    onEvent: (
+      listener: (event: import("../../../shared/contracts/desktop").DesktopEvent) => void,
+    ) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+  const aliases = [
+    `${url}/files?diff=split#diff-123`,
+    "https://www.github.com/OWNER/REPO/pull/42/commits",
+  ];
+  const valid = aliases.map(
+    (href) => new PullRequestStatus({ api, projectId: "project", url: href, initialState: "open" }),
+  );
+  const invalid = new PullRequestStatus({
+    api,
+    projectId: "project",
+    url: "https://github.com.example.com/owner/repo/pull/42",
+  });
+  const stop = [...valid, invalid].map((status) => status.subscribe(() => {}));
+  const emit = (projectId: string) => {
+    for (const listener of listeners)
+      listener({ type: "pull-request-state", projectId, url, state: "closed" });
+  };
+  emit("another-project");
+  expect(valid.map((status) => status.read().state)).toEqual(["open", "open"]);
+  emit("project");
+  expect(valid.map((status) => status.read().state)).toEqual(["closed", "closed"]);
+  expect(invalid.read().state).toBeNull();
+  stop.forEach((unsubscribe) => unsubscribe());
+  expect(listeners.size).toBe(0);
+});

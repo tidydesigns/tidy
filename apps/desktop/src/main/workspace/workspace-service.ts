@@ -1183,6 +1183,9 @@ export class WorkspaceService {
       const preferences = this.completionPreferences.get(projectId);
       if (!preferences || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
         return Promise.resolve();
+      // A host event can affect a thread already visited by the current sweep.
+      const pending = this.completionChecks.get(projectId);
+      if (pending) pending.repeat = true;
       return this.autoCompleteThreads(projectId, preferences, undefined, force);
     }).catch(() => {});
   }
@@ -1432,34 +1435,37 @@ export class WorkspaceService {
     const key = JSON.stringify(preferences);
     const previous = this.completionChecks.get(projectId);
     if (previous?.key === key) {
-      previous.repeat = true;
+      previous.repeat ||= force;
       previous.force ||= force;
       return previous.pending;
     }
     const check = { key, pending: Promise.resolve(), repeat: false, force };
     this.completionChecks.set(projectId, check);
     check.pending = (async () => {
-      let failure: unknown;
-      do {
-        const refresh = check.force;
-        check.repeat = false;
-        check.force = false;
-        failure = undefined;
-        try {
-          await this.checkThreadCompletion(
-            projectId,
-            preferences,
-            load ?? ((url) => this.readPullRequest(projectId, url, refresh, false)),
-            check,
-          );
-        } catch (error) {
-          failure = error;
-        }
-      } while (check.repeat && this.completionChecks.get(projectId) === check && !this.closing);
-      if (failure) throw failure;
-    })().finally(() => {
-      if (this.completionChecks.get(projectId) === check) this.completionChecks.delete(projectId);
-    });
+      try {
+        let failure: unknown;
+        do {
+          const refresh = check.force;
+          check.repeat = false;
+          check.force = false;
+          failure = undefined;
+          try {
+            await this.checkThreadCompletion(
+              projectId,
+              preferences,
+              load ?? ((url) => this.readPullRequest(projectId, url, refresh, false)),
+              check,
+            );
+          } catch (error) {
+            failure = error;
+          }
+        } while (check.repeat && this.completionChecks.get(projectId) === check && !this.closing);
+        if (failure) throw failure;
+      } finally {
+        // Remove the owner before resolving, so a refresh in the next microtask starts fresh work.
+        if (this.completionChecks.get(projectId) === check) this.completionChecks.delete(projectId);
+      }
+    })();
     return check.pending;
   }
 
