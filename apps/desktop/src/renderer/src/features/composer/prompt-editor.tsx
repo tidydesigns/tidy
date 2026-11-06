@@ -21,7 +21,7 @@ import {
   remapAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 import { attachmentReferenceClassName, attachmentSize } from "./message-attachments";
-import { skillCommand, type Skill } from "../../../../shared/contracts/skills";
+import { skillCommands, type Skill } from "../../../../shared/contracts/skills";
 import "./prompt-editor.css";
 
 export type PromptEditorHandle = {
@@ -30,6 +30,7 @@ export type PromptEditorHandle = {
   atBoundary(direction: "up" | "down"): boolean;
   setSelectionRange(start: number, end: number): void;
   insertAttachments(files: AttachedFile[], point?: { x: number; y: number }): void;
+  insertText(text: string): void;
 };
 type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPaste"> & {
   ref?: Ref<PromptEditorHandle>;
@@ -45,6 +46,7 @@ type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPas
   placeholder?: string;
   maxLength?: number;
   skill?: Pick<Skill, "name">;
+  skills?: readonly Pick<Skill, "name">[];
 };
 
 function read(node: Node): string {
@@ -81,7 +83,6 @@ function offset(root: HTMLElement, boundary?: { node: Node; offset: number }) {
 }
 
 function select(root: HTMLElement, start: number, end: number) {
-  const range = document.createRange();
   function point(parent: Node, position: number): [Node, number] {
     let remaining = position;
     for (const [index, node] of Array.from(parent.childNodes).entries()) {
@@ -103,10 +104,7 @@ function select(root: HTMLElement, start: number, end: number) {
     }
     return [parent, parent.childNodes.length];
   }
-  range.setStart(...point(root, start));
-  range.setEnd(...point(root, end));
-  window.getSelection()?.removeAllRanges();
-  window.getSelection()?.addRange(range);
+  window.getSelection()?.setBaseAndExtent(...point(root, start), ...point(root, end));
 }
 
 // Paint Markdown dividers without changing editable nodes or native undo history.
@@ -214,39 +212,80 @@ function attachmentFragment(text: string, files: AttachedFile[]) {
   return result;
 }
 
-function fragment(text: string, files: AttachedFile[], skill?: Pick<Skill, "name">) {
-  const command = skill ? skillCommand(text, [skill.name]) : null;
-  if (!command || !skill) return attachmentFragment(text, files);
+function renderSkillName(node: Element, name: string, expanded = false) {
+  if (name.length <= 32 || expanded) {
+    node.textContent = name;
+    return;
+  }
+  const prefix = document.createElement("span");
+  prefix.className = "min-w-0 overflow-hidden text-ellipsis";
+  prefix.textContent = name.slice(0, -14);
+  const suffix = document.createElement("span");
+  suffix.className = "flex-none";
+  suffix.textContent = name.slice(-14);
+  node.replaceChildren(prefix, suffix);
+}
+
+function fragment(text: string, files: AttachedFile[], skills: readonly Pick<Skill, "name">[]) {
+  const names = new Set(skills.map((skill) => skill.name));
+  const commands = skillCommands(text).filter((command) => names.has(command.name));
+  if (!commands.length) return attachmentFragment(text, files);
   const result = document.createDocumentFragment();
-  result.append(attachmentFragment(text.slice(0, command.start), files));
-  const token = text.slice(command.start, command.end);
-  const chip = document.createElement("span");
-  chip.className = "skill-reference";
-  chip.contentEditable = "false";
-  chip.draggable = false;
-  chip.dataset.promptToken = "skill";
-  chip.dataset.skillCommand = token;
-  chip.title = `Skill: ${skill.name}`;
-  chip.setAttribute("aria-label", `Skill: ${skill.name}`);
-  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  icon.setAttribute("viewBox", "0 0 16 16");
-  icon.setAttribute("aria-hidden", "true");
-  icon.setAttribute("fill", "none");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute(
-    "d",
-    "M8 3.5C6 2.5 4 2.5 2 3v9c2-.5 4-.5 6 .5 2-1 4-1 6-.5V3c-2-.5-4-.5-6 .5Zm0 0v9",
-  );
-  path.setAttribute("stroke", "currentColor");
-  path.setAttribute("stroke-width", "1.2");
-  path.setAttribute("stroke-linejoin", "round");
-  icon.append(path);
-  const name = document.createElement("span");
-  name.className = "skill-reference-name";
-  name.textContent = skill.name;
-  chip.append(icon, name);
-  result.append(chip, attachmentFragment(text.slice(command.end), files));
+  let previous = 0;
+  for (const command of commands) {
+    result.append(attachmentFragment(text.slice(previous, command.start), files));
+    const token = text.slice(command.start, command.end);
+    const chip = document.createElement("span");
+    chip.className =
+      "skill-reference inline-flex max-w-[min(32ch,100%)] items-center gap-1 overflow-hidden rounded-[5px] border border-border bg-hover-surface px-[5px] align-[-0.2em] text-[0.92em] leading-[1.45] whitespace-nowrap text-ink aria-expanded:max-w-full aria-expanded:wrap-anywhere aria-expanded:whitespace-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-muted-ink not-forced-colors:bg-[light-dark(#f3f0fa,#2c2837)]";
+    chip.contentEditable = "false";
+    chip.draggable = false;
+    chip.dataset.promptToken = "skill";
+    chip.dataset.skillCommand = token;
+    chip.title = `Skill: ${command.name}`;
+    chip.setAttribute("aria-label", `Skill: ${command.name}`);
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 16 16");
+    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute("fill", "none");
+    icon.setAttribute(
+      "class",
+      "size-[1em] flex-none text-muted-ink not-forced-colors:text-[light-dark(#7c65ad,#b7a1df)]",
+    );
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      "M8 3.5C6 2.5 4 2.5 2 3v9c2-.5 4-.5 6 .5 2-1 4-1 6-.5V3c-2-.5-4-.5-6 .5Zm0 0v9",
+    );
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "1.2");
+    path.setAttribute("stroke-linejoin", "round");
+    icon.append(path);
+    const name = document.createElement("span");
+    name.className =
+      "skill-reference-name inline-flex min-w-0 overflow-hidden [direction:ltr] [unicode-bidi:isolate]";
+    renderSkillName(name, command.name);
+    if (command.name.length > 32) {
+      chip.classList.add("cursor-pointer");
+      chip.tabIndex = 0;
+      chip.setAttribute("role", "button");
+      chip.setAttribute("aria-expanded", "false");
+    }
+    chip.append(icon, name);
+    result.append(chip);
+    previous = command.end;
+  }
+  result.append(attachmentFragment(text.slice(previous), files));
   return result;
+}
+
+function toggleSkill(node: HTMLElement) {
+  const name = node.querySelector(".skill-reference-name");
+  const full = node.dataset.skillCommand?.slice(1);
+  if (!name || !full || !node.hasAttribute("aria-expanded")) return;
+  const expanded = node.getAttribute("aria-expanded") !== "true";
+  node.setAttribute("aria-expanded", String(expanded));
+  renderSkillName(name, full, expanded);
 }
 
 export function PromptEditor({
@@ -263,6 +302,7 @@ export function PromptEditor({
   placeholder,
   maxLength = 32_000,
   skill,
+  skills = skill ? [skill] : [],
   className,
   autoFocus,
   onKeyDown,
@@ -272,6 +312,44 @@ export function PromptEditor({
   const lastValue = useRef(value);
   const composing = useRef(false);
   const lastCursor = useRef(0);
+  type Edit = { text: string; anchor: number; focus: number };
+  const undo = useRef<Edit[]>([]);
+  const redo = useRef<Edit[]>([]);
+  const typing = useRef<{ cursor: number; time: number } | null>(null);
+  const beforeEdit = useRef<Edit | null>(null);
+  function snapshot(text = lastValue.current): Edit {
+    const root = input.current;
+    const selected = window.getSelection();
+    return {
+      text,
+      anchor:
+        root && selected?.anchorNode
+          ? offset(root, { node: selected.anchorNode, offset: selected.anchorOffset })
+          : lastCursor.current,
+      focus: root ? offset(root) : lastCursor.current,
+    };
+  }
+  function restore(backward: boolean) {
+    const root = input.current;
+    if (!root || disabled) return;
+    const source = backward ? undo.current : redo.current;
+    const destination = backward ? redo.current : undo.current;
+    const edit = source.pop();
+    if (!edit) return;
+    destination.push(snapshot());
+    root.replaceChildren(fragment(edit.text, files, skills));
+    if (edit.text.endsWith("\n")) root.append(document.createElement("br"));
+    root.focus();
+    select(root, edit.anchor, edit.focus);
+    lastValue.current = edit.text;
+    lastCursor.current = edit.focus;
+    typing.current = null;
+    beforeEdit.current = null;
+    root.dataset.empty = String(!edit.text);
+    dividers(root);
+    onChange(edit.text);
+    onCursorChange?.(edit.focus);
+  }
   useImperativeHandle(
     ref,
     () => ({
@@ -297,8 +375,10 @@ export function PromptEditor({
           : position.bottom > Math.max(...lines.map((line) => line.top));
       },
       setSelectionRange: (start, end) => {
+        typing.current = null;
         if (input.current) select(input.current, start, end);
       },
+      insertText: (text) => insert(text),
       insertAttachments: (attached, point) => {
         const root = input.current;
         if (!root || !attached.length) return;
@@ -317,33 +397,48 @@ export function PromptEditor({
         insert(attached.map(attachmentReference).join(" "), [...files, ...attached]);
       },
     }),
-    [files, maxLength, onChange, onCursorChange, skill],
+    [files, maxLength, onChange, onCursorChange, skills],
   );
   useLayoutEffect(() => {
     const root = input.current;
     if (!root || composing.current) return;
-    const command = skill ? skillCommand(value, [skill.name]) : null;
-    const renderedCommand =
-      root.querySelector<HTMLElement>("[data-skill-command]")?.dataset.skillCommand;
-    const expectedCommand = command ? value.slice(command.start, command.end) : undefined;
-    if (read(root) !== value || renderedCommand !== expectedCommand) {
+    const names = new Set(skills.map((skill) => skill.name));
+    const expected = skillCommands(value)
+      .filter((command) => names.has(command.name))
+      .map((command) => value.slice(command.start, command.end));
+    const rendered = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-skill-command]"),
+      (node) => node.dataset.skillCommand,
+    );
+    if (value !== lastValue.current) {
+      undo.current = [];
+      redo.current = [];
+      typing.current = null;
+    }
+    if (read(root) !== value || JSON.stringify(rendered) !== JSON.stringify(expected)) {
       const selection = window.getSelection();
       const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-      const start = range
-        ? offset(root, { node: range.startContainer, offset: range.startOffset })
-        : value.length;
-      const end = range
-        ? offset(root, { node: range.endContainer, offset: range.endOffset })
-        : start;
+      const start =
+        range && selection?.anchorNode
+          ? offset(root, { node: selection.anchorNode, offset: selection.anchorOffset })
+          : value.length;
+      const end =
+        range && selection?.focusNode
+          ? offset(root, { node: selection.focusNode, offset: selection.focusOffset })
+          : start;
       const focused = document.activeElement === root;
-      root.replaceChildren(fragment(value, files, skill));
+      root.replaceChildren(fragment(value, files, skills));
       if (value.endsWith("\n")) root.append(document.createElement("br"));
       if (focused) select(root, Math.min(start, value.length), Math.min(end, value.length));
     }
     dividers(root);
+    for (const chip of root.querySelectorAll<HTMLElement>(".skill-reference[aria-expanded]")) {
+      chip.tabIndex = disabled ? -1 : 0;
+      chip.setAttribute("aria-disabled", String(Boolean(disabled)));
+    }
     root.dataset.empty = String(!value);
     lastValue.current = value;
-  }, [value, files, skill]);
+  }, [value, files, skills, disabled]);
   useLayoutEffect(() => {
     const root = input.current;
     if (!root) return;
@@ -358,13 +453,25 @@ export function PromptEditor({
   useLayoutEffect(() => {
     if (autoFocus) input.current?.focus();
   }, [autoFocus]);
+  useLayoutEffect(() => {
+    const root = input.current;
+    if (!root) return;
+    const before = (event: InputEvent) => {
+      if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+        event.preventDefault();
+        restore(event.inputType === "historyUndo");
+      } else if (!beforeEdit.current) beforeEdit.current = snapshot();
+    };
+    root.addEventListener("beforeinput", before);
+    return () => root.removeEventListener("beforeinput", before);
+  });
 
-  function change() {
+  function change(inputType = "") {
     const root = input.current;
     if (!root || composing.current) return;
     const next = read(root);
     if (next.length > maxLength) {
-      root.replaceChildren(fragment(lastValue.current, files, skill));
+      root.replaceChildren(fragment(lastValue.current, files, skills));
       select(root, lastValue.current.length, lastValue.current.length);
       return;
     }
@@ -380,6 +487,31 @@ export function PromptEditor({
       selection.removeAllRanges();
       selection.addRange(range);
     }
+    if (next !== lastValue.current) {
+      const cursor = offset(root);
+      const contiguous =
+        inputType === "insertText" &&
+        (!beforeEdit.current || beforeEdit.current.anchor === beforeEdit.current.focus) &&
+        typing.current &&
+        performance.now() - typing.current.time < 1000 &&
+        cursor === typing.current.cursor + next.length - lastValue.current.length;
+      if (!contiguous)
+        undo.current.push(
+          beforeEdit.current ?? {
+            text: lastValue.current,
+            anchor: lastCursor.current,
+            focus: lastCursor.current,
+          },
+        );
+      while (
+        undo.current.length > 100 ||
+        undo.current.reduce((sum, edit) => sum + edit.text.length, 0) > 320_000
+      )
+        undo.current.shift();
+      redo.current = [];
+      typing.current = inputType === "insertText" ? { cursor, time: performance.now() } : null;
+    }
+    beforeEdit.current = null;
     lastValue.current = next;
     dividers(root);
     root.dataset.empty = String(!next);
@@ -405,8 +537,9 @@ export function PromptEditor({
       showToast(`Keep messages under ${maxLength.toLocaleString()} characters.`);
       return;
     }
+    beforeEdit.current = snapshot(current);
     const container = document.createElement("div");
-    container.append(fragment(next, attached, skill));
+    container.append(fragment(next, attached, skills));
     const replacement = document.createRange();
     replacement.selectNodeContents(root);
     selection?.removeAllRanges();
@@ -466,7 +599,41 @@ export function PromptEditor({
       data-placeholder={placeholder}
       data-empty={!value}
       tabIndex={disabled ? -1 : 0}
+      onClick={(event) => {
+        props.onClick?.(event);
+        if (disabled || event.defaultPrevented) return;
+        const chip =
+          event.target instanceof Element
+            ? event.target.closest<HTMLElement>(".skill-reference[aria-expanded]")
+            : null;
+        if (chip) toggleSkill(chip);
+      }}
       onKeyDown={(event) => {
+        if (disabled) return;
+        const chip =
+          event.target instanceof HTMLElement
+            ? event.target.closest<HTMLElement>(".skill-reference[aria-expanded]")
+            : null;
+        if (chip && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          toggleSkill(chip);
+          return;
+        }
+        if (chip && event.key === "Escape" && chip.getAttribute("aria-expanded") === "true") {
+          event.preventDefault();
+          toggleSkill(chip);
+          return;
+        }
+        if (
+          !event.nativeEvent.isComposing &&
+          !event.altKey &&
+          (event.metaKey || event.ctrlKey) &&
+          (event.key.toLowerCase() === "z" || (!event.metaKey && event.key.toLowerCase() === "y"))
+        ) {
+          event.preventDefault();
+          restore(event.key.toLowerCase() === "z" && !event.shiftKey);
+          return;
+        }
         onKeyDown?.(event);
         if (disabled || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         if ((event.metaKey || event.ctrlKey) && ["b", "i", "u"].includes(event.key.toLowerCase())) {
@@ -500,7 +667,9 @@ export function PromptEditor({
           insert("\n");
         }
       }}
-      onInput={change}
+      onInput={(event) =>
+        change(event.nativeEvent instanceof InputEvent ? event.nativeEvent.inputType : "")
+      }
       onCompositionStart={() => {
         composing.current = true;
       }}
@@ -511,6 +680,8 @@ export function PromptEditor({
       onSelect={() => {
         if (input.current) {
           lastCursor.current = offset(input.current);
+          if (!window.getSelection()?.isCollapsed || typing.current?.cursor !== lastCursor.current)
+            typing.current = null;
           onCursorChange?.(lastCursor.current);
         }
       }}

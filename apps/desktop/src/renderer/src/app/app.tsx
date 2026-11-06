@@ -74,7 +74,12 @@ import type {
 import { useRepositoryContext } from "../features/repository/use-repository-context";
 import { RepositoryIcon } from "../features/repository/repository-icons";
 import { SkillPrompt } from "../features/composer/skill-prompt";
-import { promptSkill, skillCommand, type Skill } from "../../../shared/contracts/skills";
+import {
+  promptSkill,
+  skillCommand,
+  skillCommands,
+  type Skill,
+} from "../../../shared/contracts/skills";
 import { UserFacingError } from "@tidy/ui/errors";
 import { errorText, type WorkspaceError } from "./workspace-error";
 import { useWorkspaceState } from "./use-workspace-state";
@@ -786,6 +791,9 @@ export function App({
       const key = `${target.projectId}:${failedStarts.current.has(target.id) ? "new" : target.id}`;
       setDrafts((current) => {
         const previous = current[key] ?? { ...emptyDraft, harness: target.harness };
+        const recoveredSkillId = Array.isArray(message.skillId)
+          ? message.skillId[0]
+          : message.skillId;
         const command =
           skillCommand(
             message.text,
@@ -798,9 +806,9 @@ export function App({
             text: [previous.text, message.text].filter(Boolean).join("\n\n"),
             skill: previous.text
               ? previous.skill
-              : message.skillId && command
+              : recoveredSkillId && command
                 ? {
-                    id: message.skillId,
+                    id: recoveredSkillId,
                     name: command.name,
                     harness: target.harness,
                   }
@@ -1627,6 +1635,23 @@ export function App({
       availableSkills,
       draft.skill?.harness === selectedHarness ? draft.skill : undefined,
     );
+    const mentioned = new Set(skillCommands(submitted).map((command) => command.name));
+    const selectedIds = [
+      ...new Set([
+        ...(selectedSkill ? [selectedSkill.id] : []),
+        ...availableSkills
+          .filter((skill) => mentioned.has(skill.name) && skill.name !== selectedSkill?.name)
+          .map((skill) => skill.id),
+      ]),
+    ];
+    const skillId = selectedIds.length > 1 ? selectedIds : selectedIds[0];
+    if (selectedHarness !== "codex" && selectedIds.length > 1) {
+      setError({
+        projectId: project.id,
+        text: "This harness supports one skill command per message. Send each skill in a separate message.",
+      });
+      return;
+    }
     if (
       command &&
       !selectedSkill &&
@@ -1651,7 +1676,7 @@ export function App({
           id: crypto.randomUUID(),
           text: submitted,
           attachments: draft.attachments,
-          skillId: selectedSkill?.id,
+          skillId,
         },
         delivery,
       );
@@ -1742,7 +1767,7 @@ export function App({
             threadId: id,
             messageId,
             text: submitted,
-            skillId: selectedSkill?.id,
+            skillId,
             attachmentIds: draft.attachments?.map((file) => file.id),
           })
         : api.startThread({
@@ -1754,7 +1779,7 @@ export function App({
             harness: draft.harness,
             prompt: submitted,
             naming: currentThreadNaming(),
-            skillId: selectedSkill?.id,
+            skillId,
             designIds: referenceDesignIds,
             settings: draft.settings,
             attachmentIds: draft.attachments?.map((file) => file.id),

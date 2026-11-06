@@ -516,6 +516,53 @@ test("Stop during replacement initialization restores its queued instruction", a
   expect((await read()).messages.some((message) => message.text === "Replacement")).toBe(false);
 });
 
+test("multiple queued file skills survive persistence, edits and native steering", async () => {
+  const adapter: SkillAdapter = {
+    async discover() {
+      return ["review", "audit"].map((name) => ({
+        kind: "file" as const,
+        name,
+        description: "",
+        path: `/skills/${name}/SKILL.md`,
+      }));
+    },
+  };
+  const skills = new HarnessSkills(async () => "/fixture", {
+    codex: adapter,
+    claude: adapter,
+    opencode: adapter,
+  });
+  const { service, project, thread, runs, read, action, store } = await fixture(true, true, skills);
+  const catalog = await skills.list({ harness: thread.harness, cwd: project.path });
+  const skillId = catalog.skills.map((skill) => skill.id);
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Use /review and $audit.",
+    skillId,
+    delivery: "queue",
+  });
+  const queued = (await store.readThread(project.id, thread.id)).queuedMessages![0];
+  expect(queued.skillId).toEqual(skillId);
+  await action({ kind: "edit", messageId: queued.id, text: "Use $audit then /review, carefully." });
+  expect((await read()).queuedMessages![0].skillId).toEqual(skillId);
+  await action({ kind: "steer", messageId: queued.id });
+  expect(runs[0].steers[0].skill).toMatchObject({
+    invocation: { name: "review" },
+    additional: [{ name: "audit" }],
+  });
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Use /review and $audit.",
+    skillId,
+    delivery: "queue",
+  });
+  const next = (await read()).queuedMessages![0];
+  await action({ kind: "edit", messageId: next.id, text: "Only $audit." });
+  expect((await read()).queuedMessages![0].skillId).toBe(skillId[1]);
+});
+
 for (const native of [false, true]) {
   test(`queued skills survive persistence and immediate delivery with native steering: ${native}`, async () => {
     const adapter: SkillAdapter = {

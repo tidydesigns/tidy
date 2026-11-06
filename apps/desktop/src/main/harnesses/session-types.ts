@@ -37,7 +37,12 @@ export type SessionContext = {
 };
 export type TurnInput = {
   prompt: string;
-  skill?: { invocation: SkillInvocation; context: string; prompt: string };
+  skill?: {
+    invocation: SkillInvocation;
+    additional?: SkillInvocation[];
+    context: string;
+    prompt: string;
+  };
   images?: Array<{ path: string; mimeType: string; data: string }>;
   onUpdate: (update: HarnessUpdate) => void;
 };

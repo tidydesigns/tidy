@@ -38,7 +38,12 @@ export type RunningHarness = {
   stop(): void;
   steer?(input: {
     prompt: string;
-    skill?: { invocation: SkillInvocation; context: string; prompt: string };
+    skill?: {
+      invocation: SkillInvocation;
+      additional?: SkillInvocation[];
+      context: string;
+      prompt: string;
+    };
     images: Array<{ path: string; mimeType: string; data: string }>;
   }): Promise<boolean>;
   respondToApproval?(id: string, decision: ApprovalDecision): boolean;

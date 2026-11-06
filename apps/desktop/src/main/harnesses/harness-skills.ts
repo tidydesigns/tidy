@@ -5,11 +5,12 @@ import { z } from "zod";
 import { version } from "../../../package.json";
 import type { HarnessId } from "../../shared/contracts/desktop";
 import {
-  skillCommand,
+  skillCommands,
   skillMessages,
   skillNameSchema,
   type Skill,
   type SkillCatalog,
+  type SkillSelection,
 } from "../../shared/contracts/skills";
 import { findHarness } from "./harnesses";
 import { withHarnessConnection } from "./harness-connection";
@@ -217,13 +218,30 @@ export class HarnessSkills {
     id: string;
     prompt: string;
   }): Promise<NativeSkill> {
+    const [selected] = await this.resolveSelection(input);
+    if (!selected) throw new Error(skillMessages.unavailable);
+    return selected.invocation;
+  }
+
+  async resolveSelection(input: {
+    harness: HarnessId;
+    cwd: string;
+    id: SkillSelection;
+    prompt: string;
+  }) {
     const entries = await this.entries(input.harness, input.cwd, false, true);
-    const entry = entries.find(
-      (entry) => entry.public.id === input.id || entry.legacyId === input.id,
+    const catalog = new Map(
+      entries.flatMap((entry) => [
+        [entry.public.id, entry.native],
+        [entry.legacyId, entry.native],
+      ]),
     );
-    if (!entry || !skillCommand(input.prompt, [entry.native.name]))
-      throw new Error(skillMessages.unavailable);
-    return entry.native;
+    const names = new Set(skillCommands(input.prompt).map((command) => command.name));
+    return [...new Set(Array.isArray(input.id) ? input.id : [input.id])].map((id) => {
+      const invocation = catalog.get(id);
+      if (!invocation || !names.has(invocation.name)) throw new Error(skillMessages.unavailable);
+      return { id, invocation };
+    });
   }
 }
 

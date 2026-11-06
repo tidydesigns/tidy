@@ -11,7 +11,7 @@ import { harnessFailureKindSchema } from "./harness-failure";
 import type { CodexUsage, ResetSelection, ResetResult } from "./codex-usage";
 import type { RepositoryContext } from "./repository-context";
 import type { ThreadPort } from "./thread-ports";
-import type { SkillCatalog } from "./skills";
+import type { SkillCatalog, SkillSelection } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, MAX_ATTACHMENTS, type AttachedFile } from "./attachments";
 import { toolActivitySchema, MAX_TOOL_ACTIVITIES } from "./tool-activity";
@@ -339,7 +339,7 @@ export type DesktopAPI = {
     designIds: string[];
     settings?: HarnessSettings;
     attachmentIds?: string[];
-    skillId?: string;
+    skillId?: SkillSelection;
   }): Promise<Thread>;
   warmThread?(
     input: Pick<
@@ -354,7 +354,7 @@ export type DesktopAPI = {
     threadId: string;
     text: string;
     attachmentIds?: string[];
-    skillId?: string;
+    skillId?: SkillSelection;
   }): Promise<Thread>;
   updateMessageQueue(input: QueueRequest): Promise<Thread>;
   addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile>;

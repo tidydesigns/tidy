@@ -8,6 +8,11 @@ export const skillMessages = {
 
 export const skillNameSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,199}$/);
 export const skillIdSchema = z.string().min(1).max(128);
+export const skillSelectionSchema = z.union([
+  skillIdSchema,
+  z.array(skillIdSchema).min(1).max(2000),
+]);
+export type SkillSelection = z.infer<typeof skillSelectionSchema>;
 export const skillSchema = z.object({
   id: skillIdSchema,
   name: skillNameSchema,
@@ -17,15 +22,56 @@ export const skillCatalogSchema = z.object({ skills: z.array(skillSchema).max(20
 export type Skill = z.infer<typeof skillSchema>;
 export type SkillCatalog = z.infer<typeof skillCatalogSchema>;
 
+function skillLiterals(text: string) {
+  const ranges: { start: number; end: number }[] = [];
+  const markers = /^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|\\[/$]/gm;
+  let fence: { start: number; marker: string } | undefined;
+  for (const match of text.matchAll(markers)) {
+    const previous = ranges.at(-1);
+    if (fence) {
+      if (
+        match[1]?.startsWith(fence.marker.charAt(0)) &&
+        match[1].length >= fence.marker.length &&
+        !text.slice(match.index + match[1].length, match.index + match[0].length).trim()
+      ) {
+        ranges.push({ start: fence.start, end: match.index + match[0].length });
+        fence = undefined;
+      }
+    } else if (previous && match.index < previous.end) {
+      continue;
+    } else if (match[1]) {
+      fence = { start: match.index, marker: match[1] };
+    } else if (match[2]) {
+      const end = text.indexOf(match[2], match.index + match[2].length);
+      ranges.push({ start: match.index, end: end < 0 ? text.length : end + match[2].length });
+    } else {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  if (fence) ranges.push({ start: fence.start, end: text.length });
+  return ranges;
+}
+
 export function skillCommands(text: string) {
+  if (!/[/$]/.test(text)) return [];
+  const literals = skillLiterals(text);
+  let literal = 0;
   return Array.from(
-    text.matchAll(/(?:^|\s)[/$]([a-zA-Z0-9][a-zA-Z0-9:_-]{0,199})(?=\s|$)/g),
+    text.matchAll(
+      /(?:^|\s|[([])[/$]([a-zA-Z0-9][a-zA-Z0-9:_-]{0,199})(?=\s|$|[,!?;)\]}…]|\.(?=\s|$))/g,
+    ),
     (match) => ({
       name: match[1],
       start: match.index + match[0].length - match[1].length - 1,
       end: match.index + match[0].length,
     }),
-  );
+  ).filter((command) => {
+    let range = literals[literal];
+    while (range && range.end <= command.start) {
+      range = literals[++literal];
+    }
+    return !range || command.start < range.start;
+  });
 }
 
 export function skillCommand(text: string, names?: readonly string[]) {
@@ -44,7 +90,11 @@ export function skillQuery(text: string, cursor: number) {
   if (cursor !== text.length && !/\s/.test(text[cursor] ?? "")) return null;
   const before = text.slice(0, cursor);
   const match = /(?:^|\s)[/$]([a-zA-Z0-9:_-]*)$/.exec(before);
-  return match ? match[1].toLowerCase() : null;
+  if (!match) return null;
+  const start = cursor - match[1].length - 1;
+  return skillLiterals(text).some((range) => start >= range.start && start < range.end)
+    ? null
+    : match[1].toLowerCase();
 }
 
 export function matchingSkills(skills: Skill[], query: string) {

@@ -3,7 +3,7 @@ import { lstat, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { skillIdSchema } from "../../shared/contracts/skills";
+import { skillSelectionSchema } from "../../shared/contracts/skills";
 import { readLocalFile } from "../platform/local-files";
 import { writePrivateJSON } from "../remote/session-store";
 
@@ -25,7 +25,7 @@ const entrySchema = z.object({
     .object({
       state: z.enum(["not-submitted", "unknown", "rejected", "accepted"]),
       messageId: z.uuid(),
-      skillId: skillIdSchema.optional(),
+      skillId: skillSelectionSchema.optional(),
     })
     .optional(),
 });

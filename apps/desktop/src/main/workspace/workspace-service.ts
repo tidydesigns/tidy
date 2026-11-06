@@ -5,7 +5,7 @@ import {
 } from "../../shared/contracts/worktree-settings";
 import type { ManagedWorktree } from "./worktree-storage";
 import { git } from "../repository/repository-context";
-import { skillCommand } from "../../shared/contracts/skills";
+import { skillCommand, type SkillSelection } from "../../shared/contracts/skills";
 import {
   threadCompletionSchema,
   type ThreadCompletion,
@@ -143,7 +143,7 @@ type Job = {
   browserTool?: { close(): void };
   thread: Thread;
   turn: NonNullable<Thread["messages"][number]["turn"]>;
-  submission: { messageId: string; skillId?: string };
+  submission: { messageId: string; skillId?: SkillSelection };
   queuedDelivery?: { message: QueuedMessage; index: number };
   process?: RunningHarness;
   launching?: boolean;
@@ -2304,13 +2304,16 @@ export class WorkspaceService {
         action.kind === "edit" ? updatedQueue.find((item) => item.id === message.id) : undefined;
       if (edited && message.skillId && !edited.skillId) {
         const project = this.executionProject(thread);
-        const selected = await this.skills.resolve({
+        const selected = await this.skills.resolveSelection({
           harness: thread.harness,
           cwd: this.store.project(project.id).path,
           id: message.skillId,
           prompt: message.text,
         });
-        if (skillCommand(edited.text, [selected.name])) edited.skillId = message.skillId;
+        const retained = selected.flatMap(({ id, invocation }) =>
+          skillCommand(edited.text, [invocation.name]) ? [id] : [],
+        );
+        edited.skillId = retained.length > 1 ? retained : retained[0];
       }
       if (edited) await this.store.editQueuedMessage(thread, message, edited);
       try {
@@ -2462,7 +2465,7 @@ export class WorkspaceService {
     thread: Thread,
     prompt: string,
     attachmentIds: string[] = [],
-    skillId?: string,
+    skillId?: SkillSelection,
   ) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
@@ -2534,15 +2537,21 @@ export class WorkspaceService {
       settings: thread.settings,
       superviseParent: this.superviseHarnessParent,
     });
-    const skill = skillId
-      ? await this.skills.resolve({
+    const selections = skillId
+      ? await this.skills.resolveSelection({
           harness: thread.harness,
           // The composer selects from the registered project's catalog, before a worktree exists.
           cwd: this.store.project(project.id).path,
           id: skillId,
           prompt,
         })
-      : undefined;
+      : [];
+    const invocations = selections.map((selection) => selection.invocation);
+    const skill = invocations[0];
+    if (invocations.length > 1 && invocations.some((invocation) => invocation.kind === "command"))
+      throw new Error(
+        "This harness supports one skill command per message. Send each skill in a separate message.",
+      );
     const context = [
       `The working directory is ${JSON.stringify(project.path)}.`,
       "When returning a generated video, create the finished file inside this checkout and include a direct Markdown link, for example [Video](./output/demo.mp4), in your final response. Tidy registers up to four linked MP4, MOV, M4V, WebM, MKV or AVI files per message as video artifacts, preserves the original, and prepares inline playback asynchronously using host ffprobe/ffmpeg. Do not embed video bytes in chat. Prefer a compatible MP4 (H.264 yuv420p with AAC audio) or WebM (VP8/VP9 with Opus/Vorbis). Preserve the user's requested master quality; Tidy keeps compatible video up to 4K/60fps and creates a separate 1080p fallback when video conversion is needed. Use deterministic frames and wait for fonts/assets when rendering animation. Files must be regular files under 1 GiB, without symlinks, inside this checkout. Host video tools must be installed; never claim playback succeeded without checking your generated file.",
@@ -2585,7 +2594,9 @@ export class WorkspaceService {
       project,
       additionalDirectories,
       prompt: `${context}\n\nUser request:\n\n${prompt || "Review the attached files."}`,
-      skill: skill ? { invocation: skill, context, prompt } : undefined,
+      skill: skill
+        ? { invocation: skill, additional: invocations.slice(1), context, prompt }
+        : undefined,
     };
   }
 
@@ -2595,7 +2606,7 @@ export class WorkspaceService {
     prompt: string,
     attachmentIds: string[] = [],
     messageId?: string,
-    skillId?: string,
+    skillId?: SkillSelection,
     continuation = false,
     authorize?: () => Promise<void>,
     onStarted?: (thread: Thread) => void,
@@ -2733,7 +2744,7 @@ export class WorkspaceService {
     prompt: string,
     attachmentIds: string[],
     messageId?: string,
-    skillId?: string,
+    skillId?: SkillSelection,
     continuation = false,
     authorize?: () => Promise<void>,
     onStarted?: (thread: Thread) => void,

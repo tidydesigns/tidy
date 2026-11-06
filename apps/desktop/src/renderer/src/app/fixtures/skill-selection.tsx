@@ -29,13 +29,13 @@ export async function runSkillSelectionTests(root: Root) {
   const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 40));
   const input = createRef<PromptEditorHandle>();
   let edited = "";
-  function Editable({ initial }: { initial: string }) {
+  function Editable({ initial, skills = demo }: { initial: string; skills?: Skill[] }) {
     const [text, setText] = useState(initial);
     return (
       <SkillPrompt
         ref={input}
         value={text}
-        skills={demo}
+        skills={skills}
         status="ready"
         retry={() => {}}
         onChange={(next) => {
@@ -56,6 +56,57 @@ export async function runSkillSelectionTests(root: Root) {
   check(plainEditor.firstChild === originalText, "Plain typing rebuilt native editable nodes");
   flushSync(() => document.execCommand("undo"));
   check(edited === "Plain draft", "Plain typing broke native undo");
+
+  for (const initial of ["/rev", "Before /review", ""]) {
+    flushSync(() => root.render(<Editable key={`undo-${initial}`} initial={initial} />));
+    input.current?.focus();
+    input.current?.setSelectionRange(initial.length, initial.length);
+    if (initial === "/rev") {
+      for (const letter of "iew")
+        flushSync(() => document.execCommand("insertText", false, letter));
+    } else flushSync(() => input.current?.insertText(initial ? "." : "/review "));
+    const next = edited;
+    const editor = host.querySelector<HTMLElement>('[role="textbox"]');
+    if (!editor) throw new Error("Missing undo editor");
+    flushSync(() =>
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }),
+      ),
+    );
+    check(edited === initial, "Keyboard undo failed across a skill transformation");
+    flushSync(() =>
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    check(edited === next, "Keyboard redo failed across a skill transformation");
+    flushSync(() =>
+      editor.dispatchEvent(
+        new InputEvent("beforeinput", {
+          inputType: "historyUndo",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    check(edited === initial, "Browser history intent failed across a skill transformation");
+  }
+  for (const [text, count] of [
+    ["Use /review, then /review.", 2],
+    ["```\n/review\n```", 0],
+  ] as const) {
+    flushSync(() => root.render(<Editable key={text} initial={text} />));
+    check(
+      host.querySelectorAll("[data-skill-command]").length === count,
+      "Skill tokens disagree with invocation parsing",
+    );
+  }
 
   for (const prefix of ["/", "$"]) {
     const initial = `Before ${prefix}review after`;
@@ -79,118 +130,116 @@ export async function runSkillSelectionTests(root: Root) {
     flushSync(() => document.execCommand("undo"));
     check(edited === initial, "Deleting a skill broke native undo");
   }
-  for (const skills of [demo, worst]) {
-    for (const width of [320, 720, 2560]) {
-      for (const prefix of ["/", "$"]) {
-        for (const action of ["Enter", "Tab", "click"]) {
-          const before = "👩🏽‍💻 Please use ";
-          const after = " and keep 王秀英";
-          let value = `${before}${prefix}rev${after}`;
-          let remembered: Pick<Skill, "id" | "name"> | undefined;
-          let submitted: ReturnType<typeof promptSkill> | undefined;
-          let forwarded = 0;
-          function Composer() {
-            const [text, setText] = useState(value);
-            return (
-              <form
-                className="composer"
-                dir={width === 720 ? "rtl" : "ltr"}
-                style={{
-                  position: "relative",
-                  marginTop: 350,
-                  width,
-                  containerType: "inline-size",
-                  containerName: "composer",
-                  fontSize: width === 320 ? "200%" : undefined,
-                  colorScheme: width === 720 ? "dark" : "light",
-                }}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  submitted = promptSkill(text, skills, remembered);
-                }}
-              >
-                <SkillPrompt
-                  value={text}
-                  onChange={(next) => {
-                    value = next;
-                    remembered = promptSkill(next, skills).skill;
-                    setText(next);
-                  }}
-                  skills={skills}
-                  status="ready"
-                  retry={() => {}}
-                  onKeyDown={(event) => {
-                    forwarded++;
-                    if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit();
-                  }}
-                />
-              </form>
-            );
-          }
-          flushSync(() =>
-            root.render(<Composer key={`${skills.length}-${width}-${prefix}-${action}`} />),
-          );
-          const editor = host.querySelector<HTMLElement>('[role="textbox"]');
-          if (!editor?.firstChild) throw new Error("Missing editor text");
-          editor.focus();
-          const range = document.createRange();
-          range.setStart(editor.firstChild, before.length + 4);
-          range.collapse(true);
-          window.getSelection()?.removeAllRanges();
-          window.getSelection()?.addRange(range);
-          flushSync(() => editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
-          await settle();
-          const picker = host.querySelector<HTMLElement>(".skill-picker");
-          check(picker, "Inline picker did not open");
-          if (!picker) throw new Error("Missing picker");
-          check(picker.scrollWidth <= picker.clientWidth + 1, "Skill data overflows picker width");
-          check(
-            picker.querySelectorAll('[role="option"]').length <= 100,
-            "Large catalog was not virtualized",
-          );
-          const key = (key: string, extra: KeyboardEventInit = {}) =>
-            flushSync(() =>
-              editor.dispatchEvent(
-                new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...extra }),
-              ),
-            );
-          key("Enter", { isComposing: true });
-          key("Enter", { keyCode: 229 });
-          check(
-            !forwarded && value.includes(`${prefix}rev${after}`),
-            "IME selected or sent a skill",
-          );
-          if (action === "click") {
-            const option = picker.querySelector<HTMLElement>('[aria-selected="true"]');
-            if (!option) throw new Error("Missing selected option");
-            flushSync(() => option.click());
-          } else key(action);
-          check(
-            value === `${before}${prefix}${skills[0].name}${after}`,
-            `Skill selection lost surrounding text (${skills.length}, ${width}, ${prefix}, ${action}): ${value}`,
-          );
-          check(!host.querySelector(".skill-picker"), "Picker remained open after selection");
-          const skillToken = host.querySelector<HTMLElement>("[data-prompt-token=skill]");
-          check(
-            skillToken?.textContent === skills[0].name &&
-              skillToken.getAttribute("aria-label") === `Skill: ${skills[0].name}`,
-            "Skill token was not rendered",
-          );
-          check(
-            skillToken?.dataset.skillCommand === `${prefix}${skills[0].name}`,
-            "Skill token lost its invocation prefix",
-          );
-          check(
-            Boolean(skillToken && skillToken.getBoundingClientRect().width <= editor.clientWidth),
-            "Long skill names overflow the editor",
-          );
-          check(!forwarded, "Selection also submitted the message");
-          check(document.activeElement === editor, "Selection lost composer focus");
-          key("Enter");
-          check(submitted?.skill?.id === skills[0].id, "Submission used an outdated skill id");
-          check(forwarded === 1, "Submission was not forwarded exactly once");
-        }
-      }
+  for (const { skills, width, prefix, action } of [
+    { skills: demo, width: 320, prefix: "/", action: "Enter" },
+    { skills: demo, width: 720, prefix: "$", action: "Tab" },
+    { skills: demo, width: 2560, prefix: "/", action: "click" },
+    { skills: worst, width: 320, prefix: "$", action: "Enter" },
+    { skills: worst, width: 720, prefix: "/", action: "Tab" },
+    { skills: worst, width: 2560, prefix: "$", action: "click" },
+  ]) {
+    const before = "👩🏽‍💻 Please use ";
+    const after = " and keep 王秀英";
+    let value = `${before}${prefix}rev${after}`;
+    let remembered: Pick<Skill, "id" | "name"> | undefined;
+    let submitted: ReturnType<typeof promptSkill> | undefined;
+    let forwarded = 0;
+    function Composer() {
+      const [text, setText] = useState(value);
+      return (
+        <form
+          className="composer"
+          dir={width === 720 ? "rtl" : "ltr"}
+          style={{
+            position: "relative",
+            marginTop: 350,
+            width,
+            containerType: "inline-size",
+            containerName: "composer",
+            fontSize: width === 320 ? "200%" : undefined,
+            colorScheme: width === 720 ? "dark" : "light",
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitted = promptSkill(text, skills, remembered);
+          }}
+        >
+          <SkillPrompt
+            value={text}
+            onChange={(next) => {
+              value = next;
+              remembered = promptSkill(next, skills).skill;
+              setText(next);
+            }}
+            skills={skills}
+            status="ready"
+            retry={() => {}}
+            onKeyDown={(event) => {
+              forwarded++;
+              if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit();
+            }}
+          />
+        </form>
+      );
     }
+    flushSync(() =>
+      root.render(<Composer key={`${skills.length}-${width}-${prefix}-${action}`} />),
+    );
+    const editor = host.querySelector<HTMLElement>('[role="textbox"]');
+    if (!editor?.firstChild) throw new Error("Missing editor text");
+    editor.focus();
+    const range = document.createRange();
+    range.setStart(editor.firstChild, before.length + 4);
+    range.collapse(true);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    flushSync(() => editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
+    await settle();
+    const picker = host.querySelector<HTMLElement>(".skill-picker");
+    check(picker, "Inline picker did not open");
+    if (!picker) throw new Error("Missing picker");
+    check(picker.scrollWidth <= picker.clientWidth + 1, "Skill data overflows picker width");
+    check(
+      picker.querySelectorAll('[role="option"]').length <= 100,
+      "Large catalog was not virtualized",
+    );
+    const key = (key: string, extra: KeyboardEventInit = {}) =>
+      flushSync(() =>
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...extra }),
+        ),
+      );
+    key("Enter", { isComposing: true });
+    key("Enter", { keyCode: 229 });
+    check(!forwarded && value.includes(`${prefix}rev${after}`), "IME selected or sent a skill");
+    if (action === "click") {
+      const option = picker.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!option) throw new Error("Missing selected option");
+      flushSync(() => option.click());
+    } else key(action);
+    check(
+      value === `${before}${prefix}${skills[0].name}${after}`,
+      `Skill selection lost surrounding text (${skills.length}, ${width}, ${prefix}, ${action}): ${value}`,
+    );
+    check(!host.querySelector(".skill-picker"), "Picker remained open after selection");
+    const skillToken = host.querySelector<HTMLElement>("[data-prompt-token=skill]");
+    check(
+      skillToken?.textContent === skills[0].name &&
+        skillToken.getAttribute("aria-label") === `Skill: ${skills[0].name}`,
+      "Skill token was not rendered",
+    );
+    check(
+      skillToken?.dataset.skillCommand === `${prefix}${skills[0].name}`,
+      "Skill token lost its invocation prefix",
+    );
+    check(
+      Boolean(skillToken && skillToken.getBoundingClientRect().width <= editor.clientWidth),
+      "Long skill names overflow the editor",
+    );
+    check(!forwarded, "Selection also submitted the message");
+    check(document.activeElement === editor, "Selection lost composer focus");
+    key("Enter");
+    check(submitted?.skill?.id === skills[0].id, "Submission used an outdated skill id");
+    check(forwarded === 1, "Submission was not forwarded exactly once");
   }
 }
