@@ -352,7 +352,6 @@ summary:focus-visible {
     --chat-gutter: 16px;
   }
   .thread-heading {
-    flex-wrap: wrap;
     gap: 4px;
     padding-inline: 12px;
   }
@@ -360,9 +359,6 @@ summary:focus-visible {
   :root[data-titlebar="hidden"] .desktop-sidebar-hidden .thread-heading,
   :root[data-titlebar="hidden"][data-window-fullscreen] .desktop-sidebar-hidden .thread-heading {
     padding-left: 12px;
-  }
-  .thread-heading .content-heading {
-    flex-basis: 0;
   }
   .desktop-sidebar-hidden .thread-heading .content-heading {
     margin-inline-start: 36px;
@@ -377,8 +373,6 @@ summary:focus-visible {
     margin-inline-start: 36px;
   }
   .thread-heading .thread-context {
-    order: 1;
-    flex: 1 1 100%;
     max-width: 100%;
     margin-inline: 0;
   }

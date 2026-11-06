@@ -2679,103 +2679,105 @@ export function App({
                 >
                   {!selectedThreadId && <ThreadAtmosphere />}
                   <div
-                    className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active flex-wrap gap-y-1! max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
+                    className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active" : ""}`}
                   >
-                    <div
-                      className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "basis-60! max-[700px]:basis-full" : ""}`}
-                    >
-                      {thread || selectedSummary ? (
-                        <ThreadTitle
-                          thread={{
-                            ...(thread ?? selectedSummary!),
-                            title:
-                              threadNameOverrides[selectedThreadId!] ??
-                              thread?.title ??
-                              selectedSummary!.title,
-                          }}
-                          parent={
-                            parentThreadId
-                              ? {
-                                  title:
-                                    threadNameOverrides[parentThreadId] ??
-                                    parentThread?.title ??
-                                    "Parent thread",
-                                  open: () => selectThread(project.id, parentThreadId),
-                                  prefetch: () => {
-                                    void readThread({
-                                      projectId: project.id,
-                                      threadId: parentThreadId,
-                                    }).catch(() => {});
-                                  },
-                                }
-                              : undefined
-                          }
-                          generating={Boolean(generatingNames[selectedThreadId!])}
-                          editRequested={editingThreadName === selectedThreadId}
-                          onEditFinished={() => setEditingThreadName(undefined)}
-                          onRename={renameThread}
-                          onRegenerate={regenerateThreadName}
-                        />
-                      ) : (
-                        <h1 className="m-0 truncate text-sm leading-[1.5] font-medium">
-                          New thread
-                        </h1>
-                      )}
-                      {orchestrationSupported &&
-                        api &&
-                        selectedSummary &&
-                        !selectedSummary.parentThreadId && (
-                          <ThreadWorkPermission
-                            key={selectedSummary.id}
-                            api={api}
-                            thread={selectedSummary}
+                    <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-4 gap-y-1">
+                      <div
+                        className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "basis-40" : ""}`}
+                      >
+                        {thread || selectedSummary ? (
+                          <ThreadTitle
+                            thread={{
+                              ...(thread ?? selectedSummary!),
+                              title:
+                                threadNameOverrides[selectedThreadId!] ??
+                                thread?.title ??
+                                selectedSummary!.title,
+                            }}
+                            parent={
+                              parentThreadId
+                                ? {
+                                    title:
+                                      threadNameOverrides[parentThreadId] ??
+                                      parentThread?.title ??
+                                      "Parent thread",
+                                    open: () => selectThread(project.id, parentThreadId),
+                                    prefetch: () => {
+                                      void readThread({
+                                        projectId: project.id,
+                                        threadId: parentThreadId,
+                                      }).catch(() => {});
+                                    },
+                                  }
+                                : undefined
+                            }
+                            generating={Boolean(generatingNames[selectedThreadId!])}
+                            editRequested={editingThreadName === selectedThreadId}
+                            onEditFinished={() => setEditingThreadName(undefined)}
+                            onRename={renameThread}
+                            onRegenerate={regenerateThreadName}
                           />
+                        ) : (
+                          <h1 className="m-0 truncate text-sm leading-[1.5] font-medium">
+                            New thread
+                          </h1>
                         )}
-                      {thread?.doneAt && (
-                        <Button
-                          className="quiet-button thread-heading-action shrink-0"
-                          disabled={running || Boolean(updatingDone[thread.id])}
-                          onClick={() => void toggleThreadDone(summarizeThread(thread))}
-                        >
-                          Reopen thread
-                        </Button>
+                        {orchestrationSupported &&
+                          api &&
+                          selectedSummary &&
+                          !selectedSummary.parentThreadId && (
+                            <ThreadWorkPermission
+                              key={selectedSummary.id}
+                              api={api}
+                              thread={selectedSummary}
+                            />
+                          )}
+                        {thread?.doneAt && (
+                          <Button
+                            className="quiet-button thread-heading-action shrink-0"
+                            disabled={running || Boolean(updatingDone[thread.id])}
+                            onClick={() => void toggleThreadDone(summarizeThread(thread))}
+                          >
+                            Reopen thread
+                          </Button>
+                        )}
+                      </div>
+                      {!selectedThreadId && (
+                        <span className="shrink-0 rounded-[5px] bg-hover-surface px-2 py-[3px] text-[11px] leading-4 text-muted-ink">
+                          {desktopReleaseLabel}
+                        </span>
+                      )}
+                      {thread && (
+                        <div className="thread-context ms-auto min-w-0 max-w-[min(30rem,100%)] [&_.composer-context]:flex-wrap [&_.composer-context]:justify-end! [&_.composer-context]:gap-x-4! [&_.composer-context]:gap-y-1.5! [&_.composer-context>*]:max-w-full [&_.composer-context>*]:shrink-0 [&_.composer-context>*]:leading-normal [&_.composer-context>*]:whitespace-nowrap [&_.thread-references]:m-0 [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
+                          <ComposerContext
+                            repository={repository}
+                            threadMode={
+                              surfaceProject
+                                ? {
+                                    value: selectedWorktree ? "worktree" : "local",
+                                    path: selectedWorktree?.path,
+                                  }
+                                : undefined
+                            }
+                            branchDisabled={Boolean(selectedWorktree)}
+                            branchPlacement="bottom"
+                            machine={machine ? { label: machine.current.label } : undefined}
+                            execution={executionContext}
+                            designs={snapshot.designs}
+                            selected={thread.designIds}
+                            onBranchChange={(branch) => void switchBranch(branch)}
+                            disabled={running || busy || opening}
+                            pending={Boolean(switchingBranch)}
+                          />
+                        </div>
                       )}
                     </div>
-                    {!selectedThreadId && (
-                      <span className="shrink-0 rounded-[5px] bg-hover-surface px-2 py-[3px] text-[11px] leading-4 text-muted-ink">
-                        {desktopReleaseLabel}
-                      </span>
-                    )}
-                    {thread && (
-                      <div className="thread-context ms-auto! min-w-0 max-w-[min(30rem,100%)]! [&_.composer-context]:flex-wrap [&_.composer-context]:justify-end! [&_.composer-context]:gap-x-4! [&_.composer-context]:gap-y-1.5! [&_.composer-context>*]:max-w-full [&_.composer-context>*]:shrink-0 [&_.composer-context>*]:leading-normal [&_.composer-context>*]:whitespace-nowrap [&_.thread-references]:m-0 [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
-                        <ComposerContext
-                          repository={repository}
-                          threadMode={
-                            surfaceProject
-                              ? {
-                                  value: selectedWorktree ? "worktree" : "local",
-                                  path: selectedWorktree?.path,
-                                }
-                              : undefined
-                          }
-                          branchDisabled={Boolean(selectedWorktree)}
-                          branchPlacement="bottom"
-                          machine={machine ? { label: machine.current.label } : undefined}
-                          execution={executionContext}
-                          designs={snapshot.designs}
-                          selected={thread.designIds}
-                          onBranchChange={(branch) => void switchBranch(branch)}
-                          disabled={running || busy || opening}
-                          pending={Boolean(switchingBranch)}
-                        />
-                      </div>
-                    )}
                     {surfaceProject &&
                       (repositoryAPI || api?.browser || api?.mobile) &&
                       !repositoryOpen && (
                         <Button
                           id="workspace-panel-trigger"
-                          className="quiet-button workspace-panel-trigger"
+                          className="quiet-button workspace-panel-trigger mt-[3px] self-start"
                           aria-label="Open workspace panel"
                           title="Open workspace panel"
                           aria-controls="workspace-side-panel"
