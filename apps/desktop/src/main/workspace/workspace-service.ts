@@ -1,4 +1,11 @@
 import { pullRequestURL } from "../../shared/contracts/pull-request";
+import { isDeepStrictEqual } from "node:util";
+import {
+  threadRecoveryRequestSchema,
+  type ThreadRecoveryRequest,
+  type ThreadRecoveryResult,
+} from "../../shared/contracts/thread-recovery";
+import { isLimitedThread, recoveryPrompt } from "../../shared/models/thread-recovery";
 import {
   type WorktreePreferences,
   type WorktreeStorage as WorktreeStorageResult,
@@ -489,78 +496,109 @@ export class WorkspaceService {
   ) {
     this.sessions.onBackgroundWorkChanged = (threadId, projectId, active) => {
       if (!this.closing)
-        void this.serialize(threadId, async () => {
-          if (this.closing || this.jobs.has(threadId)) return;
-          const background = this.sessions.backgroundContexts.some(
-            (item) => item.threadId === threadId && item.projectId === projectId,
-          );
-          if (!active && !background) {
-            await this.store.updateResumes.cancel(projectId, threadId);
-            const idle = this.idleRunCheckpoints.get(threadId);
-            if (idle) idle.generation = this.store.updateResumes.generation(threadId);
-          } else if (active && background) {
-            const idle = this.idleRunCheckpoints.get(threadId);
-            if (
-              !idle ||
-              idle.projectId !== projectId ||
-              idle.generation !== this.store.updateResumes.generation(threadId)
-            )
-              return;
-            const thread = await this.store.readThread(projectId, threadId);
-            if (
-              thread.doneAt ||
-              (await this.store.updateResumeSignature(
-                thread,
-                this.executionProject(thread).path,
-              )) !== idle.signature
-            )
-              return;
-            await this.store.updateResumes.checkpoint(
-              {
-                projectId,
-                threadId,
-                signature: idle.signature,
-                automaticQueue: false,
-                background: true,
-                reason: "restart",
-              },
-              idle.generation,
+        void this.trackRequest(
+          this.serialize(threadId, async () => {
+            if (this.closing || this.jobs.has(threadId)) return;
+            const background = this.sessions.backgroundContexts.some(
+              (item) => item.threadId === threadId && item.projectId === projectId,
             );
-          }
-        }).catch(() => {});
+            if (!active && !background) {
+              await this.store.updateResumes.cancel(projectId, threadId);
+              const idle = this.idleRunCheckpoints.get(threadId);
+              if (idle) idle.generation = this.store.updateResumes.generation(threadId);
+            } else if (active && background) {
+              const idle = this.idleRunCheckpoints.get(threadId);
+              if (
+                !idle ||
+                idle.projectId !== projectId ||
+                idle.generation !== this.store.updateResumes.generation(threadId)
+              )
+                return;
+              const thread = await this.store.readThread(projectId, threadId);
+              if (
+                this.closing ||
+                thread.doneAt ||
+                (await this.store.updateResumeSignature(
+                  thread,
+                  this.executionProject(thread).path,
+                )) !== idle.signature
+              )
+                return;
+              await this.store.updateResumes.checkpoint(
+                {
+                  projectId,
+                  threadId,
+                  signature: idle.signature,
+                  automaticQueue: false,
+                  background: true,
+                  reason: "restart",
+                },
+                idle.generation,
+              );
+            }
+          }),
+        ).catch(() => {});
     };
     this.sessions.onBackgroundWorkLost = (threadId, projectId) => {
       if (this.closing) return;
-      void this.serialize(threadId, async () => {
-        if (this.closing || this.jobs.has(threadId)) return;
-        const entry = await this.store.updateResumes.get(projectId, threadId);
-        if (!entry?.background || this.tasks.isManagedExecution(projectId, threadId)) return;
-        const thread = await this.store.readThread(projectId, threadId);
-        const signature = await this.store.updateResumeSignature(
-          thread,
-          this.executionProject(thread).path,
-        );
-        if (![entry.signature, entry.previousSignature].includes(signature) || thread.doneAt)
-          return;
-        const attempt = (entry.attempt ?? 0) + 1;
-        const retryAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();
-        thread.recovery = { reason: "provider", attempt, retryAt };
-        thread.status = "running";
-        thread.activity = "The background agent stopped. Retrying automatically…";
-        thread.revision++;
-        await this.checkpointRecovery(thread, {
-          ...entry,
-          background: false,
-          reason: "provider",
-          attempt,
-          retryAt,
-          previousSignature: signature,
-        });
-        this.scheduleRecovery(projectId, threadId, retryAt);
-        this.emit({ type: "thread", thread });
-      }).catch(() => {});
+      void this.trackRequest(
+        this.serialize(threadId, async () => {
+          if (this.closing || this.jobs.has(threadId)) return;
+          const entry = await this.store.updateResumes.get(projectId, threadId);
+          if (!entry?.background || this.tasks.isManagedExecution(projectId, threadId)) return;
+          const thread = await this.store.readThread(projectId, threadId);
+          const signature = await this.store.updateResumeSignature(
+            thread,
+            this.executionProject(thread).path,
+          );
+          if (
+            this.closing ||
+            ![entry.signature, entry.previousSignature].includes(signature) ||
+            thread.doneAt
+          )
+            return;
+          const attempt = (entry.attempt ?? 0) + 1;
+          const retryAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();
+          thread.recovery = { reason: "provider", attempt, retryAt };
+          thread.status = "running";
+          thread.activity = "The background agent stopped. Retrying automatically…";
+          thread.revision++;
+          await this.checkpointRecovery(thread, {
+            ...entry,
+            background: false,
+            reason: "provider",
+            attempt,
+            retryAt,
+            previousSignature: signature,
+          });
+          this.scheduleRecovery(projectId, threadId, retryAt);
+          this.emit({ type: "thread", thread });
+        }),
+      ).catch(() => {});
     };
     this.ports = new ThreadPorts(store.processState);
+    this.sessions.onBackgroundChange = (threadId, projectId) => {
+      void this.trackRequest(
+        this.serialize(threadId, async () => {
+          if (this.closing || this.jobs.has(threadId) || !this.canAccessProject(projectId)) return;
+          await this.assertProjectAccess(projectId);
+          const thread = await this.store.readThread(projectId, threadId);
+          if (this.closing || thread.recovery) return;
+          const changedTools = new Set<string>();
+          if (!this.sessions.hasBackgroundWork(threadId)) {
+            for (const tool of thread.toolActivities ?? [])
+              if (tool.status === "running") {
+                tool.status = "interrupted";
+                tool.endedAt = new Date().toISOString();
+                changedTools.add(tool.id);
+              }
+          }
+          thread.revision++;
+          await this.store.writeThread(thread);
+          this.emitThreadPatch(thread, changedTools);
+        }),
+      ).catch(() => {});
+    };
     this.worktreeCleanupTimer = setInterval(() => {
       void this.cleanupWorktrees().catch(() => {});
     }, 15 * 60_000);
@@ -1114,6 +1152,7 @@ export class WorkspaceService {
   private withThreadLineage<T extends { projectId: string; id: string }>(thread: T) {
     return {
       ...thread,
+      backgroundWork: this.sessions.hasBackgroundWork(thread.id),
       parentThreadId: this.tasks.store.parentThreadId(thread.projectId, thread.id),
       acceptsThreadWork: Boolean(this.tasks.store.receiverGrant(thread.projectId, thread.id)),
     };
@@ -2255,6 +2294,91 @@ export class WorkspaceService {
     });
   }
 
+  async resumeLimitedThreads(input: ThreadRecoveryRequest): Promise<ThreadRecoveryResult> {
+    const { projectId, threads } = threadRecoveryRequestSchema.parse(input);
+    const result: ThreadRecoveryResult = { resumed: [], skipped: [], failed: [] };
+    // Stop must win even while authorization or project discovery is pending.
+    const stopVersions = new Map(this.stopVersions);
+    await this.assertProjectAccess(projectId);
+    const selected =
+      threads ??
+      (await this.store.threadSummaries(projectId))
+        .filter(isLimitedThread)
+        .map((thread) => ({ threadId: thread.id, revision: thread.revision }));
+    const candidates = [
+      ...new Map(
+        selected.map((thread) => [
+          thread.threadId,
+          {
+            ...thread,
+            stopVersion: stopVersions.get(thread.threadId) ?? 0,
+          },
+        ]),
+      ).values(),
+    ];
+    for (const candidate of candidates) {
+      const { threadId, revision, stopVersion } = candidate;
+      try {
+        const resumed = await this.serialize(threadId, async () => {
+          await this.assertProjectAccess(projectId);
+          const thread = await this.mutableThread(projectId, threadId);
+          if (
+            this.closing ||
+            this.jobs.has(threadId) ||
+            this.starting.has(threadId) ||
+            (this.stopVersions.get(threadId) ?? 0) !== stopVersion ||
+            thread.revision !== revision ||
+            !isLimitedThread(thread) ||
+            this.tasks.isManagedExecution(projectId, threadId)
+          )
+            return false;
+          let original: Thread["messages"][number] | undefined;
+          for (let index = thread.messages.length - 1; index >= 0; index--) {
+            if (thread.messages[index].role === "user") {
+              original = thread.messages[index];
+              break;
+            }
+          }
+          // A rejected queued submission is restored to the queue. Never resume the
+          // previous completed request in its place or bypass private queue authority.
+          const queued = thread.queuedMessages?.find(
+            (message) => message.id === thread.failedMessageId,
+          );
+          if (
+            (!thread.failedMessageId && thread.queuedMessages?.length) ||
+            (thread.failedMessageId && thread.failedMessageId !== original?.id && !queued)
+          )
+            throw new Error("Open this thread to choose the request to resume.");
+          // A provider may reject a direct request before saving it in its native
+          // session. Include the original input even when a session ID exists.
+          const resumed = queued
+            ? await this.deliverQueued(thread, queued, false)
+            : await this.run(
+                thread,
+                `${recoveryPrompt}\n\nOriginal user request:\n${original?.text ?? ""}`,
+                original?.attachments?.map((file) => file.id),
+                undefined,
+                undefined,
+                true,
+              );
+          if (resumed.status === "failed")
+            throw new Error(resumed.error || "The thread could not resume.");
+          return resumed.status === "running" || resumed.status === "completed";
+        });
+        result[resumed ? "resumed" : "skipped"].push(threadId);
+      } catch (error) {
+        result.failed.push({
+          threadId,
+          error: (error instanceof Error ? error.message : "The thread could not resume.").slice(
+            0,
+            4000,
+          ),
+        });
+      }
+    }
+    return result;
+  }
+
   private async mutableThread(projectId: string, threadId: string) {
     if (this.closing) throw new Error("Tidy is closing.");
     const thread =
@@ -2422,6 +2546,8 @@ export class WorkspaceService {
         if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
           return structuredClone(thread);
       }
+      if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
+        return structuredClone(thread);
       this.automaticQueues.add(thread.id);
       return await this.run(
         thread,
@@ -2794,6 +2920,7 @@ export class WorkspaceService {
     thread.revision++;
     thread.error = undefined;
     thread.errorKind = undefined;
+    thread.failedMessageId = undefined;
     thread.activity = continuation ? "Resuming" : "Starting";
     thread.updatedAt = new Date().toISOString();
     delete thread.actualModel;
@@ -2890,6 +3017,7 @@ export class WorkspaceService {
         return structuredClone(thread);
       }
       this.sessionGeneration++;
+      const lateTool = this.lateToolHandler(thread.projectId, thread.id, job.tools);
       const launchInput = {
         agentTools: await this.agentToolsFor(thread),
         processRegistration: () =>
@@ -2911,6 +3039,7 @@ export class WorkspaceService {
         settings: launchSettings,
         images,
         onUpdate: (update: HarnessUpdate) => this.update(job, update),
+        onLateTool: lateTool,
         superviseParent: this.superviseHarnessParent,
       };
       const registration = this.launch ? await launchInput.processRegistration() : undefined;
@@ -2942,14 +3071,58 @@ export class WorkspaceService {
       turn.endedAt = new Date().toISOString();
       thread.activity = undefined;
       thread.error = error instanceof Error ? error.message : "The harness could not start.";
+      thread.failedMessageId = job.submission.messageId;
       thread.errorKind = error instanceof HarnessFailureError ? error.kind : undefined;
       await this.finish({ job, kind: "complete" });
     }
     return structuredClone(thread);
   }
 
+  private lateToolHandler(projectId: string, threadId: string, toolIds: Map<string, string>) {
+    // Capture only tool identities, never an obsolete Job or its transcript.
+    return (update: Extract<HarnessUpdate, { type: "tool" }>["tool"]) => {
+      const id = toolIds.get(update.id);
+      if (!id || update.status === "running") return;
+      void this.trackRequest(
+        this.serialize(threadId, async () => {
+          if (this.closing || !this.canAccessProject(projectId)) return;
+          await this.assertProjectAccess(projectId);
+          const thread = await this.mutableThread(projectId, threadId);
+          if (this.closing) return;
+          const existing = thread.toolActivities?.find((tool) => tool.id === id);
+          if (!existing) return; // Truncated history must not be recreated by a late result.
+          const value = toolActivitySchema.parse({
+            ...existing,
+            ...update,
+            id,
+            afterMessageId: existing.afterMessageId,
+            startedAt: existing.startedAt,
+            endedAt:
+              existing.status === update.status && existing.endedAt
+                ? existing.endedAt
+                : new Date().toISOString(),
+          });
+          if (isDeepStrictEqual(existing, value)) return;
+          Object.assign(existing, value);
+          for (const url of createdPullRequests(value))
+            if (!thread.pullRequests?.includes(url))
+              thread.pullRequests = [...(thread.pullRequests ?? []), url].slice(-20);
+          const tools = thread.toolActivities!;
+          let size = tools.reduce((total, tool) => total + toolLogSize(tool), 0);
+          while (size > MAX_TOOL_LOG_CHARACTERS) {
+            size -= toolLogSize(tools.shift()!);
+            thread.toolActivityTruncated = true;
+          }
+          thread.revision++;
+          await this.store.writeThread(thread);
+          this.emitThreadPatch(thread, new Set([id]));
+        }),
+      ).catch(() => {});
+    };
+  }
+
   private update(job: Job, update: HarnessUpdate) {
-    if (job.stopped) return;
+    if (job.stopped || this.jobs.get(job.thread.id) !== job) return;
     const thread = job.thread;
     if (
       thread.recovery &&
@@ -3048,23 +3221,7 @@ export class WorkspaceService {
     }
     // Painting and persistence are independent: stream promptly without serializing
     // and writing the complete transcript on every UI update.
-    if (!job.notification)
-      job.notification = setTimeout(() => {
-        job.notification = undefined;
-        const { messages, toolActivities, ...metadata } = thread;
-        delete metadata.queuedMessages;
-        delete metadata.queueError;
-        this.emit({
-          type: "thread-patch",
-          thread: metadata,
-          summary: summarizeThread(thread),
-          messages: messages.filter((message) => job.changedMessages.has(message.id)),
-          toolActivities: (toolActivities ?? []).filter((tool) => job.changedTools.has(tool.id)),
-          toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
-        });
-        job.changedMessages.clear();
-        job.changedTools.clear();
-      }, 32);
+    if (!job.notification) job.notification = setTimeout(() => this.emitThreadPatch(thread), 32);
     if (!job.checkpoint)
       job.checkpoint = setTimeout(() => {
         job.checkpoint = undefined;
@@ -3074,6 +3231,33 @@ export class WorkspaceService {
           job.process?.stop();
         });
       }, 250);
+  }
+
+  private emitThreadPatch(thread: Thread, extraToolIds?: ReadonlySet<string>) {
+    const job = this.jobs.get(thread.id);
+    const { messages, toolActivities, ...metadata } = thread;
+    delete metadata.queuedMessages;
+    delete metadata.queueError;
+    const patch: Extract<DesktopEvent, { type: "thread-patch" }> = {
+      type: "thread-patch",
+      thread: metadata,
+      summary: summarizeThread(thread),
+      messages: job?.changedMessages.size
+        ? messages.filter((message) => job.changedMessages.has(message.id))
+        : [],
+      toolActivities: (toolActivities ?? []).filter(
+        (tool) => extraToolIds?.has(tool.id) || job?.changedTools.has(tool.id),
+      ),
+      toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
+    };
+    if (job) {
+      clearTimeout(job.notification);
+      job.notification = undefined;
+      job.changedMessages.clear();
+      job.changedTools.clear();
+    }
+    // Include buffered live output: a later patch at this revision would be ignored.
+    this.emit(patch);
   }
 
   private async complete(job: Job) {
@@ -3106,6 +3290,8 @@ export class WorkspaceService {
     const recoveryGeneration = this.store.updateResumes.generation(job.thread.id);
     const stopVersion = this.stopVersions.get(job.thread.id) ?? 0;
     const delivery = job.queuedDelivery;
+    job.thread.failedMessageId =
+      job.thread.status === "failed" ? job.submission.messageId : undefined;
     if (
       delivery &&
       (job.process?.deliveryState === "not-submitted" || job.process?.deliveryState === "rejected")
@@ -3121,8 +3307,12 @@ export class WorkspaceService {
     clearTimeout(job.checkpoint);
     clearTimeout(job.notification);
     const ownedTools = new Set(job.tools.values());
+    const backgroundWork = this.sessions.hasBackgroundWork(job.thread.id);
     for (const tool of job.thread.toolActivities ?? [])
-      if (tool.status === "running" && ownedTools.has(tool.id)) {
+      if (
+        tool.status === "running" &&
+        (!backgroundWork || (job.stopped && ownedTools.has(tool.id)))
+      ) {
         tool.status = job.stopped ? "cancelled" : "interrupted";
         tool.endedAt = new Date().toISOString();
       }
@@ -3686,10 +3876,15 @@ export class WorkspaceService {
 
   dispatch<T>(action: () => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(new Error("Tidy is closing."));
-    const request = Promise.resolve().then(() => {
-      if (this.closing) throw new Error("Tidy is closing.");
-      return action();
-    });
+    return this.trackRequest(
+      Promise.resolve().then(() => {
+        if (this.closing) throw new Error("Tidy is closing.");
+        return action();
+      }),
+    );
+  }
+
+  private trackRequest<T>(request: Promise<T>): Promise<T> {
     this.requests.add(request);
     return request.finally(() => this.requests.delete(request));
   }

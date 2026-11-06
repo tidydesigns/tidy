@@ -6,7 +6,12 @@ import { plainToolText } from "./tool-events";
 const codes: Readonly<Record<string, HarnessFailureKind>> = {
   contextwindowexceeded: "context",
   sessionbudgetexceeded: "budget",
-  usagelimitexceeded: "rate-limit",
+  usagelimitexceeded: "usage-limit",
+  usagelimitreached: "usage-limit",
+  usagelimit: "usage-limit",
+  quotaexceeded: "usage-limit",
+  quotaexhausted: "usage-limit",
+  insufficientquota: "billing",
   ratelimitexceeded: "rate-limit",
   flexunavailable: "unavailable",
   serveroverloaded: "unavailable",
@@ -68,7 +73,7 @@ export function providerFailureKind(message: string, code: string): HarnessFailu
     "responsestreamdisconnected",
     "responsetoomanyfailedattempts",
   ].includes(normalized);
-  if (kind && !generic) return kind;
+  if (kind && !generic) return describeHarnessFailure(message, kind).kind;
   const inferred = describeHarnessFailure(message).kind;
   return inferred === "unknown" ? (kind ?? "unknown") : inferred;
 }

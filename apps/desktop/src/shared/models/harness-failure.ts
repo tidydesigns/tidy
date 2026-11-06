@@ -7,8 +7,8 @@ const descriptions = {
       "The provider’s safety checks blocked this request. Review and rephrase your message before trying again.",
   },
   billing: {
-    title: "Usage limit reached",
-    guidance: "Check your provider’s balance or usage allowance before sending another message.",
+    title: "Billing needs attention",
+    guidance: "Check your provider’s balance and billing settings before sending another message.",
   },
   session: {
     title: "Session unavailable",
@@ -24,6 +24,11 @@ const descriptions = {
     title: "Too many requests",
     guidance:
       "Your provider is limiting requests. Wait for the limit to reset, then send your message again.",
+  },
+  "usage-limit": {
+    title: "Usage limit reached",
+    guidance:
+      "Your provider’s usage allowance has been reached. Check the provider details for when it resets or how to add more usage.",
   },
   authentication: {
     title: "Sign in again",
@@ -174,9 +179,10 @@ const rules: ReadonlyArray<readonly [HarnessFailureKind, RegExp]> = [
   ],
   ["request-size", /request[_ -](?:is[_ -])?too[_ -]large|\b413\b/i],
   [
-    "rate-limit",
-    /rate.?limit|too many requests|\b429\b|hit your limit|usage.?limit|quota.{0,15}(exceeded|reached)/i,
+    "usage-limit",
+    /usage[_ -]?limit|quota.{0,30}(exceeded|reached|exhausted|reset)|hit your limit.{0,80}(reset|try again at)/i,
   ],
+  ["rate-limit", /rate.?limit|too many requests|\b429\b|hit your limit/i],
   [
     "authentication",
     /unauthori[sz]ed|unauthenticated|authenticat|not.{0,10}(logged|signed).?in|log.?in|sign.?in|cloud[_ -]credential|(?:missing|invalid|expired|revoked).{0,12}(api.?key|credentials?)|api.?key.{0,12}(missing|invalid|expired|revoked)|token.{0,20}(expired|invalid|revoked)|\b401\b/i,
@@ -221,9 +227,13 @@ const rules: ReadonlyArray<readonly [HarnessFailureKind, RegExp]> = [
 ];
 
 export function describeHarnessFailure(message: string, knownKind?: HarnessFailureKind) {
+  const inferred = rules.find(([, pattern]) => pattern.test(message))?.[0] ?? "unknown";
+  // Older threads stored usage exhaustion as a rate limit. Only recover clear quota failures.
   const kind =
-    knownKind && knownKind !== "unknown"
-      ? knownKind
-      : (rules.find(([, pattern]) => pattern.test(message))?.[0] ?? "unknown");
+    knownKind === "rate-limit" && inferred === "usage-limit"
+      ? inferred
+      : knownKind && knownKind !== "unknown"
+        ? knownKind
+        : inferred;
   return { kind, ...descriptions[kind], daybreak: kind === "policy" && /daybreak/i.test(message) };
 }

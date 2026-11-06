@@ -24,6 +24,7 @@ function cost(amount: number) {
 }
 let sequence = 0;
 let promptId: unknown;
+let deferredPrompt: { id: unknown; rejected: boolean } | undefined;
 let turnId = "";
 let pendingApproval = false;
 let stubborn = false;
@@ -85,6 +86,7 @@ function background(state: "started" | "progress" | "finished", id: string, owne
             : "task_progress",
       session_id: ownerSession,
       task_id: id,
+      tool_use_id: id,
       ...(state === "finished" ? { patch: { status: "killed" } } : {}),
     });
   else if (id.startsWith("agent-"))
@@ -125,6 +127,7 @@ function background(state: "started" | "progress" | "finished", id: string, owne
       params: {
         threadId: ownerSession,
         turnId: ownerTurn,
+        ...(state === "progress" ? { itemId: id, delta: `output:${ownerTurn}` } : {}),
         item: {
           type: "commandExecution",
           id,
@@ -180,6 +183,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     reply(value, { thread: { id: sessionId } });
   else if (method === "session/new" || method === "session/load") {
     if (method === "session/load" && existsSync("replay-cost")) cost(0.25);
+    if (method === "session/load" && existsSync("replay-tools")) {
+      background("started", "lifecycle-pending");
+      background("started", "lifecycle-1");
+      background("finished", "lifecycle-1");
+    }
     if (method === "session/load")
       send({
         method: "session/update",
@@ -263,6 +271,40 @@ for await (const line of createInterface({ input: process.stdin })) {
       if (prompt.includes("early-stop")) setTimeout(begin, 20);
       else begin();
     }
+    if (prompt === "lifecycle-owner" || prompt === "lifecycle-reused-id") {
+      background("started", "reused-tool", turnId);
+      if (prompt === "lifecycle-reused-id") {
+        background("progress", "reused-tool", "turn-1");
+        background("finished", "reused-tool", "turn-1");
+        // Only Codex includes a turn ID to distinguish a new call with the same ID.
+        if (!claude && !acp) background("finished", "reused-tool", turnId);
+      }
+      finish();
+      continue;
+    }
+    if (prompt === "lifecycle-step" || prompt === "lifecycle-release") {
+      if (sequence === 1) background("started", "lifecycle-pending", turnId);
+      if (prompt === "lifecycle-release") background("finished", "lifecycle-pending", "turn-1");
+      else {
+        const id = `lifecycle-${sequence}`;
+        background("started", id, turnId);
+        background("finished", id, turnId);
+      }
+      finish();
+      continue;
+    }
+    if (acp && prompt.startsWith("defer-prompt-response ")) {
+      deferredPrompt = { id: promptId, rejected: prompt.endsWith("rejected") };
+      continue;
+    }
+    if (acp && prompt === "release-prompt-response" && deferredPrompt) {
+      send(
+        deferredPrompt.rejected
+          ? { id: deferredPrompt.id, error: { code: -32603, message: "Old prompt failed" } }
+          : { id: deferredPrompt.id, result: { stopReason: 123 } },
+      );
+      deferredPrompt = undefined;
+    }
     const failureCode = prompt.match(/structured-failure-fixture ([A-Za-z_]+)/)?.[1];
     if (failureCode || prompt.includes("provider-failure-fixture")) {
       const message = failureCode
@@ -322,6 +364,68 @@ for await (const line of createInterface({ input: process.stdin })) {
       finish();
       continue;
     }
+    if (prompt.includes("slow-exit"))
+      process.on("SIGTERM", () => setTimeout(() => process.exit(0), 150));
+    if (prompt.includes("background")) {
+      const id = `${prompt.includes("foreign") ? "foreign" : prompt.includes("agent") ? "agent" : "background"}-${sequence}`;
+      const ownerTurn = turnId;
+      background("started", id, ownerTurn);
+      if (claude) background("started", `${id}-secondary`, ownerTurn);
+      if (!prompt.includes("silent")) {
+        const progress = setInterval(() => background("progress", id, ownerTurn), 50);
+        setTimeout(() => {
+          clearInterval(progress);
+          background("finished", id, ownerTurn);
+          if (!claude && !acp && prompt.includes("fail-turn")) {
+            send({
+              method: "item/agentMessage/delta",
+              params: {
+                threadId: sessionId,
+                turnId: ownerTurn,
+                itemId: "late-message",
+                delta: "must not leak",
+              },
+            });
+            send({
+              method: "error",
+              params: {
+                threadId: sessionId,
+                turnId: ownerTurn,
+                error: { message: "must not leak" },
+                willRetry: false,
+              },
+            });
+            send({
+              id: "late-approval",
+              method: "item/commandExecution/requestApproval",
+              params: {
+                threadId: sessionId,
+                turnId: ownerTurn,
+                itemId: id,
+                command: "must not leak",
+              },
+            });
+          }
+          if (claude) {
+            send({
+              type: "system",
+              subtype: "task_notification",
+              session_id: sessionId,
+              task_id: `${id}-secondary`,
+              status: "completed",
+            });
+            background("progress", id, ownerTurn);
+            send({
+              type: "system",
+              subtype: "task_updated",
+              session_id: sessionId,
+              task_id: id,
+              patch: { status: "running" },
+            });
+          }
+        }, 500);
+      }
+    }
     if (prompt.includes("fail-turn")) {
       if (acp) send({ id: promptId, error: { code: -32603, message: "Turn failed" } });
       else if (claude)
@@ -335,29 +439,6 @@ for await (const line of createInterface({ input: process.stdin })) {
           },
         });
       continue;
-    }
-    if (prompt.includes("background")) {
-      const id = `${prompt.includes("foreign") ? "foreign" : prompt.includes("agent") ? "agent" : "background"}-${sequence}`;
-      const ownerTurn = turnId;
-      background("started", id, ownerTurn);
-      if (claude) background("started", `${id}-secondary`, ownerTurn);
-      if (!prompt.includes("silent")) {
-        const progress = setInterval(() => background("progress", id, ownerTurn), 50);
-        setTimeout(() => {
-          clearInterval(progress);
-          background("finished", id, ownerTurn);
-          if (claude) {
-            send({
-              type: "system",
-              subtype: "task_notification",
-              session_id: sessionId,
-              task_id: `${id}-secondary`,
-              status: "completed",
-            });
-            background("progress", id, ownerTurn);
-          }
-        }, 500);
-      }
     }
     if (prompt.includes("approve")) {
       pendingApproval = true;

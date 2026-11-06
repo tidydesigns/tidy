@@ -93,9 +93,15 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
   let costBaselineUSD: number | undefined;
   let costUSD: number | undefined;
   let initialized = false;
+  let turnEmit: ReturnType<AdapterContext["turnEmitter"]> | undefined;
   const tools = new Map<
     string,
-    { title: string; kind: "read" | "edit" | "search" | "command" | "tool" }
+    {
+      title: string;
+      kind: "read" | "edit" | "search" | "command" | "tool";
+      emit: ReturnType<AdapterContext["turnEmitter"]>;
+      finished: boolean;
+    }
   >();
   let session: Promise<void> | undefined;
   const ensureSession = () =>
@@ -170,7 +176,8 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
       await ensureSession();
       costBaselineUSD = sessionCostUSD;
       costUSD = undefined;
-      tools.clear();
+      const emitTurn = context.turnEmitter();
+      turnEmit = emitTurn;
       messageId = crypto.randomUUID();
       const prompt =
         message.skill?.invocation.kind === "command"
@@ -195,9 +202,10 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
       // ACP acknowledges completion rather than prompt acceptance; progress confirms acceptance.
       void completion
         .then((result) => {
+          if (turnEmit !== emitTurn) return;
           const { usage } = promptResponse.parse(result);
           if (usage)
-            emit({
+            emitTurn({
               type: "usage",
               cumulative: false,
               usage: {
@@ -207,14 +215,14 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
                 costUSD,
               },
             });
-          tools.clear();
           context.complete();
         })
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          if (turnEmit !== emitTurn) return;
           context.complete(
             error instanceof Error ? error : new Error("OpenCode could not complete this turn."),
-          ),
-        );
+          );
+        });
     },
     consume(message) {
       if (message.method === "session/request_permission" && message.id !== undefined) {
@@ -272,21 +280,30 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
               : undefined;
       }
       if (!initialized) return;
-      if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
-        context.activity({
-          id: update.toolCallId,
-          state:
-            update.status === "completed" || update.status === "failed"
+      if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update")
+        context.activity();
+      const isTool =
+        update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update";
+      const owner = isTool ? tools.get(update.toolCallId) : undefined;
+      if (isTool) {
+        const finished = update.status === "completed" || update.status === "failed";
+        if (owner?.finished && !finished) return;
+        if (!finished || !owner)
+          context.activity({
+            id: update.toolCallId,
+            state: finished
               ? "finished"
               : update.status === "in_progress" ||
                   update.status === "pending" ||
                   update.sessionUpdate === "tool_call"
                 ? "started"
                 : "progress",
-        });
-      } else context.activity();
-      if (!context.isActive()) return;
+          });
+      }
+      if (!context.isActive() && (!isTool || !owner)) return;
       if (
+        context.isActive() &&
+        (!owner || owner.emit === turnEmit) &&
         [
           "agent_message_chunk",
           "agent_thought_chunk",
@@ -303,7 +320,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         update.sessionUpdate === "tool_call_update"
       ) {
         if (!update.toolCallId || update.kind === "think") return;
-        const previous = tools.get(update.toolCallId);
+        const previous = owner;
         const kind =
           update.kind === "read"
             ? "read"
@@ -315,8 +332,29 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
                   ? "command"
                   : (previous?.kind ?? "tool");
         const title = plainToolText(update.title ?? previous?.title ?? "Tool").slice(0, 240);
-        if (!previous && tools.size >= 1000) return;
-        tools.set(update.toolCallId, { title, kind });
+        if (!previous && tools.size >= 1000) {
+          for (const [id, tool] of tools) {
+            if (!tool.finished) continue;
+            tools.delete(id);
+            break;
+          }
+        }
+        if (
+          !previous &&
+          (tools.size >= 1000 ||
+            !context.isActive() ||
+            !turnEmit ||
+            update.sessionUpdate !== "tool_call")
+        )
+          return;
+        const emitTool = previous?.emit ?? turnEmit;
+        if (!emitTool) return;
+        tools.set(update.toolCallId, {
+          title,
+          kind,
+          emit: emitTool,
+          finished: update.status === "completed" || update.status === "failed",
+        });
         const content = z
           .array(z.object({ type: z.string(), content: z.unknown().optional() }))
           .safeParse(update.content);
@@ -328,7 +366,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
               })
               .join("\n")
           : undefined;
-        emit({
+        emitTool({
           type: "tool",
           tool: {
             id: update.toolCallId,
@@ -344,6 +382,9 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
             ...(output ? { output: plainToolText(output).slice(0, 16000) } : {}),
           },
         });
+        // Deliver the result before idle invalidation can retire this session.
+        if (update.status === "completed" || update.status === "failed")
+          context.activity({ id: update.toolCallId, state: "finished" });
       }
     },
     async interrupt() {

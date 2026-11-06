@@ -45,11 +45,15 @@ export type TurnInput = {
   };
   images?: Array<{ path: string; mimeType: string; data: string }>;
   onUpdate: (update: HarnessUpdate) => void;
+  /** Only previously observed tools from this turn may arrive after its completion. */
+  onLateTool?: (tool: Extract<HarnessUpdate, { type: "tool" }>["tool"]) => void;
 };
 export type AdapterContext = {
   input: SessionContext;
   transport: HarnessTransport;
   emit(update: HarnessUpdate): void;
+  /** Capture the current turn; late emissions are restricted to its known tools. */
+  turnEmitter(): (update: HarnessUpdate) => void;
   complete(error?: Error): void;
   accepted(): void;
   submitting(): void;

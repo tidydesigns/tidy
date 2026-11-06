@@ -11,7 +11,9 @@ if (process.argv.includes("auth") && process.argv.includes("status")) {
 
 let structuredInput, threadParams, turnParams;
 const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
-const session = "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
+const resumeIndex = process.argv.indexOf("--resume");
+const session =
+  resumeIndex >= 0 ? process.argv[resumeIndex + 1] : "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
 const turn = "fixture-turn";
 const metadataArgs = process.argv.slice(2);
 if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format")) {

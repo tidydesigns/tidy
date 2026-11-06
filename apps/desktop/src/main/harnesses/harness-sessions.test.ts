@@ -398,10 +398,14 @@ test("a retained-session conflict leaves the follow-up unsent and can recover a 
     async () => executable,
     async () => {},
   );
-  const finished = () =>
+  const finished = (afterMessages = 0) =>
     new Promise<import("../../shared/contracts/desktop").Thread>((resolve) => {
       const off = service.subscribe((event) => {
-        if (event.type === "thread" && event.thread.status !== "running") {
+        if (
+          event.type === "thread" &&
+          event.thread.status !== "running" &&
+          event.thread.messages.length > afterMessages
+        ) {
           off();
           resolve(event.thread);
         }
@@ -436,7 +440,7 @@ test("a retained-session conflict leaves the follow-up unsent and can recover a 
     expect(await events(cwd)).toEqual(before);
     // Stop releases the stale background session even if an old app saved incompatible settings.
     await service.stopThread(project.id, thread.id);
-    done = finished();
+    done = finished(original.messages.length);
     await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" });
     expect((await done).status).toBe("completed");
     expect(() => process.kill(pid, 0)).toThrow();
@@ -2093,4 +2097,277 @@ for (const harness of ["codex", "claude", "opencode"] as const) {
       });
     }
   }
+}
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test.each([false, true])(
+    `${harness} failed background work reconciles only its originating turn (next turn: %s)`,
+    async (active) => {
+      const cwd = await mkdtemp(join(directory, `${harness}-late-failure-`));
+      const sessions = new HarnessSessions();
+      const context = { projectId: "project", harness, executable, cwd };
+      const changes: boolean[] = [];
+      sessions.onBackgroundChange = (id, projectId) => {
+        expect(id).toBe("thread");
+        expect(projectId).toBe("project");
+        changes.push(sessions.hasBackgroundWork(id));
+      };
+      const first: HarnessUpdate[] = [];
+      const late: Array<Extract<HarnessUpdate, { type: "tool" }>["tool"]> = [];
+      const second: HarnessUpdate[] = [];
+      const secondLate: unknown[] = [];
+      try {
+        await expect(
+          sessions.start("thread", {
+            ...context,
+            prompt: "background fail-turn",
+            onUpdate: (update) => first.push(update),
+            onLateTool: (tool) => late.push(tool),
+          }).done,
+        ).rejects.toThrow("Turn failed");
+        expect(sessions.hasBackgroundWork("thread")).toBe(true);
+        const firstCount = first.length;
+        const next = active
+          ? sessions.start("thread", {
+              ...context,
+              prompt: "hold",
+              onUpdate: (update) => second.push(update),
+              onLateTool: (tool) => secondLate.push(tool),
+            })
+          : undefined;
+        void next?.done.catch(() => {});
+        if (!active) await sessions.clear({ threadId: "thread", idleOnly: true });
+        for (let attempt = 0; sessions.hasBackgroundWork("thread") && attempt < 200; attempt++)
+          await Bun.sleep(5);
+        expect(sessions.hasBackgroundWork("thread")).toBe(false);
+        expect(changes).toEqual([true, false]);
+        expect(first).toHaveLength(firstCount);
+        expect(late.some((tool) => tool.status !== "running")).toBe(true);
+        const originalIds = new Set(
+          first.flatMap((event) => (event.type === "tool" ? [event.tool.id] : [])),
+        );
+        expect(late.every((tool) => originalIds.has(tool.id))).toBe(true);
+        expect(
+          second.filter(
+            (event) =>
+              ["tool", "error", "approval"].includes(event.type) ||
+              (event.type === "message" && event.text.includes("must not leak")),
+          ),
+        ).toEqual([]);
+        expect(secondLate).toEqual([]);
+        await sessions.clear();
+        await next?.done.catch(() => {});
+      } finally {
+        await sessions.clear();
+      }
+    },
+  );
+
+  test(`${harness} retained work remains stoppable until actual process exit`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-late-stop-`));
+    const sessions = new HarnessSessions();
+    let exited = false;
+    const changes: boolean[] = [];
+    sessions.onBackgroundChange = (id) => {
+      const work = sessions.hasBackgroundWork(id);
+      if (!work) expect(exited).toBe(true);
+      changes.push(work);
+    };
+    try {
+      await expect(
+        sessions.start("thread", {
+          projectId: "project",
+          harness,
+          executable,
+          cwd,
+          prompt: "background silent slow-exit fail-turn",
+          onUpdate() {},
+          onExit: () => {
+            exited = true;
+          },
+        }).done,
+      ).rejects.toThrow("Turn failed");
+      const stopping = sessions.clear({ threadId: "thread" });
+      expect(sessions.hasBackgroundWork("thread")).toBe(true);
+      expect(sessions.backgroundContexts.map((item) => item.threadId)).toEqual(["thread"]);
+      await Bun.sleep(30);
+      expect(exited).toBe(false);
+      expect(sessions.hasBackgroundWork("thread")).toBe(true);
+      await stopping;
+      expect(exited).toBe(true);
+      expect(sessions.hasBackgroundWork("thread")).toBe(false);
+      expect(changes).toEqual([true, false]);
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test(`${harness} cancelled turn ownership fences late tools during a successor turn`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-cancelled-owner-`));
+    const sessions = new HarnessSessions();
+    const context = { projectId: "project", harness, executable, cwd };
+    const observed = Promise.withResolvers<void>();
+    const late: unknown[] = [];
+    const nextTools: unknown[] = [];
+    try {
+      const first = sessions.start("thread", {
+        ...context,
+        prompt: "background hold",
+        onUpdate(update) {
+          if (update.type === "tool") observed.resolve();
+        },
+        onLateTool: (tool) => late.push(tool),
+      });
+      await observed.promise;
+      first.stop();
+      await first.done;
+      expect(sessions.hasBackgroundWork("thread")).toBe(true);
+      const next = sessions.start("thread", {
+        ...context,
+        prompt: "hold",
+        onUpdate(update) {
+          if (update.type === "tool") nextTools.push(update.tool);
+        },
+        onLateTool: (tool) => nextTools.push(tool),
+      });
+      void next.done.catch(() => {});
+      for (let attempt = 0; sessions.hasBackgroundWork("thread") && attempt < 200; attempt++)
+        await Bun.sleep(5);
+      expect(sessions.hasBackgroundWork("thread")).toBe(false);
+      expect(late).toEqual([]);
+      expect(nextTools).toEqual([]);
+      await sessions.clear();
+      await next.done.catch(() => {});
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+test.each(["rejected", "malformed"])(
+  "OpenCode ignores a late %s prompt response after a successor submission",
+  async (response) => {
+    const { createOpenCodeAdapter } = await import("./opencode-adapter");
+    const { HarnessTransport } = await import("./harness-transport");
+    const cwd = await mkdtemp(join(directory, "opencode-late-response-"));
+    const transport = new HarnessTransport({ executable, cwd, args: ["acp"], protocol: "jsonrpc" });
+    const completed: Array<Error | undefined> = [];
+    const done = Promise.withResolvers<void>();
+    const adapter = createOpenCodeAdapter({
+      input: { harness: "opencode", executable, cwd },
+      transport,
+      emit() {},
+      turnEmitter: () => () => {},
+      complete(error) {
+        completed.push(error);
+        done.resolve();
+      },
+      accepted() {},
+      submitting() {},
+      ask() {},
+      cancelApproval() {},
+      isActive: () => true,
+      activity() {},
+    });
+    transport.onMessage = (message) => adapter.consume(message);
+    try {
+      await adapter.initialize();
+      // Exercise the adapter's generation boundary while the first request is still pending.
+      await adapter.submit({ prompt: `defer-prompt-response ${response}`, onUpdate() {} });
+      await adapter.submit({ prompt: "release-prompt-response", onUpdate() {} });
+      await done.promise;
+      // Drain both the success and rejection handlers for the responses sent together.
+      await Bun.sleep(0);
+      expect(completed).toEqual([undefined]);
+    } finally {
+      transport.close();
+      await transport.done;
+    }
+  },
+);
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test(`${harness} retains pending tools while cycling more than 1000 fixture turns`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-lifecycle-retention-`));
+    if (harness === "opencode") await writeFile(join(cwd, "replay-tools"), "");
+    const session = new HarnessSession({
+      harness,
+      executable,
+      cwd,
+      ...(harness === "opencode" ? { sessionId: "ses_fixture" } : {}),
+    });
+    const late: Array<Extract<HarnessUpdate, { type: "tool" }>["tool"]> = [];
+    try {
+      for (let turn = 1; turn <= 1005; turn++) {
+        const updates: HarnessUpdate[] = [];
+        await session.start({
+          prompt: "lifecycle-step",
+          onUpdate: (update) => updates.push(update),
+          onLateTool: (tool) => late.push(tool),
+        }).done;
+        expect(updates.filter((update) => update.type === "tool").at(-1)).toMatchObject({
+          tool: {
+            id: `lifecycle-${turn}`,
+            status: harness === "claude" ? "cancelled" : "completed",
+          },
+        });
+        expect(session.hasBackgroundWork).toBe(true);
+      }
+      const release: HarnessUpdate[] = [];
+      await session.start({
+        prompt: "lifecycle-release",
+        onUpdate: (update) => release.push(update),
+      }).done;
+      expect(late).toHaveLength(1);
+      expect(late[0]).toMatchObject({
+        id: "lifecycle-pending",
+        status: harness === "claude" ? "cancelled" : "completed",
+      });
+      expect(release.filter((update) => update.type === "tool")).toEqual([]);
+      expect(session.hasBackgroundWork).toBe(false);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  }, 20000);
+}
+
+for (const harness of ["codex", "claude", "opencode"] as const) {
+  test(`${harness} keeps old tool IDs with their owner when a later turn repeats them`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-reused-tool-`));
+    const session = new HarnessSession({ harness, executable, cwd });
+    const late: Array<Extract<HarnessUpdate, { type: "tool" }>["tool"]> = [];
+    try {
+      await session.start({
+        prompt: "lifecycle-owner",
+        onUpdate() {},
+        onLateTool: (tool) => late.push(tool),
+      }).done;
+      const next: HarnessUpdate[] = [];
+      await session.start({
+        prompt: "lifecycle-reused-id",
+        onUpdate: (update) => next.push(update),
+      }).done;
+      expect(late.at(-1)).toMatchObject({
+        id: "reused-tool",
+        status: harness === "claude" ? "cancelled" : "completed",
+      });
+      const tools = next.flatMap((update) => (update.type === "tool" ? [update.tool] : []));
+      if (harness === "codex") {
+        expect(tools.map((tool) => tool.status)).toEqual(["running", "completed"]);
+        expect(late.at(-1)?.output).toBe("output:turn-1");
+        expect(tools.every((tool) => !tool.output)).toBe(true);
+      } else {
+        // These protocols have no turn discriminator; a known ID keeps its old owner.
+        expect(tools).toEqual([]);
+      }
+      expect(session.hasBackgroundWork).toBe(false);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
 }

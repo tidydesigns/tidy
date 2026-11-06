@@ -84,7 +84,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
     turnId: string | undefined,
     failure: HarnessFailureError | undefined;
   let started = Promise.withResolvers<void>();
-  let completedTurnId: string | undefined;
+  const completedTurns = new Set<string>();
   const filePreviews = new Map<string, string>();
   const agents = new Set<string>();
   const agentActivity = (id: string, state: "started" | "progress" | "finished") => {
@@ -93,6 +93,8 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
     context.activity({ id: `agent:${id}`, state });
   };
   let codexEvent: ReturnType<typeof createCodexEvents> | undefined;
+  // Only unfinished tools retain their originating parser and turn callback.
+  const pendingTools = new Map<string, ReturnType<typeof createCodexEvents>>();
   return {
     async initialize() {
       await request("initialize", {
@@ -178,7 +180,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       turnId = undefined;
       filePreviews.clear();
       started = Promise.withResolvers<void>();
-      codexEvent = createCodexEvents(emit);
+      codexEvent = createCodexEvents(context.turnEmitter());
       context.submitting();
       const responseTurn = object(
         await request("turn/start", {
@@ -211,6 +213,27 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
           rejectRequest(value.id, "This request belongs to another thread.");
         return;
       }
+      const eventTurnId = text(params.turnId) || text(object(params.turn).id);
+      const itemId = text(object(params.item).id) || text(params.itemId);
+      const toolKey = `${eventTurnId || turnId}:${itemId}`;
+      const toolOwner = pendingTools.get(toolKey);
+      const oldTurn =
+        !context.isActive() ||
+        Boolean(
+          (eventTurnId &&
+            (completedTurns.has(eventTurnId) || (turnId && eventTurnId !== turnId))) ||
+          (toolOwner && toolOwner !== codexEvent),
+        );
+      if (value.id === undefined && oldTurn && params.threadId === threadId) {
+        const parser = pendingTools.get(toolKey);
+        if (
+          parser &&
+          (method === "item/completed" || method === "item/commandExecution/outputDelta")
+        ) {
+          parser(method, params);
+          if (method === "item/completed") pendingTools.delete(toolKey);
+        }
+      }
       if (value.id === undefined && threadId && params.threadId === threadId) {
         context.activity();
         if (method === "item/started" || method === "item/completed") {
@@ -234,7 +257,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
                     ? "progress"
                     : "finished",
               );
-            } else {
+            } else if (!oldTurn || method === "item/completed") {
               context.activity({
                 id: `tool:${parsed.data.turnId}:${item.id}`,
                 state:
@@ -246,8 +269,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
           }
         }
       }
-      const eventTurnId = text(params.turnId) || text(object(params.turn).id);
-      if (eventTurnId && (eventTurnId === completedTurnId || (turnId && eventTurnId !== turnId))) {
+      if (oldTurn) {
         if (value.id !== undefined)
           rejectRequest(value.id, "This request belongs to another turn.");
         return;
@@ -339,12 +361,28 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
           text(item.id),
           plainToolText(JSON.stringify(item.changes) ?? "").slice(0, 16_001),
         );
+      if (
+        method === "item/started" &&
+        codexEvent &&
+        itemId &&
+        ["commandExecution", "mcpToolCall", "dynamicToolCall", "fileChange", "webSearch"].includes(
+          text(item.type),
+        ) &&
+        pendingTools.size < 1000
+      )
+        pendingTools.set(toolKey, codexEvent);
       codexEvent?.(method, params);
+      if (method === "item/completed") pendingTools.delete(toolKey);
       if (method === "item/completed") filePreviews.delete(text(item.id));
       if (method === "error" && !params.willRetry) failure = codexFailure(params.error);
       if (method === "turn/completed") {
         const turn = object(params.turn);
-        completedTurnId = text(turn.id) || turnId;
+        const completedId = text(turn.id) || turnId;
+        if (completedId) {
+          completedTurns.add(completedId);
+          if (completedTurns.size > 1000)
+            completedTurns.delete(completedTurns.values().next().value!);
+        }
 
         if (turn.status === "failed") {
           const error = codexFailure(turn.error);

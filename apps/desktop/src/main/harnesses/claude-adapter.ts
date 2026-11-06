@@ -3,6 +3,7 @@ import { skillInvocationPrompt } from "../../shared/contracts/skills";
 import { z } from "zod";
 import { claudePermissionMode } from "../../shared/contracts/permissions";
 import { createClaudeParser } from "./harnesses";
+import { createToolEventParser } from "./tool-events";
 import {
   HarnessNotSubmittedError,
   HarnessPermissionChangeError,
@@ -52,6 +53,42 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
     context.emit(update);
   };
   let parse: ReturnType<typeof createClaudeParser> | undefined;
+  let turnEmit: ReturnType<AdapterContext["turnEmitter"]> | undefined;
+  const toolOwners = new Map<
+    string,
+    {
+      emit: ReturnType<AdapterContext["turnEmitter"]>;
+      finished: boolean;
+    }
+  >();
+  let acceptsNewTools = false;
+  const finishedTasks = new Set<string>();
+  // Task notifications can outlive the result and arrive during a later turn.
+  const parseTools = createToolEventParser("claude", (tool) => {
+    let owner = toolOwners.get(tool.id);
+    if (!owner && toolOwners.size >= 1000) {
+      for (const [id, item] of toolOwners) {
+        if (!item.finished) continue;
+        toolOwners.delete(id);
+        break;
+      }
+    }
+    if (
+      !owner &&
+      tool.status === "running" &&
+      acceptsNewTools &&
+      context.isActive() &&
+      turnEmit &&
+      toolOwners.size < 1000
+    ) {
+      owner = { emit: turnEmit, finished: false };
+      toolOwners.set(tool.id, owner);
+    }
+    if (owner) {
+      owner.finished = tool.status !== "running";
+      owner.emit({ type: "tool", tool });
+    }
+  });
   return {
     async initialize() {
       claudeAccountUsage(await context.transport.request("initialize"), input.cwd);
@@ -79,7 +116,9 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
       return true;
     },
     async submit(message) {
-      parse = createClaudeParser(emit);
+      turnEmit = context.turnEmitter();
+      // The session parser below owns tools that can outlive this turn.
+      parse = createClaudeParser(emit, { parseTools: false });
       context.submitting();
       if (
         !write({
@@ -114,7 +153,15 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
       }
     },
     consume(value) {
+      if (value.session_id && sessionId && value.session_id !== sessionId) return;
       const task = value.type === "system" ? taskEvent.safeParse(value) : undefined;
+      if (task?.success && finishedTasks.has(task.data.task_id)) return;
+      acceptsNewTools =
+        value.type === "assistant" ||
+        (value.type === "stream_event" && object(value.event).type === "content_block_start") ||
+        (value.type === "system" && value.subtype === "task_started");
+      parseTools(value);
+      acceptsNewTools = false;
       if (task?.success) {
         const event = task.data;
         if (event.session_id && sessionId && event.session_id !== sessionId) return;
@@ -124,6 +171,13 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
             : event.subtype === "task_notification"
               ? event.status
               : undefined;
+        if (
+          event.subtype === "task_notification" ||
+          (status && ["completed", "failed", "stopped", "killed"].includes(status))
+        ) {
+          finishedTasks.add(event.task_id);
+          if (finishedTasks.size > 1000) finishedTasks.delete(finishedTasks.values().next().value!);
+        }
         context.activity({
           id: event.task_id,
           state:

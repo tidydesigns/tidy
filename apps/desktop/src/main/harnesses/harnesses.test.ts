@@ -790,3 +790,140 @@ test("Claude warnings and retries do not fail turns, rejected limits can recover
   parse({ type: "result", subtype: "success", is_error: false });
   expect(updates.at(-1)).toMatchObject({ type: "error-cleared" });
 });
+
+for (const rateLimitType of ["five_hour", "seven_day"]) {
+  test(`Claude rejected ${rateLimitType} allowance retains reset details through terminal errors`, () => {
+    const updates: HarnessUpdate[] = [];
+    const parse = createClaudeParser((value) => updates.push(value));
+    parse({
+      type: "rate_limit_event",
+      message: "Your allowance is exhausted.",
+      rate_limit_info: {
+        status: "rejected",
+        rateLimitType,
+        resetsAt: Date.parse("2026-11-12T21:02:00Z") / 1000,
+        details: "Wait for your allowance to reset.",
+      },
+    });
+    const failure = updates.at(-1);
+    expect(failure).toMatchObject({ type: "error", kind: "usage-limit" });
+    if (failure?.type !== "error") throw new Error("Expected limit failure");
+    expect(failure.text).toContain("Your allowance is exhausted.");
+    expect(failure.text).toContain("Wait for your allowance to reset.");
+    expect(failure.text).toContain("Resets at 2026-11-12T21:02:00.000Z.");
+    parse({ type: "result", subtype: "error_during_execution", is_error: true });
+    expect(updates.at(-1)).toEqual(failure);
+  });
+}
+
+for (const [info, kind] of [
+  [{}, "rate-limit"],
+  [{ rateLimitType: "future_limit", resetsAt: 2_000_000_000 }, "rate-limit"],
+  [
+    { message: "Too many requests; try again in 30 seconds", resetsAt: 2_000_000_000 },
+    "rate-limit",
+  ],
+  [{ message: "You’ve hit your usage limit. Try again at Nov 12th, 2026 9:02 PM." }, "usage-limit"],
+  [{ code: "usage_limit_exceeded" }, "usage-limit"],
+  [{ error: { code: "quota_exceeded" } }, "usage-limit"],
+  [{ message: "Quota exhausted", code: "rateLimitExceeded" }, "usage-limit"],
+  [{ message: "Out of credits", rateLimitType: "seven_day" }, "billing"],
+  [{ code: "billing_error", rateLimitType: "five_hour" }, "billing"],
+  [{ message: "Run budget exhausted", rateLimitType: "five_hour" }, "budget"],
+  [{ code: "sessionBudgetExceeded", rateLimitType: "five_hour" }, "budget"],
+  [{ message: "Content policy violation", rateLimitType: "five_hour" }, "policy"],
+] as const) {
+  test(`Claude classifies rejected-limit evidence ${JSON.stringify(info)}`, () => {
+    const updates: HarnessUpdate[] = [];
+    const parse = createClaudeParser((value) => updates.push(value));
+    parse({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", ...info },
+    });
+    expect(updates.at(-1)).toMatchObject({ type: "error", kind });
+    if (Object.keys(info).length === 0)
+      expect(updates.at(-1)).toMatchObject({
+        text: "The provider rejected this request because a limit was reached.",
+      });
+    const failure = updates.at(-1);
+    parse({ type: "result", subtype: "error_during_execution", is_error: true });
+    expect(updates.at(-1)).toEqual(failure);
+  });
+}
+
+test("Claude retains visible limit details and textual reset without copying arbitrary payloads", () => {
+  const updates: HarnessUpdate[] = [];
+  createClaudeParser((value) => updates.push(value))({
+    type: "rate_limit_event",
+    code: "usage_limit_exceeded",
+    message: "Limit reached",
+    details: "Check your usage settings.",
+    secret: "do-not-copy",
+    rate_limit_info: {
+      status: "rejected",
+      message: "Limit reached",
+      details: "\u001b[31mProvider details\u001b[0m",
+      resetsAt: "Nov 12th, 2026 9:02 PM",
+      internal: { secret: "do-not-copy" },
+    },
+  });
+  expect(updates).toEqual([
+    {
+      type: "error",
+      kind: "usage-limit",
+      text: "Limit reached\n\nProvider details\n\nCheck your usage settings.\n\nResets at Nov 12th, 2026 9:02 PM.",
+    },
+  ]);
+});
+
+test("Claude bounds limit details while retaining the reset timestamp", () => {
+  const updates: HarnessUpdate[] = [];
+  createClaudeParser((value) => updates.push(value))({
+    type: "rate_limit_event",
+    rate_limit_info: {
+      status: "rejected",
+      rateLimitType: "five_hour",
+      details: "x".repeat(6000),
+      resetsAt: 2_000_000_000,
+    },
+  });
+  const failure = updates.at(-1);
+  expect(failure).toMatchObject({ type: "error", kind: "usage-limit" });
+  if (failure?.type !== "error") throw new Error("Expected limit failure");
+  expect(failure.text.length).toBeLessThan(4000);
+  expect(failure.text).toContain("2033-05-18T03:33:20.000Z");
+});
+
+for (const resetsAt of [-1, Infinity, NaN, 1e100, {}, null]) {
+  test(`Claude ignores malformed limit reset ${String(resetsAt)}`, () => {
+    const updates: HarnessUpdate[] = [];
+    createClaudeParser((value) => updates.push(value))({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", resetsAt },
+    });
+    expect(updates).toEqual([
+      {
+        type: "error",
+        kind: "rate-limit",
+        text: "The provider rejected this request because a limit was reached.",
+      },
+    ]);
+  });
+}
+
+test("Claude allowance warnings and child rejections remain non-fatal", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((value) => updates.push(value));
+  for (const status of ["allowed", "allowed_warning"]) {
+    parse({
+      type: "rate_limit_event",
+      rate_limit_info: { status, rateLimitType: "seven_day", message: "Usage limit reached" },
+    });
+  }
+  parse({
+    type: "rate_limit_event",
+    parent_tool_use_id: "child-tool",
+    rate_limit_info: { status: "rejected", rateLimitType: "five_hour" },
+  });
+  expect(updates.some((update) => update.type === "error")).toBe(false);
+});

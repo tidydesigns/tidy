@@ -910,6 +910,11 @@ export const Conversation = memo(function Conversation({
             </div>
           )}
           <ThreadRecoveryNotice recovery={thread?.recovery} />
+          {thread?.backgroundWork && thread.status !== "running" && (
+            <p className="px-1 text-xs text-muted-ink" role="status">
+              Unfinished background work. Use Stop to end it, or continue with the current settings.
+            </p>
+          )}
           {thread?.error && thread.recovery?.reason !== "provider" && (
             <HarnessFailureSummary
               error={thread.error}

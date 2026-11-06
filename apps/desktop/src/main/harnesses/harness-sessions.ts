@@ -58,6 +58,23 @@ export class HarnessSessions {
   onBackgroundWorkLost?: (threadId: string, projectId: string) => void;
   private entries = new Map<string, Entry>();
   private retiring = new Set<Promise<void>>();
+  private retiringEntries = new Set<Entry>();
+  private reportedBackground = new Set<string>();
+  onBackgroundChange?: (threadId: string, projectId: string) => void;
+
+  hasBackgroundWork(threadId: string): boolean {
+    if (this.entries.get(threadId)?.session.hasBackgroundWork) return true;
+    for (const entry of this.retiringEntries)
+      if (entry.id === threadId && entry.session.hasBackgroundWork) return true;
+    return false;
+  }
+  private backgroundChanged(entry: Entry) {
+    const active = this.hasBackgroundWork(entry.id);
+    if (active === this.reportedBackground.has(entry.id)) return;
+    if (active) this.reportedBackground.add(entry.id);
+    else this.reportedBackground.delete(entry.id);
+    this.onBackgroundChange?.(entry.id, entry.context.projectId);
+  }
   private acquiring = new Set<{ id: string; context: ManagedContext; invalidated: boolean }>();
   private changes: Promise<unknown> = Promise.resolve();
   constructor(
@@ -77,8 +94,8 @@ export class HarnessSessions {
     );
   }
   get backgroundContexts() {
-    return [...this.entries.values()]
-      .filter((entry) => entry.session.available && entry.session.hasBackgroundWork)
+    return [...this.entries.values(), ...this.retiringEntries]
+      .filter((entry) => entry.session.hasBackgroundWork)
       .map(({ id, context }) => ({
         threadId: id,
         projectId: context.projectId,
@@ -154,9 +171,14 @@ export class HarnessSessions {
     if (this.entries.get(id) !== entry) return;
     this.entries.delete(id);
     clearTimeout(entry.timer);
+    this.retiringEntries.add(entry);
     entry.session.close();
     this.retiring.add(entry.session.done);
-    void entry.session.done.finally(() => this.retiring.delete(entry.session.done));
+    void entry.session.done.finally(() => {
+      this.retiring.delete(entry.session.done);
+      this.retiringEntries.delete(entry);
+      this.backgroundChanged(entry);
+    });
   }
   private scheduleExpiry(entry: Entry) {
     entry.timer = setTimeout(
@@ -171,13 +193,29 @@ export class HarnessSessions {
     entry.timer.unref();
   }
   private activity(entry: Entry) {
-    if (this.entries.get(entry.id) !== entry || !entry.session.idle) return;
+    if (this.entries.get(entry.id) !== entry) {
+      this.backgroundChanged(entry);
+      return;
+    }
+    if (!entry.session.available && entry.background) {
+      // Transport completion clears live work before the manager's done callback.
+      // Preserve its checkpoint for crash recovery rather than treating it as success.
+      this.retire(entry.id, entry);
+      this.onBackgroundWorkLost?.(entry.id, entry.context.projectId);
+      this.backgroundChanged(entry);
+      return;
+    }
+    if (!entry.session.idle) {
+      this.backgroundChanged(entry);
+      return;
+    }
     if (entry.background !== entry.session.hasBackgroundWork)
       this.onBackgroundWorkChanged?.(
         entry.id,
         entry.context.projectId,
         entry.session.hasBackgroundWork,
       );
+    this.backgroundChanged(entry);
     if (
       !entry.timer ||
       entry.background !== entry.session.hasBackgroundWork ||

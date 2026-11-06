@@ -1,4 +1,5 @@
 import { videoChunkSchema } from "../../shared/contracts/video-preview";
+import { applyThreadPatch } from "../../shared/models/thread-updates";
 import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
@@ -42,6 +43,7 @@ async function fixture(
     input: Parameters<typeof startHarness>[0];
     complete: () => void;
     stopped: boolean;
+    deliveryState?: "not-submitted" | "rejected" | "unknown" | "accepted";
     stopping: Promise<void>;
     decisions: Array<{ id: string; decision: string }>;
   }> = [];
@@ -71,6 +73,9 @@ async function fixture(
       runs.push(run);
       return {
         done,
+        get deliveryState() {
+          return run.deliveryState;
+        },
         respondToApproval(id, decision) {
           if (run.stopped) return false;
           run.decisions.push({ id, decision });
@@ -1459,7 +1464,565 @@ test("stopped and unfinished tools never appear completed and late output is fen
     expect((await service.readThread(project.id, thread.id)).toolActivities![0].output).toBe(
       "Building",
     );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await service.store.readThread(project.id, thread.id)).toolActivities![0].output).toBe(
+      "Building",
+    );
   }
+});
+
+async function failedToolFixture() {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Original",
+    designIds: [],
+  });
+  const tool = {
+    id: "tool-1",
+    kind: "command" as const,
+    title: "Tests",
+    toolName: "Shell",
+    status: "running" as const,
+  };
+  f.runs[0].input.onUpdate({ type: "tool", tool });
+  f.runs[0].input.onUpdate({ type: "error", text: "Usage limit", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await completion;
+  await f.service["serialize"](thread.id, async () => {});
+  return { ...f, thread, tool };
+}
+
+test("quota recovery honors Stop during IPC authorization", async () => {
+  const f = await failedToolFixture();
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const original = f.service.assertProjectAccess.bind(f.service);
+  let first = true;
+  const check = spyOn(f.service, "assertProjectAccess").mockImplementation(async (id) => {
+    if (first) {
+      first = false;
+      entered.resolve();
+      await gate.promise;
+    }
+    await original(id);
+  });
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder: () => {},
+  });
+  try {
+    const recovery = requests.invoke(
+      "resume-limited-threads",
+      { projectId: f.project.id },
+      undefined,
+    );
+    await entered.promise;
+    await requests.invoke(
+      "stop-thread",
+      { projectId: f.project.id, threadId: f.thread.id },
+      undefined,
+    );
+    gate.resolve();
+    const result = await recovery;
+    expect(result).toEqual({ resumed: [], skipped: [f.thread.id], failed: [] });
+    expect(f.runs).toHaveLength(1);
+  } finally {
+    gate.resolve();
+    check.mockRestore();
+  }
+});
+
+test.each(["background", "late-tool"])(
+  "shutdown drains an in-flight %s read before releasing ownership",
+  async (kind) => {
+    const f = await failedToolFixture();
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const original = f.store.readThread.bind(f.store);
+    const reads = spyOn(f.store, "readThread").mockImplementation(async (projectId, threadId) => {
+      const value = await original(projectId, threadId);
+      entered.resolve();
+      await gate.promise;
+      return value;
+    });
+    const writes = spyOn(f.store, "writeThread");
+    try {
+      if (kind === "background")
+        f.service["sessions"].onBackgroundChange!(f.thread.id, f.project.id);
+      else f.runs[0].input.onLateTool!({ ...f.tool, status: "completed", output: "Final output" });
+      await entered.promise;
+      let closed = false;
+      const closing = f.service.close().then(() => {
+        closed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(closed).toBe(false);
+      const count = writes.mock.calls.length;
+      gate.resolve();
+      await closing;
+      await f.service["serialize"](f.thread.id, async () => {});
+      expect(writes.mock.calls.length - count).toBe(0);
+    } finally {
+      gate.resolve();
+      reads.mockRestore();
+      writes.mockRestore();
+    }
+  },
+);
+
+test("quota recovery resumes each selected revision once, preserving the request and queue", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Implement the original request",
+    designIds: [],
+  });
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: thread.id,
+    text: "Then review it",
+    delivery: "queue",
+  });
+  f.runs[0].input.onUpdate({ type: "error", text: "Usage limit reached", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[0].complete();
+  const failed = await completion;
+  const input = {
+    projectId: f.project.id,
+    threads: [{ threadId: thread.id, revision: failed.revision }],
+  };
+  const results = await Promise.all([
+    f.service.resumeLimitedThreads(input),
+    f.service.resumeLimitedThreads(input),
+  ]);
+  expect(results.flatMap((item) => item.resumed)).toEqual([thread.id]);
+  expect(results.flatMap((item) => item.skipped)).toEqual([thread.id]);
+  expect(f.runs).toHaveLength(2);
+  const resumed = await f.service.readThread(f.project.id, thread.id);
+  expect(resumed.messages).toHaveLength(failed.messages.length);
+  expect(resumed.messages[0].text).toBe("Implement the original request");
+  expect(resumed.queuedMessages).toEqual(failed.queuedMessages);
+  expect(f.runs[1].input.prompt).toContain("Do not repeat completed actions");
+  expect(f.runs[1].input.prompt).toContain("Implement the original request");
+});
+
+test("quota recovery discovers eligible threads without loading designs or folders", async () => {
+  const f = await fixture();
+  const eligible: string[] = [];
+  for (const kind of ["usage-limit", "rate-limit", "policy", "billing"] as const) {
+    const thread = await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      prompt: kind,
+      designIds: [],
+    });
+    f.runs.at(-1)!.input.onUpdate({
+      type: "error",
+      text: kind,
+      kind: kind === "rate-limit" ? "usage-limit" : kind,
+    });
+    const completion = finished(f.service, thread.id);
+    f.runs.at(-1)!.complete();
+    const failed = await completion;
+    // Legacy saved throttling failures remain eligible; new throttles retry automatically.
+    if (kind === "rate-limit") {
+      failed.errorKind = kind;
+      failed.revision++;
+      await f.store.writeThread(failed);
+    }
+    if (kind === "billing") await f.service.setThreadDone(f.project.id, thread.id, true);
+    else if (kind !== "policy") eligible.push(thread.id);
+  }
+  const designs = spyOn(f.store, "designs").mockRejectedValue(new Error("Designs unavailable"));
+  const folders = spyOn(f.store, "folders").mockRejectedValue(new Error("Folders unavailable"));
+  try {
+    const result = await f.service.resumeLimitedThreads({ projectId: f.project.id });
+    expect(result.resumed.sort()).toEqual(eligible.sort());
+    expect(result.failed).toEqual([]);
+    expect(designs).not.toHaveBeenCalled();
+    expect(folders).not.toHaveBeenCalled();
+    expect(f.runs).toHaveLength(6);
+  } finally {
+    designs.mockRestore();
+    folders.mockRestore();
+  }
+});
+
+test("quota recovery leaves an automatic provider retry under its existing checkpoint", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Original",
+    designIds: [],
+  });
+  const waiting = Promise.withResolvers<void>();
+  const off = f.service.subscribe((event) => {
+    if (
+      event.type === "thread" &&
+      event.thread.id === thread.id &&
+      event.thread.recovery?.reason === "provider"
+    )
+      waiting.resolve();
+  });
+  try {
+    f.runs[0].input.onUpdate({
+      type: "error",
+      text: "Too many requests. Retry after 60 seconds.",
+      kind: "rate-limit",
+    });
+    f.runs[0].complete();
+    await waiting.promise;
+    const checkpoint = await f.store.updateResumes.get(f.project.id, thread.id);
+    expect(checkpoint).toBeDefined();
+    expect(await f.service.resumeLimitedThreads({ projectId: f.project.id })).toEqual({
+      resumed: [],
+      skipped: [],
+      failed: [],
+    });
+    expect(f.runs).toHaveLength(1);
+    expect(await f.store.updateResumes.get(f.project.id, thread.id)).toEqual(checkpoint);
+  } finally {
+    off();
+  }
+});
+
+test.each(["authorization", "discovery"])("quota recovery honors Stop during %s", async (stage) => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Original",
+    designIds: [],
+  });
+  f.runs[0].input.onUpdate({ type: "error", text: "Usage limit", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await completion;
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const authorize = f.service.assertProjectAccess.bind(f.service);
+  const discover = f.store.threadSummaries.bind(f.store);
+  let paused = false;
+  const pause = async () => {
+    if (paused) return;
+    paused = true;
+    entered.resolve();
+    await gate.promise;
+  };
+  const check =
+    stage === "authorization"
+      ? spyOn(f.service, "assertProjectAccess").mockImplementation(async (projectId) => {
+          await pause();
+          await authorize(projectId);
+        })
+      : spyOn(f.store, "threadSummaries").mockImplementation(async (projectId) => {
+          const threads = await discover(projectId);
+          await pause();
+          return threads;
+        });
+  try {
+    const recovery = f.service.resumeLimitedThreads({ projectId: f.project.id });
+    await entered.promise;
+    await f.service.stopThread(f.project.id, thread.id);
+    gate.resolve();
+    expect((await recovery).skipped).toEqual([thread.id]);
+    expect(f.runs).toHaveLength(1);
+  } finally {
+    gate.resolve();
+    check.mockRestore();
+  }
+});
+
+test("quota recovery honors Stop during preparation", async () => {
+  const gate = Promise.withResolvers<void>();
+  const preparing = Promise.withResolvers<void>();
+  let held = false;
+  const f = await fixture(undefined, false, undefined, false, undefined, async () => {
+    if (held) {
+      preparing.resolve();
+      await gate.promise;
+    }
+    return "/fixture/harness";
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Original",
+    designIds: [],
+  });
+  f.runs[0].input.onUpdate({ type: "error", text: "Usage limit", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[0].complete();
+  const failed = await completion;
+  held = true;
+  const recovery = f.service.resumeLimitedThreads({
+    projectId: f.project.id,
+    threads: [{ threadId: thread.id, revision: failed.revision }],
+  });
+  try {
+    await preparing.promise;
+    await f.service.stopThread(f.project.id, thread.id);
+  } finally {
+    gate.resolve();
+  }
+  expect((await recovery).skipped).toEqual([thread.id]);
+  expect(f.runs).toHaveLength(1);
+  expect((await f.service.readThread(f.project.id, thread.id)).status).toBe("stopped");
+});
+
+test("quota recovery retries a rejected queued submission instead of the previous completed request", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Already completed",
+    designIds: [],
+  });
+  const first = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await first;
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: thread.id,
+    text: "The rejected request",
+    delivery: "queue",
+  });
+  f.runs[1].deliveryState = "rejected";
+  f.runs[1].input.onUpdate({ type: "error", text: "Usage limit", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[1].complete();
+  const failed = await completion;
+  expect(failed.messages).toHaveLength(1);
+  expect(failed.failedMessageId).toBe(failed.queuedMessages![0].id);
+  const result = await f.service.resumeLimitedThreads({
+    projectId: f.project.id,
+    threads: [{ threadId: thread.id, revision: failed.revision }],
+  });
+  expect(result.resumed).toEqual([thread.id]);
+  expect(f.runs[2].input.prompt).toContain("The rejected request");
+  expect(f.runs[2].input.prompt).not.toContain("Continue the unfinished request");
+  const current = await f.service.readThread(f.project.id, thread.id);
+  expect(current.messages.at(-1)?.text).toBe("The rejected request");
+  expect(current.queuedMessages).toEqual([]);
+});
+
+test("quota recovery carries a rejected direct request and attachments into an existing native session", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Already completed",
+    designIds: [],
+  });
+  const sessionId = randomUUID();
+  f.runs[0].input.onUpdate({ type: "session", id: sessionId });
+  const first = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await first;
+  const file = await f.store.addAttachment(
+    f.project.id,
+    "Request.txt",
+    "data:text/plain;base64,SGVsbG8=",
+  );
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: thread.id,
+    text: "The new rejected request",
+    attachmentIds: [file.id],
+  });
+  f.runs[1].deliveryState = "rejected";
+  f.runs[1].input.onUpdate({ type: "error", text: "Usage limit", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[1].complete();
+  const failed = await completion;
+  const result = await f.service.resumeLimitedThreads({
+    projectId: f.project.id,
+    threads: [{ threadId: thread.id, revision: failed.revision }],
+  });
+  expect(result.resumed).toEqual([thread.id]);
+  expect(f.runs[2].input.sessionId).toBe(sessionId);
+  expect(f.runs[2].input.prompt).toContain("Original user request:\nThe new rejected request");
+  expect(f.runs[2].input.prompt).toContain(
+    (await f.store.resolveAttachment(f.project.id, file.id)).path,
+  );
+  const current = await f.service.readThread(f.project.id, thread.id);
+  expect(current.messages.map((message) => message.text)).toEqual(
+    failed.messages.map((message) => message.text),
+  );
+});
+
+test("finishing a newer turn reconciles older tools when background work has ended", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Old work",
+    designIds: [],
+  });
+  const background = spyOn(f.service["sessions"], "hasBackgroundWork").mockReturnValue(true);
+  try {
+    f.runs[0].input.onUpdate({
+      type: "tool",
+      tool: {
+        id: "old",
+        kind: "command",
+        toolName: "Shell",
+        title: "Old process",
+        status: "running",
+      },
+    });
+    f.runs[0].input.onUpdate({ type: "error", text: "Usage limit", kind: "usage-limit" });
+    const first = finished(f.service, thread.id);
+    f.runs[0].complete();
+    expect((await first).toolActivities![0].status).toBe("running");
+    await f.service.sendMessage({ projectId: f.project.id, threadId: thread.id, text: "Continue" });
+    background.mockReturnValue(false);
+    f.service["sessions"].onBackgroundChange?.(thread.id, f.project.id);
+    const second = finished(f.service, thread.id);
+    f.runs[1].complete();
+    expect((await second).toolActivities![0].status).toBe("interrupted");
+  } finally {
+    background.mockRestore();
+  }
+});
+
+test("quota recovery skips changed, done, and unrelated failures and isolates per-thread errors", async () => {
+  const f = await fixture();
+  const candidates: Array<{ threadId: string; revision: number }> = [];
+  for (const kind of ["usage-limit", "rate-limit", "policy", "billing"] as const) {
+    const thread = await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      prompt: kind,
+      designIds: [],
+    });
+    f.runs.at(-1)!.input.onUpdate({
+      type: "error",
+      text: kind,
+      kind: kind === "rate-limit" ? "usage-limit" : kind,
+    });
+    const completion = finished(f.service, thread.id);
+    f.runs.at(-1)!.complete();
+    const failed = await completion;
+    if (kind === "rate-limit") {
+      failed.errorKind = kind;
+      failed.revision++;
+      await f.store.writeThread(failed);
+    }
+    candidates.push({ threadId: failed.id, revision: failed.revision });
+  }
+  await f.service.renameThread(f.project.id, candidates[0].threadId, "Changed since selection");
+  const done = await f.service.setThreadDone(f.project.id, candidates[3].threadId, true);
+  candidates[3].revision = done.revision;
+  const missing = randomUUID();
+  const result = await f.service.resumeLimitedThreads({
+    projectId: f.project.id,
+    threads: [{ threadId: missing, revision: 0 }, ...candidates],
+  });
+  expect(result.resumed).toEqual([candidates[1].threadId]);
+  expect(result.skipped).toEqual([
+    candidates[0].threadId,
+    candidates[2].threadId,
+    candidates[3].threadId,
+  ]);
+  expect(result.failed.map((item) => item.threadId)).toEqual([missing]);
+});
+
+test("late tool completion reconciles the original row without overwriting a newer turn", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Run tests",
+    designIds: [],
+  });
+  const tool = {
+    id: "same-native-id",
+    kind: "command" as const,
+    title: "Tests",
+    toolName: "Shell",
+    status: "running" as const,
+  };
+  f.runs[0].input.onUpdate({ type: "tool", tool });
+  f.runs[0].input.onUpdate({ type: "error", text: "Usage limit reached", kind: "usage-limit" });
+  const completion = finished(f.service, thread.id);
+  f.runs[0].complete();
+  const failed = await completion;
+  const late = f.runs[0].input.onLateTool!;
+  expect(late).toBeFunction();
+  const reconciled = new Promise<void>((resolve) => {
+    const off = f.service.subscribe((event) => {
+      if (event.type === "thread-patch" && event.toolActivities?.[0].status === "completed") {
+        expect(event.messages).toEqual([]);
+        expect("messages" in event.thread).toBe(false);
+        off();
+        resolve();
+      }
+    });
+  });
+  late({ ...tool, status: "completed", exitCode: 0, output: "Passed after failure" });
+  await reconciled;
+  const before = await f.service.readThread(f.project.id, thread.id);
+  expect(before.status).toBe("failed");
+  expect(before.error).toBe(failed.error);
+  expect(before.messages).toEqual(failed.messages);
+  const writes = spyOn(f.store, "writeThread");
+  try {
+    late({ ...tool, status: "completed", exitCode: 0, output: "Passed after failure" });
+    await f.service["serialize"](thread.id, async () => {});
+    expect(writes).not.toHaveBeenCalled();
+    const duplicate = await f.service.readThread(f.project.id, thread.id);
+    expect(duplicate.revision).toBe(before.revision);
+    expect(duplicate.toolActivities![0].endedAt).toBe(before.toolActivities![0].endedAt);
+  } finally {
+    writes.mockRestore();
+  }
+  await f.service.sendMessage({ projectId: f.project.id, threadId: thread.id, text: "Continue" });
+  let rendered = await f.service.readThread(f.project.id, thread.id);
+  const render = f.service.subscribe((event) => {
+    if (event.type === "thread-patch" && event.thread.id === thread.id)
+      rendered = applyThreadPatch(rendered, event);
+    else if (event.type === "thread" && event.thread.id === thread.id) rendered = event.thread;
+  });
+  cleanups.push(async () => {
+    render();
+  });
+  f.runs[1].input.onUpdate({ type: "tool", tool });
+  f.runs[1].input.onUpdate({
+    type: "message",
+    id: "new-response",
+    text: "The newer response is streaming",
+  });
+  const changed = new Promise<void>((resolve) => {
+    const off = f.service.subscribe((event) => {
+      if (
+        event.type === "thread-patch" &&
+        event.toolActivities?.[0].output === "Original command result"
+      ) {
+        off();
+        resolve();
+      }
+    });
+  });
+  late({ ...tool, status: "completed", output: "Original command result" });
+  await changed;
+  const current = await f.service.readThread(f.project.id, thread.id);
+  expect(current.status).toBe("running");
+  expect(current.messages.at(-1)?.text).toBe("The newer response is streaming");
+  expect(current.toolActivities![0].output).toBe("Original command result");
+  expect(current.toolActivities![1].status).toBe("running");
+  expect(current.toolActivities![1].output).toBeUndefined();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(rendered.messages.at(-1)?.text).toBe("The newer response is streaming");
+  expect(rendered.toolActivities![0].output).toBe("Original command result");
+  expect(rendered.toolActivities![1].status).toBe("running");
 });
 
 test("tool histories stay bounded while created PRs survive pruning and restart", async () => {
