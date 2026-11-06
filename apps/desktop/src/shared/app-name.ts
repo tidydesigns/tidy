@@ -1,6 +1,5 @@
-export function isDesktopBeta(version: string) {
-  return /^\d+\.\d+\.\d+-beta\.\d+$/.test(version);
-}
+import { isDesktopBeta } from "./app-release";
+export { isDesktopBeta } from "./app-release";
 
 /** Stable releases and other platforms retain their existing product name. */
 export function desktopAppName(version: string, platform: NodeJS.Platform) {
