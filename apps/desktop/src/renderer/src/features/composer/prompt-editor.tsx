@@ -21,7 +21,7 @@ import {
   remapAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 import { attachmentReferenceClassName, attachmentSize } from "./message-attachments";
-import { skillCommand } from "../../../../shared/contracts/skills";
+import { skillCommand, type Skill } from "../../../../shared/contracts/skills";
 import "./prompt-editor.css";
 
 export type PromptEditorHandle = {
@@ -44,7 +44,7 @@ type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPas
   disabled?: boolean;
   placeholder?: string;
   maxLength?: number;
-  skill?: { name: string };
+  skill?: Pick<Skill, "name">;
 };
 
 function read(node: Node): string {
@@ -214,7 +214,7 @@ function attachmentFragment(text: string, files: AttachedFile[]) {
   return result;
 }
 
-function fragment(text: string, files: AttachedFile[], skill?: { name: string }) {
+function fragment(text: string, files: AttachedFile[], skill?: Pick<Skill, "name">) {
   const command = skill ? skillCommand(text, [skill.name]) : null;
   if (!command || !skill) return attachmentFragment(text, files);
   const result = document.createDocumentFragment();
@@ -228,13 +228,23 @@ function fragment(text: string, files: AttachedFile[], skill?: { name: string })
   chip.dataset.skillCommand = token;
   chip.title = `Skill: ${skill.name}`;
   chip.setAttribute("aria-label", `Skill: ${skill.name}`);
-  const kind = document.createElement("span");
-  kind.className = "skill-reference-kind";
-  kind.textContent = "Skill";
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("fill", "none");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute(
+    "d",
+    "M8 3.5C6 2.5 4 2.5 2 3v9c2-.5 4-.5 6 .5 2-1 4-1 6-.5V3c-2-.5-4-.5-6 .5Zm0 0v9",
+  );
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.2");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.append(path);
   const name = document.createElement("span");
   name.className = "skill-reference-name";
   name.textContent = skill.name;
-  chip.append(kind, name);
+  chip.append(icon, name);
   result.append(chip, attachmentFragment(text.slice(command.end), files));
   return result;
 }
@@ -307,7 +317,7 @@ export function PromptEditor({
         insert(attached.map(attachmentReference).join(" "), [...files, ...attached]);
       },
     }),
-    [files, maxLength, onChange, onCursorChange],
+    [files, maxLength, onChange, onCursorChange, skill],
   );
   useLayoutEffect(() => {
     const root = input.current;
@@ -315,15 +325,20 @@ export function PromptEditor({
     const command = skill ? skillCommand(value, [skill.name]) : null;
     const renderedCommand =
       root.querySelector<HTMLElement>("[data-skill-command]")?.dataset.skillCommand;
-    if (
-      read(root) !== value ||
-      renderedCommand !== (command && value.slice(command.start, command.end))
-    ) {
-      const cursor = offset(root);
+    const expectedCommand = command ? value.slice(command.start, command.end) : undefined;
+    if (read(root) !== value || renderedCommand !== expectedCommand) {
+      const selection = window.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      const start = range
+        ? offset(root, { node: range.startContainer, offset: range.startOffset })
+        : value.length;
+      const end = range
+        ? offset(root, { node: range.endContainer, offset: range.endOffset })
+        : start;
       const focused = document.activeElement === root;
       root.replaceChildren(fragment(value, files, skill));
       if (value.endsWith("\n")) root.append(document.createElement("br"));
-      if (focused) select(root, Math.min(cursor, value.length), Math.min(cursor, value.length));
+      if (focused) select(root, Math.min(start, value.length), Math.min(end, value.length));
     }
     dividers(root);
     root.dataset.empty = String(!value);

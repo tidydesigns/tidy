@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 import { SkillPrompt } from "../../features/composer/skill-prompt";
 import { promptSkill, type Skill } from "../../../../shared/contracts/skills";
+import { type PromptEditorHandle } from "../../features/composer/prompt-editor";
 
 const longestName = `review-0000-${"changes-".repeat(23)}done`;
 const demo: Skill[] = [{ id: "current", name: "review", description: "Review changes" }];
@@ -26,6 +27,58 @@ export async function runSkillSelectionTests(root: Root) {
     if (!condition) throw new Error(message);
   };
   const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 40));
+  const input = createRef<PromptEditorHandle>();
+  let edited = "";
+  function Editable({ initial }: { initial: string }) {
+    const [text, setText] = useState(initial);
+    return (
+      <SkillPrompt
+        ref={input}
+        value={text}
+        skills={demo}
+        status="ready"
+        retry={() => {}}
+        onChange={(next) => {
+          edited = next;
+          setText(next);
+        }}
+      />
+    );
+  }
+  flushSync(() => root.render(<Editable key="plain" initial="Plain draft" />));
+  const plainEditor = host.querySelector<HTMLElement>('[role="textbox"]');
+  if (!plainEditor) throw new Error("Missing plain editor");
+  const originalText = plainEditor.firstChild;
+  input.current?.focus();
+  input.current?.setSelectionRange(11, 11);
+  flushSync(() => document.execCommand("insertText", false, "!"));
+  check(edited === "Plain draft!", "Plain typing lost content");
+  check(plainEditor.firstChild === originalText, "Plain typing rebuilt native editable nodes");
+  flushSync(() => document.execCommand("undo"));
+  check(edited === "Plain draft", "Plain typing broke native undo");
+
+  for (const prefix of ["/", "$"]) {
+    const initial = `Before ${prefix}review after`;
+    flushSync(() => root.render(<Editable key={prefix} initial={initial} />));
+    const editor = host.querySelector<HTMLElement>('[role="textbox"]');
+    const token = editor?.querySelector<HTMLElement>("[data-skill-command]");
+    if (!editor || !token) throw new Error("Missing skill editor");
+    input.current?.focus();
+    const range = document.createRange();
+    range.selectNode(token);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    const clipboardData = new DataTransfer();
+    editor.dispatchEvent(new ClipboardEvent("copy", { bubbles: true, clipboardData }));
+    check(
+      clipboardData.getData("text/plain") === `${prefix}review`,
+      "Copying a skill lost its invocation",
+    );
+    flushSync(() => document.execCommand("delete"));
+    check(edited === "Before  after", "Deleting a skill damaged surrounding text");
+    flushSync(() => document.execCommand("undo"));
+    check(edited === initial, "Deleting a skill broke native undo");
+  }
   for (const skills of [demo, worst]) {
     for (const width of [320, 720, 2560]) {
       for (const prefix of ["/", "$"]) {
@@ -119,12 +172,17 @@ export async function runSkillSelectionTests(root: Root) {
           check(!host.querySelector(".skill-picker"), "Picker remained open after selection");
           const skillToken = host.querySelector<HTMLElement>("[data-prompt-token=skill]");
           check(
-            skillToken?.textContent === `Skill${skills[0].name}`,
+            skillToken?.textContent === skills[0].name &&
+              skillToken.getAttribute("aria-label") === `Skill: ${skills[0].name}`,
             "Skill token was not rendered",
           );
           check(
             skillToken?.dataset.skillCommand === `${prefix}${skills[0].name}`,
             "Skill token lost its invocation prefix",
+          );
+          check(
+            Boolean(skillToken && skillToken.getBoundingClientRect().width <= editor.clientWidth),
+            "Long skill names overflow the editor",
           );
           check(!forwarded, "Selection also submitted the message");
           check(document.activeElement === editor, "Selection lost composer focus");

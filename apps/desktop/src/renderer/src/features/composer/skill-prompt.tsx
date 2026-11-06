@@ -25,7 +25,7 @@ import type { Message } from "../../../../shared/contracts/desktop";
 
 type HistoryEntry = Pick<Message, "text"> & { attachments?: AttachedFile[] };
 
-type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
+type Props = Omit<ComponentProps<typeof PromptEditor>, "ref" | "skill"> & {
   ref?: Ref<PromptEditorHandle>;
   skills: Skill[];
   status: "loading" | "ready" | "error";
