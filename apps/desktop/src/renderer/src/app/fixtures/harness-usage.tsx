@@ -1,3 +1,4 @@
+import { WorkspaceRequestError } from "../../../../shared/contracts/workspace-response";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 import type { DesktopAPI, HarnessId } from "../../../../shared/contracts/desktop";
@@ -457,4 +458,136 @@ export async function runCodexResetTests(root: Root) {
     "Parent usage was not refreshed",
   );
   check(!disclosure.textContent?.includes("2 available"), "Reset count stayed stale");
+
+  const renderCase = (key: string, testApi: DesktopAPI) =>
+    flushSync(() =>
+      root.render(
+        <div style={{ padding: 24, marginTop: 400 }}>
+          <HarnessUsage key={key} api={testApi} projectId={key} harness="codex" ready />
+        </div>,
+      ),
+    );
+  const openCase = async () => {
+    flushSync(() =>
+      required(
+        host.querySelector<HTMLButtonElement>('[aria-label="Account & usage"]'),
+        "Usage trigger",
+      ).click(),
+    );
+    await until(
+      () => Boolean(host.querySelector('[aria-label^="Reset to use:"]')),
+      "Reset picker missing",
+    );
+    flushSync(() =>
+      required(
+        host.querySelector<HTMLElement>(".codex-reset-panel summary"),
+        "Reset summary",
+      ).click(),
+    );
+  };
+  const findButton = (text: string) =>
+    [...host.querySelectorAll("button")].find((item) => item.textContent?.trim() === text);
+  const clickButton = (text: string) =>
+    flushSync(() => required(findButton(text), `Missing ${text}`).click());
+
+  resets.resets = { availableCount: 2, credits: [credit("tonight", expiry)] };
+  renderCase("partial-resets", api);
+  await openCase();
+  const partialPicker = required(
+    host.querySelector<HTMLButtonElement>('[aria-label="Reset to use: Choose a reset"]'),
+    "Partial list defaulted to a credit",
+  );
+  check(
+    required(findButton("Use reset…"), "Use reset action").disabled,
+    "Partial list enabled redemption before selection",
+  );
+  flushSync(() => partialPicker.click());
+  flushSync(() =>
+    required(
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(
+        (item) => !item.disabled,
+      ),
+      "Explicit reset option",
+    ).click(),
+  );
+  check(
+    !required(findButton("Use reset…"), "Use reset action").disabled,
+    "Explicit selection did not enable redemption",
+  );
+  check(calls.length === 1, "Selecting a partial-list credit spent it");
+
+  resets.resets.availableCount = 1;
+  const retried: import("../../../../shared/contracts/codex-usage").ResetSelection[] = [];
+  const uncertainApi: DesktopAPI = {
+    ...api,
+    consumeCodexReset: async (_project, selected) => {
+      retried.push(selected);
+      if (retried.length === 1) throw new Error("Synthetic lost response before host persistence");
+      return { outcome: "alreadyRedeemed", usage: structuredClone(resets) };
+    },
+  };
+  renderCase("uncertain-reset", uncertainApi);
+  await openCase();
+  clickButton("Use reset…");
+  clickButton("Use this reset");
+  await until(
+    () => Boolean(findButton("Retry same reset")),
+    "Uncertain attempt did not retain retry",
+  );
+  const beforeRefresh = reads;
+  flushSync(() =>
+    required(
+      host.querySelector<HTMLButtonElement>('[aria-label="Refresh account usage"]'),
+      "Refresh usage",
+    ).click(),
+  );
+  await until(() => reads > beforeRefresh, "Refresh did not recheck reset discovery");
+  await settle();
+  check(
+    findButton("Retry same reset") && !findButton("Use reset…"),
+    "A null pending record cleared an uncertain attempt",
+  );
+  clickButton("Retry same reset");
+  await until(
+    () => Boolean(host.textContent?.includes("Reset applied.")),
+    "Retry did not reconcile outcome",
+  );
+  check(
+    retried.length === 2 &&
+      retried[0].creditId === retried[1].creditId &&
+      retried[0].idempotencyKey === retried[1].idempotencyKey,
+    "Retry changed the original attempt identity",
+  );
+
+  const oldHostApi: DesktopAPI = {
+    ...api,
+    codexUsage: async () => {
+      throw new WorkspaceRequestError("Unknown desktop request.");
+    },
+    harnessUsage: async () => ({
+      windows: [],
+      state: "available",
+      updatedAt: new Date().toISOString(),
+      usagePage: "subscription",
+      resets: { availableCount: 2, items: [{ id: "legacy", expiresAt: expiry }] },
+    }),
+  };
+  renderCase("legacy-reset-host", oldHostApi);
+  flushSync(() =>
+    required(
+      host.querySelector<HTMLButtonElement>('[aria-label="Account & usage"]'),
+      "Legacy usage trigger",
+    ).click(),
+  );
+  await until(
+    () => Boolean(host.querySelector(".account-usage-reset-list time")),
+    "Unsupported discovery hid legacy reset details",
+  );
+  const legacy = required(
+    host.querySelector<HTMLTimeElement>(".account-usage-reset-list time"),
+    "Legacy expiry",
+  );
+  check(legacy.dateTime === new Date(expiry * 1000).toISOString(), "Legacy expiry changed");
+  check(host.textContent?.includes("2 available"), "Legacy count was hidden");
+  check(!host.querySelector(".codex-reset-button"), "Legacy host exposed a spending action");
 }

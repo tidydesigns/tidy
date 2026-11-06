@@ -410,7 +410,9 @@ again after redemption instead of assuming the windows reset to zero.
 
 An uncertain result offers **Retry same reset**. The private host state retains
 its idempotency key across restarts, and another reset cannot be used until that
-attempt is resolved. See the [Codex App Server reset contract](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt).
+attempt is resolved. Completed outcomes remain available by idempotency key after
+later redemptions. Older hosts keep their read-only count and expiry details.
+See the [Codex App Server reset contract](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt).
 
 ### Harness updates
 

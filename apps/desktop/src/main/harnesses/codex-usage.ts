@@ -30,7 +30,7 @@ const limitsSchema = z.object({
   accountId: z.string().min(1).nullish(),
   rateLimits: bucketSchema,
   rateLimitsByLimitId: z.record(z.string(), bucketSchema).nullish(),
-  rateLimitResetCredits: codexUsageSchema.shape.resets.optional(),
+  rateLimitResetCredits: z.unknown().optional(),
 });
 const attemptSchema = z.object({
   selection: resetSelectionSchema,
@@ -64,9 +64,16 @@ export class CodexUsageService {
 
   private async snapshot(request: Request, supported: boolean): Promise<CodexUsage> {
     const limits = limitsSchema.parse(await request("account/rateLimits/read"));
-    const credits = limits.rateLimitResetCredits?.credits;
-    if (credits && new Set(credits.map((credit) => credit.id)).size !== credits.length)
-      throw new Error("Codex returned ambiguous reset details. Refresh before using a reset.");
+    const details = codexUsageSchema.shape.resets.safeParse(limits.rateLimitResetCredits ?? null);
+    let resets = details.success ? details.data : null;
+    const duplicateIds =
+      resets?.credits &&
+      new Set(resets.credits.map((credit) => credit.id)).size !== resets.credits.length;
+    const resetDetailsError =
+      !details.success || duplicateIds
+        ? "Codex returned invalid or ambiguous reset details. Refresh before using a new reset."
+        : null;
+    if (duplicateIds && resets) resets = { ...resets, credits: null };
     const accountKey = limits.accountId
       ? createHash("sha256").update(limits.accountId).digest("hex")
       : null;
@@ -96,7 +103,8 @@ export class CodexUsageService {
             ]
           : [],
       ),
-      resets: limits.rateLimitResetCredits ?? null,
+      resets,
+      resetDetailsError,
       redemptionUnavailable: !supported
         ? "Update Codex to use a specific banked reset safely."
         : !accountKey
@@ -130,7 +138,10 @@ export class CodexUsageService {
         if (usage.accountKey !== selection.accountKey)
           throw new Error("Your Codex account changed. Refresh and choose a reset again.");
         const stored = await this.state.read(selection.accountKey);
-        const attempt = stored === undefined ? null : attemptSchema.parse(stored);
+        const latest = stored === undefined ? null : attemptSchema.parse(stored);
+        const attemptKey = `${selection.accountKey}-${selection.idempotencyKey}`;
+        const completed = await this.state.read(attemptKey);
+        const attempt = completed === undefined ? latest : attemptSchema.parse(completed);
         const sameAttempt = attempt?.selection.idempotencyKey === selection.idempotencyKey;
         if (
           sameAttempt &&
@@ -139,10 +150,27 @@ export class CodexUsageService {
             attempt.selection.accountKey !== selection.accountKey)
         )
           throw new Error("This retry does not match the original reset.");
-        if (sameAttempt && attempt.outcome !== null) return { outcome: attempt.outcome, usage };
+        if (sameAttempt && attempt.outcome !== null) {
+          // Repair a pending pointer if the completed record was durable before an interrupted write.
+          if (
+            latest?.selection.idempotencyKey === selection.idempotencyKey &&
+            latest.outcome === null
+          ) {
+            await this.state.write(selection.accountKey, attempt);
+            return { outcome: attempt.outcome, usage: { ...usage, pendingReset: null } };
+          }
+          return { outcome: attempt.outcome, usage };
+        }
         if (!sameAttempt) {
-          if (attempt?.outcome === null)
+          if (latest?.outcome === null)
             throw new Error("Resolve the previous reset attempt before using another reset.");
+          if (usage.resetDetailsError) throw new Error(usage.resetDetailsError);
+          // Migrate an older host’s last completed record before replacing its account pointer.
+          if (latest && latest.outcome !== null)
+            await this.state.write(
+              `${selection.accountKey}-${latest.selection.idempotencyKey}`,
+              latest,
+            );
           const credit = availableResetCredits(usage, this.deps.now()).find(
             (item) => item.id === selection.creditId,
           );
@@ -164,6 +192,8 @@ export class CodexUsageService {
               idempotencyKey: selection.idempotencyKey,
             }),
           ));
+          // Retain each outcome independently; a later redemption must not erase this retry result.
+          await this.state.write(attemptKey, { selection, outcome });
           await this.state.write(selection.accountKey, { selection, outcome });
         } catch {
           outcome = "unconfirmed";

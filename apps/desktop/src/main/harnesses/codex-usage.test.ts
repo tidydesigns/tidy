@@ -240,3 +240,58 @@ test("redemption is a remote mutation, usage discovery is read-only", () => {
   expect(isRemoteMutation("codex-reset")).toBe(true);
   expect(isRemoteMutation("codex-usage")).toBe(false);
 });
+
+test("pending retries remain available when credit detail IDs become ambiguous", async () => {
+  const { service, data, selection } = await fixture();
+  data.consume = async () => {
+    throw new Error("lost response");
+  };
+  expect((await service.consume("project", selection)).outcome).toBe("unconfirmed");
+  data.limits.rateLimitResetCredits.credits!.push(credit("tonight", 48));
+  const usage = await service.read("project");
+  expect(usage.pendingReset).toEqual(selection);
+  expect(usage.resetDetailsError).toContain("ambiguous");
+  expect(usage.resets?.credits).toBeNull();
+  data.consume = async () => ({ outcome: "alreadyRedeemed" });
+  expect((await service.consume("project", selection)).outcome).toBe("alreadyRedeemed");
+  expect(data.calls).toEqual(
+    Array(2).fill({ creditId: selection.creditId, idempotencyKey: selection.idempotencyKey }),
+  );
+});
+
+test("completed outcomes survive later redemptions and a host restart", async () => {
+  const { service, data, state, deps, selection } = await fixture();
+  expect((await service.consume("project", selection)).outcome).toBe("reset");
+  data.limits.rateLimitResetCredits.credits = [credit("later", 48)];
+  const second = {
+    ...selection,
+    creditId: "later",
+    expiresAt: credit("later", 48).expiresAt,
+    idempotencyKey: randomUUID(),
+  };
+  expect((await service.consume("project", second)).outcome).toBe("reset");
+  const restarted = new CodexUsageService(state, deps);
+  expect((await restarted.consume("project", selection)).outcome).toBe("reset");
+  expect(data.calls).toHaveLength(2);
+  await expect(restarted.consume("project", { ...selection, creditId: "later" })).rejects.toThrow(
+    "original reset",
+  );
+});
+
+test("a completed retry does not replace a newer pending account pointer", async () => {
+  const { service, data, selection } = await fixture();
+  await service.consume("project", selection);
+  data.consume = async () => {
+    throw new Error("lost response");
+  };
+  const second = {
+    ...selection,
+    creditId: "later",
+    expiresAt: credit("later", 48).expiresAt,
+    idempotencyKey: randomUUID(),
+  };
+  expect((await service.consume("project", second)).outcome).toBe("unconfirmed");
+  expect((await service.consume("project", selection)).outcome).toBe("reset");
+  expect((await service.read("project")).pendingReset).toEqual(second);
+  expect(data.calls).toHaveLength(2);
+});

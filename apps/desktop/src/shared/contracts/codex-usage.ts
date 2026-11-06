@@ -41,6 +41,7 @@ export const codexUsageSchema = z.object({
     })
     .nullable(),
   redemptionUnavailable: z.string().nullable(),
+  resetDetailsError: z.string().nullable().optional(),
   pendingReset: resetSelectionSchema.nullable(),
 });
 export const resetResultSchema = z.object({

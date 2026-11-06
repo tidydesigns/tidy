@@ -1,3 +1,5 @@
+import { BankedResetDisclosure } from "./banked-reset-disclosure";
+import type { HarnessUsage } from "../../../../shared/contracts/harness-usage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
@@ -28,16 +30,19 @@ export function CodexResetControls({
   projectId,
   onRedeemed,
   refreshing,
+  fallbackResets,
 }: {
   api: DesktopAPI;
   projectId: string;
   onRedeemed(): void;
   refreshing?: boolean;
+  fallbackResets?: HarnessUsage["resets"];
 }) {
   const [usage, setUsage] = useState<CodexUsage | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [discoveryUnsupported, setDiscoveryUnsupported] = useState(false);
   const [notice, setNotice] = useState("");
   const [choice, setChoice] = useState("");
   const [review, setReview] = useState<ResetSelection | null>(null);
@@ -58,6 +63,7 @@ export function CodexResetControls({
       if (!api.codexUsage) throw new Error("Update Tidy to view banked reset details.");
       const next = await api.codexUsage(projectId);
       if (mounted.current && current === generation.current) {
+        setDiscoveryUnsupported(false);
         setUsage(next);
         setNow(Date.now());
         setError("");
@@ -65,6 +71,10 @@ export function CodexResetControls({
       }
     } catch (cause) {
       if (mounted.current && current === generation.current) {
+        setDiscoveryUnsupported(
+          cause instanceof WorkspaceRequestError &&
+            /^(Unknown|Invalid) desktop request\.$/.test(cause.message),
+        );
         setError(cause instanceof Error ? cause.message : "Couldn’t refresh Codex usage.");
         setStale(true);
       }
@@ -125,7 +135,7 @@ export function CodexResetControls({
     selection?.expiresAt !== undefined &&
     selection.expiresAt * 1000 <= now;
   const changedAccount = selection && usage && usage.accountKey !== selection.accountKey;
-  const unavailable = !usage || !!usage.redemptionUnavailable || stale;
+  const unavailable = !usage || !!usage.redemptionUnavailable || !!usage.resetDetailsError || stale;
 
   async function redeem(attempt: ResetSelection) {
     if (working.current) return;
@@ -170,6 +180,8 @@ export function CodexResetControls({
     }
   }
 
+  if (discoveryUnsupported && !selection) return <BankedResetDisclosure resets={fallbackResets} />;
+
   if (
     usage &&
     (!usage.resets || usage.resets.availableCount === 0) &&
@@ -211,6 +223,7 @@ export function CodexResetControls({
             <section className="codex-reset-section" aria-label="Banked resets">
               {usage.resets && <p>{usage.resets.availableCount} available</p>}
               {usage.redemptionUnavailable && <p>{usage.redemptionUnavailable}</p>}
+              {usage.resetDetailsError && <p role="alert">{usage.resetDetailsError}</p>}
               {!usage.resets ? (
                 <p>Codex hasn’t reported banked resets for this account.</p>
               ) : usage.resets.availableCount === 0 && !pending ? (

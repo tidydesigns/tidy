@@ -22,8 +22,9 @@ export async function supportsExactReset(executable: string) {
   const cached = cache.get(executable);
   if (cached?.stamp === stamp) return cached.supported;
   const supported = (async () => {
-    const directory = await mkdtemp(join(tmpdir(), "tidy-codex-schema-"));
+    let directory: string | undefined;
     try {
+      directory = await mkdtemp(join(tmpdir(), "tidy-codex-schema-"));
       await execute(executable, ["app-server", "generate-json-schema", "--out", directory], {
         env: harnessEnvironment("codex"),
         timeout: 10_000,
@@ -39,9 +40,11 @@ export async function supportsExactReset(executable: string) {
       );
       return schema.success && schema.data.properties.creditId.type.includes("string");
     } catch {
+      // A refresh can recover from a transient timeout or filesystem failure.
+      if (cache.get(executable)?.stamp === stamp) cache.delete(executable);
       return false;
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
     }
   })();
   cache.set(executable, { stamp, supported });

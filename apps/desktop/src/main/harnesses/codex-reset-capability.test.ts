@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { supportsExactReset } from "./codex-reset-capability";
@@ -44,4 +44,22 @@ test("failed schema generation never enables redemption", async () => {
   await writeFile(fixture.path, "#!/usr/bin/env node\nprocess.exit(1);\n");
   await chmod(fixture.path, 0o700);
   expect(await supportsExactReset(fixture.path)).toBe(false);
+});
+
+test("a transient schema failure can recover without replacing the executable", async () => {
+  const fixture = await executable();
+  await fixture.install(true);
+  const code = await readFile(fixture.path, "utf8");
+  await writeFile(
+    fixture.path,
+    code.replace(
+      "const out = process.argv[5];",
+      `
+const marker = __filename + '.attempted';
+if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(1); }
+const out = process.argv[5];`,
+    ),
+  );
+  expect(await supportsExactReset(fixture.path)).toBe(false);
+  expect(await supportsExactReset(fixture.path)).toBe(true);
 });
