@@ -249,3 +249,12 @@ The controls follow Electron's [security recommendations](https://www.electronjs
 [custom protocol guidance](https://www.electronjs.org/docs/latest/api/protocol),
 [fuse configuration](https://www.electronjs.org/docs/latest/tutorial/fuses) and
 [ASAR integrity guidance](https://www.electronjs.org/docs/latest/tutorial/asar-integrity).
+
+Banked Codex reset redemption uses the authenticated, project-scoped workspace
+request boundary and is classified as a remote mutation. Renderer input is
+strictly validated. The host verifies exact-credit support in the installed CLI's
+generated protocol, checks the current account and selected credit, and never
+sends an unqualified redemption request. A private, atomically written account
+record retains the selected ID, expiry, idempotency key and outcome. It contains
+no credentials and is never stored in a portable project or synced design.
+Unresolved attempts block new redemptions; retries retain the original ID and key.

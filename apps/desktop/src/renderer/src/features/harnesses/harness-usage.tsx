@@ -1,3 +1,4 @@
+import { CodexResetControls } from "./codex-usage";
 import {
   memo,
   useEffect,
@@ -390,6 +391,9 @@ export const HarnessUsage = memo(function HarnessUsage({
                   <span />
                 </div>
               )}
+              {harness === "codex" && ready && api.codexUsage && api.consumeCodexReset ? (
+                <CodexResetControls api={api} projectId={projectId} onRedeemed={() => { void cache.refresh(true); }} />
+              ) : (
               {usage?.resets && usage.resets.availableCount > 0 && (
                 <details className="account-usage-section account-usage-disclosure">
                   <summary>
@@ -430,6 +434,7 @@ export const HarnessUsage = memo(function HarnessUsage({
                     )}
                   </div>
                 </details>
+              )}
               )}
               {usage?.credits &&
                 (usage.credits.unlimited || usage.credits.balance !== undefined) && (

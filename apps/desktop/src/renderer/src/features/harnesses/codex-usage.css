@@ -1,0 +1,80 @@
+.codex-reset-panel {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.codex-reset-panel header,
+.codex-usage-window > div,
+.codex-reset-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.codex-reset-panel p {
+  margin: 8px 0;
+}
+.codex-reset-panel small {
+  display: block;
+  color: var(--color-secondary-ink);
+  font-size: 11px;
+}
+.codex-usage-window {
+  margin-top: 16px;
+}
+.codex-usage-window meter {
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 5px 0;
+}
+.codex-usage-window meter::-webkit-meter-bar {
+  background: var(--color-subtle-fill);
+  border: none;
+  border-radius: 3px;
+}
+.codex-usage-window meter::-webkit-meter-optimum-value {
+  background: var(--color-ink);
+  border-radius: 3px;
+}
+.codex-reset-section,
+.codex-reset-review {
+  border-top: 1px solid var(--color-border);
+  padding-top: 14px;
+  margin-top: 16px;
+}
+.codex-reset-section > strong {
+  display: block;
+  margin-bottom: 10px;
+}
+.codex-reset-section small {
+  margin-top: 6px;
+}
+.codex-reset-button {
+  border: 1px solid var(--color-control-border);
+  border-radius: 7px;
+  padding: 7px 12px;
+  background: var(--color-primary-black);
+  color: var(--color-surface);
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 10px;
+}
+.codex-reset-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.codex-reset-button:not(:disabled):active {
+  transform: scale(0.98);
+}
+.codex-usage-link {
+  display: block;
+  background: transparent;
+  font-size: 12px;
+  color: var(--color-secondary-ink);
+  margin-top: 18px;
+}
+.codex-usage-error {
+  color: var(--color-accent-ink);
+}
+
+.codex-reset-panel .codex-reset-section { border-top: 0; padding-top: 0; margin-top: 0; }

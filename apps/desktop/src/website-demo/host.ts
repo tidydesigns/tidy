@@ -126,6 +126,8 @@ export function createDemoAPI(): DesktopAPI {
       usagePage: "subscription",
       updatedAt: new Date().toISOString(),
     }),
+    codexUsage: unsupported,
+    consumeCodexReset: unsupported,
     openHarnessUsage: unsupported,
     readChatImage: async () => {
       throw new Error("Image unavailable in this demo.");
