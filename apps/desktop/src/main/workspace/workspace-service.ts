@@ -2628,7 +2628,7 @@ export class WorkspaceService {
       if (!continuation) {
         this.sessions.assertSettingsCanChange(thread.id, thread.settings ?? {});
         if (skillId)
-          await this.skills.resolve({
+          await this.skills.resolveSelection({
             harness: thread.harness,
             cwd: this.store.project(this.executionProject(thread).id).path,
             id: skillId,
