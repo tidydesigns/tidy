@@ -186,6 +186,85 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.markdown-diagram-action {
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  cursor: pointer;
+}
+.markdown-diagram-inline:focus-visible,
+.markdown-diagram-action:focus-visible,
+.markdown-diagram-viewport:focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+}
+.message-markdown .markdown-diagram-status {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.markdown-diagram-inline {
+  padding: 16px;
+  max-height: min(520px, 65dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.markdown-diagram-inline img {
+  display: block;
+  max-width: none;
+  margin: auto;
+  height: auto;
+}
+.markdown-diagram-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  height: 85dvh;
+  overflow: hidden;
+}
+.markdown-diagram-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.markdown-diagram-viewport {
+  cursor: grab;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+}
+.markdown-diagram-viewport img {
+  display: block;
+  max-width: none;
+  margin: auto;
+}
+
+.markdown-diagram-zoom {
+  min-width: 4ch;
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-muted-ink);
+}
+.markdown-diagram-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.message-markdown .markdown-mermaid pre {
+  max-height: min(440px, 55dvh);
+  overflow: auto;
+}
+.markdown-diagram-viewport[data-panning] {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .message-markdown a {
   color: var(--desktop-link-ink);
   text-decoration: none;

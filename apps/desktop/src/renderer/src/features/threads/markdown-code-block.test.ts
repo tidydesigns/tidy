@@ -79,3 +79,20 @@ test("copy preserves Markdown verbatim across wrapping and message updates", asy
     }
   }
 });
+
+test("Mermaid uses diagram controls only for explicitly labelled blocks", () => {
+  for (const fence of ["```mermaid", "```MERMAID"]) {
+    const html = renderToStaticMarkup(
+      createElement(Markdown, {
+        components,
+        children: `${fence}\nflowchart TD\n A --> B\n\`\`\``,
+      }),
+    );
+    expect(html).toContain('aria-label="Diagram actions"');
+    expect(html).toContain("A --&gt; B");
+  }
+  const html = renderToStaticMarkup(
+    createElement(Markdown, { components, children: "```text\nflowchart TD\n A --> B\n```" }),
+  );
+  expect(html).not.toContain('aria-label="Diagram actions"');
+});
