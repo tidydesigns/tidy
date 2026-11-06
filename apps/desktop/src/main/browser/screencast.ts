@@ -8,7 +8,7 @@ export type BrowserViewer = {
   id: string;
   visible: boolean;
   send(event: BrowserOutput): void;
-  inflight: Map<number, number>;
+  inflight: number | null;
   pending?: Uint8Array;
   closed: boolean;
   view: FrameView | null;
@@ -18,10 +18,7 @@ type Capture = FrameView & {
   width: number;
   height: number;
   lastFrame?: Uint8Array;
-  acknowledgements: number[];
-  paused: boolean;
-  stalled: boolean;
-  stallTimer?: ReturnType<typeof setTimeout>;
+  acknowledgement?: number;
 };
 const ignored = () => {};
 
@@ -47,27 +44,19 @@ export class BrowserScreencast {
 
   reset() {
     this.invalidate();
-    clearTimeout(this.capture?.stallTimer);
     this.capture = undefined;
     for (const viewer of this.viewers) {
       viewer.pending = undefined;
-      viewer.inflight.clear();
+      viewer.inflight = null;
       viewer.view = null;
     }
   }
 
   acknowledge(viewer: BrowserViewer, frameId: number) {
-    if (!viewer.inflight.delete(frameId)) return;
-    const capture = this.capture;
-    if (capture) {
-      clearTimeout(capture.stallTimer);
-      capture.stallTimer = undefined;
-      capture.stalled = false;
-    }
+    if (viewer.inflight !== frameId) return;
+    viewer.inflight = null;
     this.pushFrame(viewer);
-    this.updateBackpressure();
     this.acknowledgeCapture();
-    if (capture?.paused) this.refresh();
   }
 
   async pauseWhile<T>({ run }: { run(): Promise<T> }) {
@@ -84,7 +73,6 @@ export class BrowserScreencast {
 
   async close() {
     this.invalidate();
-    clearTimeout(this.capture?.stallTimer);
     await this.capture?.session.detach().catch(ignored);
     this.capture = undefined;
   }
@@ -116,7 +104,7 @@ export class BrowserScreencast {
     if (
       viewer.closed ||
       !viewer.visible ||
-      !this.hasCredit(viewer) ||
+      viewer.inflight !== null ||
       !viewer.pending ||
       !viewer.view
     )
@@ -124,7 +112,7 @@ export class BrowserScreencast {
     const frame = viewer.pending;
     viewer.pending = undefined;
     const frameId = ++this.frameSequence;
-    viewer.inflight.set(frameId, frame.byteLength);
+    viewer.inflight = frameId;
     viewer.send({
       kind: "frame",
       ...viewer.view,
@@ -133,38 +121,18 @@ export class BrowserScreencast {
     });
   }
 
-  private hasCredit(viewer: BrowserViewer) {
-    const bytes = [...viewer.inflight.values()].reduce((total, size) => total + size, 0);
-    return viewer.inflight.size < 3 && bytes + (viewer.pending?.byteLength ?? 0) <= 8 * 1024 * 1024;
-  }
-
-  private updateBackpressure() {
-    const capture = this.capture;
-    if (!capture || capture.paused) return;
-    const blocked = ![...this.viewers].some(
-      (viewer) => viewer.visible && !viewer.closed && this.hasCredit(viewer),
-    );
-    if (!blocked) {
-      clearTimeout(capture.stallTimer);
-      capture.stallTimer = undefined;
-      capture.stalled = false;
-    } else if (!capture.stallTimer) {
-      // Brief decode/network delays should drop old frames, not restart Chrome's capture.
-      capture.stallTimer = setTimeout(() => {
-        capture.stallTimer = undefined;
-        if (this.capture !== capture) return;
-        capture.stalled = true;
-        this.refresh();
-      }, 500);
-      capture.stallTimer.unref();
-    }
-  }
-
   private acknowledgeCapture() {
     const capture = this.capture;
-    if (!capture || capture.paused) return;
-    for (const sessionId of capture.acknowledgements.splice(0))
-      void capture.session.send("Page.screencastFrameAck", { sessionId }).catch(ignored);
+    if (
+      capture?.acknowledgement === undefined ||
+      ![...this.viewers].some(
+        (viewer) => viewer.visible && !viewer.closed && viewer.inflight === null,
+      )
+    )
+      return;
+    const sessionId = capture.acknowledgement;
+    capture.acknowledgement = undefined;
+    void capture.session.send("Page.screencastFrameAck", { sessionId }).catch(ignored);
   }
 
   private async stream() {
@@ -189,16 +157,6 @@ export class BrowserScreencast {
         viewer.pending = current.lastFrame;
         this.pushFrame(viewer);
       }
-      const blocked = !viewers.some((viewer) => this.hasCredit(viewer));
-      if (blocked && current.stalled && !current.paused) {
-        current.paused = true;
-        await current.session.send("Page.stopScreencast");
-      } else if (!blocked && current.paused) {
-        current.paused = false;
-        this.acknowledgeCapture();
-        await this.startCapture(current);
-      }
-      this.updateBackpressure();
       this.acknowledgeCapture();
       return;
     }
@@ -206,11 +164,10 @@ export class BrowserScreencast {
     this.capture = undefined;
     for (const viewer of this.viewers) {
       viewer.pending = undefined;
-      viewer.inflight.clear();
+      viewer.inflight = null;
       viewer.view = null;
     }
     if (current) {
-      clearTimeout(current.stallTimer);
       await current.session.send("Page.stopScreencast").catch(ignored);
       await current.session.detach().catch(ignored);
     }
@@ -227,26 +184,20 @@ export class BrowserScreencast {
       tabId: tab.state.id,
       viewId: tab.state.viewId,
       ...browserFrameSize(tab.state),
-      acknowledgements: [],
-      paused: false,
-      stalled: false,
     };
     this.capture = capture;
     const view: FrameView = { tabId: capture.tabId, viewId: capture.viewId };
-    const publish = (data: string) => {
-      if (generation !== this.generation || this.options.closed() || capture.paused) return;
-      capture.lastFrame = Buffer.from(data, "base64");
+    session.on("Page.screencastFrame", (frame) => {
+      if (this.capture !== capture || generation !== this.generation || this.options.closed())
+        return;
+      capture.acknowledgement = frame.sessionId;
+      capture.lastFrame = Buffer.from(frame.data, "base64");
       for (const viewer of this.viewers) {
         if (!viewer.visible || viewer.closed) continue;
         viewer.view = view;
         viewer.pending = capture.lastFrame;
         this.pushFrame(viewer);
       }
-      this.updateBackpressure();
-    };
-    session.on("Page.screencastFrame", (frame) => {
-      publish(frame.data);
-      capture.acknowledgements.push(frame.sessionId);
       this.acknowledgeCapture();
     });
     try {
@@ -271,7 +222,9 @@ export class BrowserScreencast {
       quality: 90,
       maxWidth: capture.width,
       maxHeight: capture.height,
-      everyNthFrame: 1,
+      // Chrome retains the latest unencoded frame while viewers are busy.
+      maxFramesInFlight: 1,
+      sendLastFrame: true,
     });
   }
 }

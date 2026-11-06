@@ -834,7 +834,7 @@ export class BrowserService {
       id,
       send,
       visible: true,
-      inflight: new Map(),
+      inflight: null,
       closed: false,
       view: null,
     };
@@ -896,7 +896,7 @@ export class BrowserService {
           viewer.visible = input.visible;
           viewer.view = null;
           viewer.pending = undefined;
-          viewer.inflight.clear();
+          viewer.inflight = null;
           if (!input.visible && workspace.controller === id) {
             this.setController(workspace, null);
             void this.releaseKeys(workspace);

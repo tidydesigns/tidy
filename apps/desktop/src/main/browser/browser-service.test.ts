@@ -252,13 +252,13 @@ browserTest(
       expression:
         "window.paintTimer=setInterval(()=>document.body.style.background=`rgb(${Math.random()*255},0,0)`,20)",
     });
-    await until(() => events.filter((event) => event.kind === "frame").length === 3);
+    await until(() => events.filter((event) => event.kind === "frame").length === 1);
     await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(events.filter((event) => event.kind === "frame").length, 3);
+    assert.equal(events.filter((event) => event.kind === "frame").length, 1);
     const first = events.find((event) => event.kind === "frame");
     if (!first || first.kind !== "frame") throw new Error("No frame.");
     viewer.input({ tabId, input: { kind: "ack", frameId: first.frameId } });
-    await until(() => events.filter((event) => event.kind === "frame").length === 4);
+    await until(() => events.filter((event) => event.kind === "frame").length === 2);
     await browser.command(scope, {
       kind: "evaluate",
       tabId,
@@ -555,6 +555,10 @@ browserTest(
         if (event.kind !== "frame") return;
         assert.equal(event.tabId, tabId);
         frames++;
+        setTimeout(
+          () => viewer.input({ tabId, input: { kind: "ack", frameId: event.frameId } }),
+          0,
+        );
       },
     });
     await browser.command(scope, {
@@ -563,7 +567,7 @@ browserTest(
       expression:
         "window.paintTimer=setInterval(()=>document.body.style.background=`rgb(${Math.random()*255},0,0)`,30)",
     });
-    await until(() => frames === 3);
+    await until(() => frames >= 3);
     viewer.close();
   },
   30000,
@@ -699,12 +703,12 @@ browserTest(
         );
       },
     });
-    await until(() => firstFrames === 3 && secondFrames >= 5).catch((error) => {
+    await until(() => firstFrames === 1 && secondFrames >= 5).catch((error) => {
       throw new Error(JSON.stringify({ firstFrames, secondFrames, streamErrors }), {
         cause: error,
       });
     });
-    assert.equal(firstFrames, 3);
+    assert.equal(firstFrames, 1);
     first.input({ tabId, input: { kind: "visibility", visible: false } });
     const beforeHide = secondFrames;
     await until(() => secondFrames >= beforeHide + 5);
@@ -1132,7 +1136,7 @@ browserTest("capture delivers the final page state after a viewer catches up", a
     expression:
       "window.paintTimer=setInterval(()=>document.body.style.background=`rgb(${Math.random()*255},0,0)`,10)",
   });
-  await until(() => frames.length === 3);
+  await until(() => frames.length === 1);
   await new Promise((resolve) => setTimeout(resolve, 150));
   await browser.command(scope, {
     kind: "evaluate",
