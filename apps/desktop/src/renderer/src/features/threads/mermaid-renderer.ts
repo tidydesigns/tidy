@@ -68,9 +68,7 @@ export async function renderMermaid({
       responsive: false,
       links: false,
       images: false,
-      limit: 20_000,
       outputLimit: 1_000_000,
-      maxEdges: MAX_MERMAID_EDGES,
     });
     signal.throwIfAborted();
     const image = diagramImage(svg, dark);

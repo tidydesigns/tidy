@@ -110,6 +110,7 @@ test("image metadata uses parsed properties while ordinary labels remain preview
       'flowchart LR\n A["Build image: ready"]',
       'flowchart LR\n A@{ shape: rect, label: "Research & Design" }',
       'flowchart LR\n A@{ shape: rect, label: "Build, image: ready }" }',
+      'flowchart LR\n A["C:\\workspace\\style"] --> B[Ready]',
     ]) {
       const result = await renderMermaid({
         source,

@@ -29,8 +29,7 @@ export function diagramImage(svg: string, dark = false): DiagramImage {
   root.setAttribute("width", String(width));
   root.setAttribute("height", String(height));
   // Isolated images cannot inherit app colors; retain Pele's bindings and font metrics.
-  const style = document.createElementNS("http://www.w3.org/2000/svg", "svg").style;
-  style.cssText = root.getAttribute("style") ?? "";
+  const style = root.style;
   for (const property of ["max-width", "width", "height"]) style.removeProperty(property);
   const colors = {
     bg: dark ? "#171717" : "#fafafa",
@@ -42,7 +41,6 @@ export function diagramImage(svg: string, dark = false): DiagramImage {
     border: dark ? "#777777" : "#aaaaaa",
   };
   for (const [name, value] of Object.entries(colors)) style.setProperty(`--pele-${name}`, value);
-  root.setAttribute("style", style.cssText);
   return {
     url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(root))}`,
     width,
