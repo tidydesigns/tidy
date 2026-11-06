@@ -1622,10 +1622,20 @@ test("quota recovery discovers eligible threads without loading designs or folde
       prompt: kind,
       designIds: [],
     });
-    f.runs.at(-1)!.input.onUpdate({ type: "error", text: kind, kind });
+    f.runs.at(-1)!.input.onUpdate({
+      type: "error",
+      text: kind,
+      kind: kind === "rate-limit" ? "usage-limit" : kind,
+    });
     const completion = finished(f.service, thread.id);
     f.runs.at(-1)!.complete();
-    await completion;
+    const failed = await completion;
+    // Legacy saved throttling failures remain eligible; new throttles retry automatically.
+    if (kind === "rate-limit") {
+      failed.errorKind = kind;
+      failed.revision++;
+      await f.store.writeThread(failed);
+    }
     if (kind === "billing") await f.service.setThreadDone(f.project.id, thread.id, true);
     else if (kind !== "policy") eligible.push(thread.id);
   }
@@ -1641,6 +1651,45 @@ test("quota recovery discovers eligible threads without loading designs or folde
   } finally {
     designs.mockRestore();
     folders.mockRestore();
+  }
+});
+
+test("quota recovery leaves an automatic provider retry under its existing checkpoint", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Original",
+    designIds: [],
+  });
+  const waiting = Promise.withResolvers<void>();
+  const off = f.service.subscribe((event) => {
+    if (
+      event.type === "thread" &&
+      event.thread.id === thread.id &&
+      event.thread.recovery?.reason === "provider"
+    )
+      waiting.resolve();
+  });
+  try {
+    f.runs[0].input.onUpdate({
+      type: "error",
+      text: "Too many requests. Retry after 60 seconds.",
+      kind: "rate-limit",
+    });
+    f.runs[0].complete();
+    await waiting.promise;
+    const checkpoint = await f.store.updateResumes.get(f.project.id, thread.id);
+    expect(checkpoint).toBeDefined();
+    expect(await f.service.resumeLimitedThreads({ projectId: f.project.id })).toEqual({
+      resumed: [],
+      skipped: [],
+      failed: [],
+    });
+    expect(f.runs).toHaveLength(1);
+    expect(await f.store.updateResumes.get(f.project.id, thread.id)).toEqual(checkpoint);
+  } finally {
+    off();
   }
 });
 
@@ -1854,10 +1903,19 @@ test("quota recovery skips changed, done, and unrelated failures and isolates pe
       prompt: kind,
       designIds: [],
     });
-    f.runs.at(-1)!.input.onUpdate({ type: "error", text: kind, kind });
+    f.runs.at(-1)!.input.onUpdate({
+      type: "error",
+      text: kind,
+      kind: kind === "rate-limit" ? "usage-limit" : kind,
+    });
     const completion = finished(f.service, thread.id);
     f.runs.at(-1)!.complete();
     const failed = await completion;
+    if (kind === "rate-limit") {
+      failed.errorKind = kind;
+      failed.revision++;
+      await f.store.writeThread(failed);
+    }
     candidates.push({ threadId: failed.id, revision: failed.revision });
   }
   await f.service.renameThread(f.project.id, candidates[0].threadId, "Changed since selection");

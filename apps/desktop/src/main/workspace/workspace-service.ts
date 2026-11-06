@@ -496,76 +496,85 @@ export class WorkspaceService {
   ) {
     this.sessions.onBackgroundWorkChanged = (threadId, projectId, active) => {
       if (!this.closing)
-        void this.serialize(threadId, async () => {
-          if (this.closing || this.jobs.has(threadId)) return;
-          const background = this.sessions.backgroundContexts.some(
-            (item) => item.threadId === threadId && item.projectId === projectId,
-          );
-          if (!active && !background) {
-            await this.store.updateResumes.cancel(projectId, threadId);
-            const idle = this.idleRunCheckpoints.get(threadId);
-            if (idle) idle.generation = this.store.updateResumes.generation(threadId);
-          } else if (active && background) {
-            const idle = this.idleRunCheckpoints.get(threadId);
-            if (
-              !idle ||
-              idle.projectId !== projectId ||
-              idle.generation !== this.store.updateResumes.generation(threadId)
-            )
-              return;
-            const thread = await this.store.readThread(projectId, threadId);
-            if (
-              thread.doneAt ||
-              (await this.store.updateResumeSignature(
-                thread,
-                this.executionProject(thread).path,
-              )) !== idle.signature
-            )
-              return;
-            await this.store.updateResumes.checkpoint(
-              {
-                projectId,
-                threadId,
-                signature: idle.signature,
-                automaticQueue: false,
-                background: true,
-                reason: "restart",
-              },
-              idle.generation,
+        void this.trackRequest(
+          this.serialize(threadId, async () => {
+            if (this.closing || this.jobs.has(threadId)) return;
+            const background = this.sessions.backgroundContexts.some(
+              (item) => item.threadId === threadId && item.projectId === projectId,
             );
-          }
-        }).catch(() => {});
+            if (!active && !background) {
+              await this.store.updateResumes.cancel(projectId, threadId);
+              const idle = this.idleRunCheckpoints.get(threadId);
+              if (idle) idle.generation = this.store.updateResumes.generation(threadId);
+            } else if (active && background) {
+              const idle = this.idleRunCheckpoints.get(threadId);
+              if (
+                !idle ||
+                idle.projectId !== projectId ||
+                idle.generation !== this.store.updateResumes.generation(threadId)
+              )
+                return;
+              const thread = await this.store.readThread(projectId, threadId);
+              if (
+                this.closing ||
+                thread.doneAt ||
+                (await this.store.updateResumeSignature(
+                  thread,
+                  this.executionProject(thread).path,
+                )) !== idle.signature
+              )
+                return;
+              await this.store.updateResumes.checkpoint(
+                {
+                  projectId,
+                  threadId,
+                  signature: idle.signature,
+                  automaticQueue: false,
+                  background: true,
+                  reason: "restart",
+                },
+                idle.generation,
+              );
+            }
+          }),
+        ).catch(() => {});
     };
     this.sessions.onBackgroundWorkLost = (threadId, projectId) => {
       if (this.closing) return;
-      void this.serialize(threadId, async () => {
-        if (this.closing || this.jobs.has(threadId)) return;
-        const entry = await this.store.updateResumes.get(projectId, threadId);
-        if (!entry?.background || this.tasks.isManagedExecution(projectId, threadId)) return;
-        const thread = await this.store.readThread(projectId, threadId);
-        const signature = await this.store.updateResumeSignature(
-          thread,
-          this.executionProject(thread).path,
-        );
-        if (![entry.signature, entry.previousSignature].includes(signature) || thread.doneAt)
-          return;
-        const attempt = (entry.attempt ?? 0) + 1;
-        const retryAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();
-        thread.recovery = { reason: "provider", attempt, retryAt };
-        thread.status = "running";
-        thread.activity = "The background agent stopped. Retrying automatically…";
-        thread.revision++;
-        await this.checkpointRecovery(thread, {
-          ...entry,
-          background: false,
-          reason: "provider",
-          attempt,
-          retryAt,
-          previousSignature: signature,
-        });
-        this.scheduleRecovery(projectId, threadId, retryAt);
-        this.emit({ type: "thread", thread });
-      }).catch(() => {});
+      void this.trackRequest(
+        this.serialize(threadId, async () => {
+          if (this.closing || this.jobs.has(threadId)) return;
+          const entry = await this.store.updateResumes.get(projectId, threadId);
+          if (!entry?.background || this.tasks.isManagedExecution(projectId, threadId)) return;
+          const thread = await this.store.readThread(projectId, threadId);
+          const signature = await this.store.updateResumeSignature(
+            thread,
+            this.executionProject(thread).path,
+          );
+          if (
+            this.closing ||
+            ![entry.signature, entry.previousSignature].includes(signature) ||
+            thread.doneAt
+          )
+            return;
+          const attempt = (entry.attempt ?? 0) + 1;
+          const retryAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();
+          thread.recovery = { reason: "provider", attempt, retryAt };
+          thread.status = "running";
+          thread.activity = "The background agent stopped. Retrying automatically…";
+          thread.revision++;
+          await this.checkpointRecovery(thread, {
+            ...entry,
+            background: false,
+            reason: "provider",
+            attempt,
+            retryAt,
+            previousSignature: signature,
+          });
+          this.scheduleRecovery(projectId, threadId, retryAt);
+          this.emit({ type: "thread", thread });
+        }),
+      ).catch(() => {});
     };
     this.ports = new ThreadPorts(store.processState);
     this.sessions.onBackgroundChange = (threadId, projectId) => {
@@ -574,17 +583,19 @@ export class WorkspaceService {
           if (this.closing || this.jobs.has(threadId) || !this.canAccessProject(projectId)) return;
           await this.assertProjectAccess(projectId);
           const thread = await this.store.readThread(projectId, threadId);
-          if (this.closing) return;
+          if (this.closing || thread.recovery) return;
+          const changedTools = new Set<string>();
           if (!this.sessions.hasBackgroundWork(threadId)) {
             for (const tool of thread.toolActivities ?? [])
               if (tool.status === "running") {
                 tool.status = "interrupted";
                 tool.endedAt = new Date().toISOString();
+                changedTools.add(tool.id);
               }
           }
           thread.revision++;
           await this.store.writeThread(thread);
-          this.emit({ type: "thread", thread });
+          this.emitThreadPatch(thread, changedTools);
         }),
       ).catch(() => {});
     };
@@ -2318,7 +2329,7 @@ export class WorkspaceService {
             (this.stopVersions.get(threadId) ?? 0) !== stopVersion ||
             thread.revision !== revision ||
             !isLimitedThread(thread) ||
-            this.tasks.store.parentThreadId(projectId, threadId)
+            this.tasks.isManagedExecution(projectId, threadId)
           )
             return false;
           let original: Thread["messages"][number] | undefined;
@@ -3094,7 +3105,7 @@ export class WorkspaceService {
           }
           thread.revision++;
           await this.store.writeThread(thread);
-          this.emitThreadPatch(thread, id);
+          this.emitThreadPatch(thread, new Set([id]));
         }),
       ).catch(() => {});
     };
@@ -3212,7 +3223,7 @@ export class WorkspaceService {
       }, 250);
   }
 
-  private emitThreadPatch(thread: Thread, extraToolId?: string) {
+  private emitThreadPatch(thread: Thread, extraToolIds?: ReadonlySet<string>) {
     const job = this.jobs.get(thread.id);
     const { messages, toolActivities, ...metadata } = thread;
     delete metadata.queuedMessages;
@@ -3225,7 +3236,7 @@ export class WorkspaceService {
         ? messages.filter((message) => job.changedMessages.has(message.id))
         : [],
       toolActivities: (toolActivities ?? []).filter(
-        (tool) => tool.id === extraToolId || job?.changedTools.has(tool.id),
+        (tool) => extraToolIds?.has(tool.id) || job?.changedTools.has(tool.id),
       ),
       toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
     };

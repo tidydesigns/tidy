@@ -193,14 +193,29 @@ export class HarnessSessions {
     entry.timer.unref();
   }
   private activity(entry: Entry) {
-    this.backgroundChanged(entry);
-    if (this.entries.get(entry.id) !== entry || !entry.session.idle) return;
+    if (this.entries.get(entry.id) !== entry) {
+      this.backgroundChanged(entry);
+      return;
+    }
+    if (!entry.session.available && entry.background) {
+      // Transport completion clears live work before the manager's done callback.
+      // Preserve its checkpoint for crash recovery rather than treating it as success.
+      this.retire(entry.id, entry);
+      this.onBackgroundWorkLost?.(entry.id, entry.context.projectId);
+      this.backgroundChanged(entry);
+      return;
+    }
+    if (!entry.session.idle) {
+      this.backgroundChanged(entry);
+      return;
+    }
     if (entry.background !== entry.session.hasBackgroundWork)
       this.onBackgroundWorkChanged?.(
         entry.id,
         entry.context.projectId,
         entry.session.hasBackgroundWork,
       );
+    this.backgroundChanged(entry);
     if (
       !entry.timer ||
       entry.background !== entry.session.hasBackgroundWork ||
