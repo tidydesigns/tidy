@@ -120,18 +120,52 @@ test("unknown provider failures stop after three automatic continuations and ret
   const f = await fixture();
   spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(5);
   const thread = await f.start();
+  const terminal = Promise.withResolvers<void>();
+  const unsubscribe = f.service.subscribe((event) => {
+    if (
+      event.type === "thread" &&
+      event.thread.id === thread.id &&
+      event.thread.status === "failed"
+    )
+      terminal.resolve();
+  });
+  cleanup.push(async () => unsubscribe());
   for (let index = 0; index < 4; index++) {
     f.runs[index].fail(new HarnessFailureError("Unclassified permanent failure", "unknown"));
     if (index < 3) await until(() => f.runs.length === index + 2);
   }
-  await until(
-    async () => (await f.service.readThread(f.project.id, thread.id)).status === "failed",
-  );
+  // Live reads can see the status while finish() is still persisting and cleaning up.
+  await terminal.promise;
   expect(f.runs).toHaveLength(4);
   const saved = await f.service.readThread(f.project.id, thread.id);
   expect(saved.messages.filter((message) => message.role === "user")).toHaveLength(1);
   expect(saved.recovery).toBeUndefined();
   expect(await f.store.updateResumes.list()).toEqual([]);
+});
+
+test("a crash after terminal failure persistence cannot restart exhausted unknown retries", async () => {
+  const f = await fixture();
+  const started = await f.start();
+  await f.service.close();
+  const terminal = {
+    ...(await f.store.readThread(f.project.id, started.id)),
+    status: "failed" as const,
+    errorKind: "unknown" as const,
+    error: "Unclassified permanent failure",
+  };
+  f.store.trackRun(terminal.id, () => ({
+    automaticQueue: false,
+    unknownAttempts: 4,
+    reason: "provider",
+    submission: { messageId: terminal.messages[0].id, state: "accepted" },
+  }));
+  await f.store.writeThread(terminal);
+  f.store.untrackRun(terminal.id);
+  const reopened = await f.boot();
+  await reopened.service.resumeUpdatedThreads();
+  expect(f.runs).toHaveLength(1);
+  expect((await reopened.service.readThread(f.project.id, terminal.id)).status).toBe("failed");
+  expect(await reopened.store.updateResumes.list()).toEqual([]);
 });
 
 test("a short request-drain budget does not truncate durable provider flushes", async () => {

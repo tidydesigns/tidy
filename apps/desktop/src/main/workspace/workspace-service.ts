@@ -3482,6 +3482,9 @@ export class WorkspaceService {
       if (
         thread.doneAt ||
         (thread.status === "completed" && !entry.background) ||
+        (thread.status === "failed" &&
+          thread.errorKind === "unknown" &&
+          (entry.unknownAttempts ?? 0) > 3) ||
         ![entry.signature, entry.previousSignature].includes(signature) ||
         (this.stopVersions.get(threadId) ?? 0) !== stopVersion
       ) {
