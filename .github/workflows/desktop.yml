@@ -68,4 +68,5 @@ jobs:
           bun run --cwd apps/desktop test:security
           bun apps/desktop/scripts/thread-loading-smoke.ts
           bun run --cwd apps/desktop test:canvas
-      - run: bun run package:desktop
+      - name: Package the tested desktop build
+        run: bun apps/desktop/scripts/package.ts
