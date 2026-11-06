@@ -2116,12 +2116,10 @@ export class WorkspaceService {
             images: prepared.images,
           }))
         ) {
-          const sentAt = new Date().toISOString();
-          thread.autoDoneAfter = sentAt;
           thread.messages.splice(insertion, 0, {
             ...message,
             role: "user",
-            sentAt,
+            sentAt: new Date().toISOString(),
           });
           if (!job.stopped && !this.closing) this.automaticQueues.add(thread.id);
           await this.persistQueue(
@@ -2406,8 +2404,6 @@ export class WorkspaceService {
         throw new Error("The original request is unavailable. Send a message to continue.");
       thread.messages[lastUser] = { ...thread.messages[lastUser], turn };
     } else {
-      // A follow-up is new work; an older merge must not immediately close it again.
-      if (thread.messages.length) thread.autoDoneAfter = startedAt;
       thread.messages.push({
         id: messageId ?? randomUUID(),
         role: "user",

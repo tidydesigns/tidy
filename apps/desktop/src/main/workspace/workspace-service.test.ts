@@ -3153,7 +3153,7 @@ test("explicit completion receipts are durable across unsupported shell syntax a
     state: "merged",
     baseBranch: "main",
     defaultBranch: "main",
-    endedAt: new Date(Date.parse(stored.autoDoneAfter!) + 1).toISOString(),
+    endedAt: "2026-01-01T00:00:00Z",
   }));
   expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
 });
@@ -3459,7 +3459,7 @@ test("running linked threads refresh PR evidence without stopping work", async (
   expect(runs[0].stopped).toBe(false);
 });
 
-test("a new user turn cannot be completed by the previous turn's merged PR", async () => {
+test("a status follow-up does not suppress automatic Done for an already merged PR", async () => {
   const { service, store, project, runs } = await fixture();
   const thread = await service.startThread({
     projectId: project.id,
@@ -3473,7 +3473,11 @@ test("a new user turn cannot be completed by the previous turn's merged PR", asy
   const stored = await store.readThread(project.id, thread.id);
   stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
   await store.writeThread(stored);
-  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "New work" });
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Has this PR merged?",
+  });
   completed = finished(service, thread.id);
   runs[1].complete();
   await completed;
@@ -3483,20 +3487,6 @@ test("a new user turn cannot be completed by the previous turn's merged PR", asy
     baseBranch: "main",
     defaultBranch: "main",
     endedAt: "2026-01-01T00:00:00Z",
-  }));
-  const current = await store.readThread(project.id, thread.id);
-  expect(current.autoDoneAfter).toBeDefined();
-  expect(current.doneAt).toBeUndefined();
-  current.pullRequests!.push("https://github.com/owner/repo/pull/43");
-  current.revision++;
-  await store.writeThread(current);
-  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async (url) => ({
-    state: "merged",
-    baseBranch: "main",
-    defaultBranch: "main",
-    endedAt: url.endsWith("/43")
-      ? new Date(Date.parse(current.autoDoneAfter!) + 1).toISOString()
-      : "2026-01-01T00:00:00Z",
   }));
   expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
 });
