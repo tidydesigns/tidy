@@ -148,10 +148,11 @@ export class UpdateResumes {
         return new Map<string, UpdateResume>();
       });
       const previous = entries.get(entry.threadId);
-      const next = entrySchema.parse({
+      // The captured entry and the previous stored signature have already been validated.
+      const next: UpdateResume = {
         ...entry,
         previousSignature: entry.previousSignature ?? previous?.signature,
-      });
+      };
       if (generation !== this.generation(entry.threadId)) return;
       if (!this.writeFailed && isDeepStrictEqual(previous, next)) return;
       const value = new Map(entries);
