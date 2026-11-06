@@ -12,6 +12,13 @@ function fixture() {
   const memory = memoryAdapter({ user: [], session: [], account: [], verification: [] });
   let failDeletion = false;
   let failDeletionLookup = false;
+  const updatedEmails: string[] = [];
+  let userUpdate:
+    | {
+        entered: ReturnType<typeof Promise.withResolvers<void>>;
+        release: ReturnType<typeof Promise.withResolvers<void>>;
+      }
+    | undefined;
   let sessionCreation:
     | {
         entered: ReturnType<typeof Promise.withResolvers<void>>;
@@ -30,6 +37,15 @@ function fixture() {
           await paused.release.promise;
         }
         return adapter.create(input);
+      },
+      async update(input) {
+        if (input.model === "user" && userUpdate) {
+          const paused = userUpdate;
+          userUpdate = undefined;
+          paused.entered.resolve();
+          await paused.release.promise;
+        }
+        return adapter.update(input);
       },
       async findMany(input) {
         if (failDeletionLookup && input.model === "session")
@@ -66,6 +82,13 @@ function fixture() {
       },
     },
     databaseHooks: {
+      user: {
+        update: {
+          async after(user) {
+            updatedEmails.push(user.email);
+          },
+        },
+      },
       session: {
         create: {
           async before({ userId }, context) {
@@ -161,6 +184,16 @@ function fixture() {
     failDeletion(value: boolean) {
       failDeletion = value;
     },
+    updatedEmails,
+    async sessionCount() {
+      return (await auth.$context).adapter.count({ model: "session" });
+    },
+    pauseNextUserUpdate() {
+      const entered = Promise.withResolvers<void>(),
+        release = Promise.withResolvers<void>();
+      userUpdate = { entered, release };
+      return { entered: entered.promise, release: release.resolve };
+    },
     pauseNextSessionCreation() {
       const entered = Promise.withResolvers<void>(),
         release = Promise.withResolvers<void>();
@@ -231,7 +264,9 @@ test("email change cannot mutate a successor account when address reuse occurs a
     paused.release();
   }
   const redeemed = await redeeming;
-  expect((await f.session(f.cookie(redeemed)))?.user.id).toBe(alice.id);
+  expect(redeemed.headers.get("location")).toContain("error=INVALID_TOKEN");
+  expect(f.cookie(redeemed)).toBe("");
+  expect((await f.session(alice.cookie))?.user.email).toBe("moved@example.test");
   expect((await f.session(bobCookie))?.user.email).toBe("original@example.test");
 });
 
@@ -343,3 +378,50 @@ test("sign-out of an already revoked session remains idempotent", async () => {
   expect(repeated.status).toBe(200);
   expect(repeated.headers.getSetCookie().some((value) => value.includes("Max-Age=0"))).toBe(true);
 });
+
+for (const requestType of ["change-email-verification", "legacy"] as const) {
+  for (const signedIn of [false, true]) {
+    test(`overlapping email verifications preserve the first completed address: ${requestType}, ${signedIn ? "signed in" : "anonymous"}`, async () => {
+      const f = fixture();
+      const account = await f.signup("original@example.test");
+      await f.request("/change-email", { newEmail: "older@example.test" }, account.cookie);
+      await f.follow(f.message("confirmation", "original@example.test"));
+      const older = f.message("verification", "older@example.test");
+      await f.request("/change-email", { newEmail: "newer@example.test" }, account.cookie);
+      await f.follow(f.message("confirmation", "original@example.test"));
+      const newer = f.message("verification", "newer@example.test");
+      const initialSessions = await f.sessionCount();
+      const paused = f.pauseNextUserUpdate();
+      const proof =
+        requestType === "legacy"
+          ? `${origin}/api/auth/verify-email?callbackURL=%2F&token=${await new SignJWT({
+              email: "original@example.test",
+              updateTo: "older@example.test",
+              userId: account.id,
+            })
+              .setProtectedHeader({ alg: "HS256" })
+              .setExpirationTime("1h")
+              .sign(new TextEncoder().encode(secret))}`
+          : older;
+      const stale = f.follow(proof, signedIn ? account.cookie : undefined);
+      try {
+        await paused.entered;
+        const completed = await f.follow(newer, signedIn ? account.cookie : undefined);
+        expect((await f.session(f.cookie(completed)))?.user).toMatchObject({
+          id: account.id,
+          email: "newer@example.test",
+          emailVerified: true,
+        });
+      } finally {
+        paused.release();
+        await stale.catch(() => {});
+      }
+      const rejected = await stale;
+      expect(rejected.headers.get("location")).toContain("error=INVALID_TOKEN");
+      expect(f.cookie(rejected)).toBe("");
+      expect((await f.session(account.cookie))?.user.email).toBe("newer@example.test");
+      expect(f.updatedEmails).toEqual(["original@example.test", "newer@example.test"]);
+      expect(await f.sessionCount()).toBe(initialSessions + (signedIn ? 0 : 1));
+    });
+  }
+}

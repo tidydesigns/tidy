@@ -665,3 +665,74 @@ integration(
     );
   },
 );
+
+integration(
+  "overlapping email changes condition the PostgreSQL update on the original address",
+  async () => {
+    const created = await signUp("overlap@example.test");
+    const initial = await verify();
+    const headers = new Headers({ cookie: cookie(initial.headers) });
+    async function proof(newEmail: string) {
+      await auth.api.changeEmail({ headers, body: { newEmail } });
+      await auth.handler(new Request(mailUrl()));
+      return mailUrl();
+    }
+    const older = await proof("older@example.test");
+    const newer = await proof("newer@example.test");
+    const userId = created.response.user.id;
+    const initialSessions = (
+      await db.query<{ count: number }>(
+        'select count(*)::int as count from "session" where "userId"=$1',
+        [userId],
+      )
+    ).rows[0].count;
+    const { adapter } = await auth.$context;
+    const update = adapter.update.bind(adapter);
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    let intercepted = false;
+    const writing = spyOn(adapter, "update").mockImplementation(async (input) => {
+      if (!intercepted && input.model === "user" && input.update.email === "older@example.test") {
+        intercepted = true;
+        entered.resolve();
+        await release.promise;
+      }
+      return update(input);
+    });
+    const stale = auth.handler(new Request(older));
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        entered.promise,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("The older verification did not reach its update.")),
+            5000,
+          );
+        }),
+      ]);
+      const completed = await auth.handler(new Request(newer));
+      expect(completed.headers.get("location")).not.toContain("error=");
+      expect(
+        (await auth.api.getSession({ headers: new Headers({ cookie: cookie(completed.headers) }) }))
+          ?.user.email,
+      ).toBe("newer@example.test");
+    } finally {
+      clearTimeout(timeout);
+      release.resolve();
+      await stale.catch(() => {});
+      writing.mockRestore();
+    }
+    const rejected = await stale;
+    expect(rejected.headers.get("location")).toContain("error=INVALID_TOKEN");
+    expect(rejected.headers.getSetCookie()).toHaveLength(0);
+    expect(
+      (await db.query('select email,"emailVerified" from "user" where id=$1', [userId])).rows,
+    ).toEqual([{ email: "newer@example.test", emailVerified: true }]);
+    expect(
+      (await db.query('select count(*)::int as count from "session" where "userId"=$1', [userId]))
+        .rows[0].count,
+    ).toBe(initialSessions + 1);
+  },
+  20_000,
+);
