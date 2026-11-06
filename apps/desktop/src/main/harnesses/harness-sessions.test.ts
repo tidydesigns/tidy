@@ -324,7 +324,7 @@ test("a crashed retained background agent resumes automatically without restarti
 }, 10_000);
 
 for (const harness of harnessIdSchema.options) {
-  test(`${harness} rejects incompatible settings before persisting them and continues background work on the same session`, async () => {
+  test(`${harness} validates settings compatibility before persisting and preserves background work`, async () => {
     const { ProjectStore } = await import("../workspace/project-store");
     const { WorkspaceService } = await import("../workspace/workspace-service");
     const cwd = await mkdtemp(join(directory, `${harness}-background-settings-`));
@@ -360,23 +360,35 @@ for (const harness of harnessIdSchema.options) {
       const original = await done;
       const pid = (await events(cwd))[0].pid;
       for (const settings of [
-        { ...original.settings, model: "another-model" },
-        { ...original.settings, effort: "high" },
+        { ...original.settings, model: "fixture/other", effort: "high" },
+        { ...original.settings, model: "fixture/other", effort: "low" },
       ]) {
-        await expect(service.setThreadSettings(project.id, thread.id, settings)).rejects.toThrow(
-          "Keep its current",
-        );
-        expect((await store.readThread(project.id, thread.id)).settings).toEqual(original.settings);
-        expect((await store.readThread(project.id, thread.id)).revision).toBe(original.revision);
+        if (harness === "codex") {
+          await service.setThreadSettings(project.id, thread.id, settings);
+          expect((await store.readThread(project.id, thread.id)).settings).toEqual(settings);
+        } else {
+          await expect(service.setThreadSettings(project.id, thread.id, settings)).rejects.toThrow(
+            "Keep its current",
+          );
+          expect((await store.readThread(project.id, thread.id)).settings).toEqual(
+            original.settings,
+          );
+          expect((await store.readThread(project.id, thread.id)).revision).toBe(original.revision);
+        }
       }
       // Block before catalog/network discovery; default and explicitly selected default are equivalent.
-      expect(validations).toBe(0);
+      expect(validations).toBe(harness === "codex" ? 2 : 0);
       await service.setThreadSettings(project.id, thread.id, {
+        ...(harness === "codex" ? { model: "fixture/other", effort: "low" } : {}),
         permissionMode: "default",
       });
       done = finished();
       await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" });
       expect((await done).status).toBe("completed");
+      if (harness === "codex")
+        expect(
+          (await events(cwd)).filter((event) => event.method === "turn/start").at(-1)?.value.params,
+        ).toMatchObject({ model: "fixture/other", effort: "low" });
       expect(new Set((await events(cwd)).map((event) => event.pid))).toEqual(new Set([pid]));
       expect(() => process.kill(pid, 0)).not.toThrow();
     } finally {
@@ -1058,6 +1070,38 @@ test("Codex settings are applied when the turn starts, even before a delayed ack
       { turnId: "turn-3" },
     );
     expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("Codex keeps live permission updates compatible after a next-turn model change", async () => {
+  const cwd = await mkdtemp(join(directory, "model-live-permissions-"));
+  await writeFile(join(cwd, "live-permissions"), "");
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", { ...context, prompt: "first", onUpdate() {} }).done;
+    const settings = { model: "fixture/other", effort: "high" };
+    const accepted = Promise.withResolvers<void>();
+    const running = sessions.start("thread", {
+      ...context,
+      settings,
+      prompt: "hold",
+      onUpdate(update) {
+        if (update.type === "started") accepted.resolve();
+      },
+    });
+    await accepted.promise;
+    expect(
+      await sessions.updatePermissions("thread", "project", {
+        ...settings,
+        permissionMode: "provider-auto",
+      }),
+    ).toBe(true);
+    running.stop();
+    await running.done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
   } finally {
     await sessions.clear();
   }

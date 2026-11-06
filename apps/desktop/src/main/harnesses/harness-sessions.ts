@@ -403,7 +403,19 @@ export class HarnessSessions {
       if (!entry.session.idle)
         throw new HarnessNotSubmittedError("This conversation already has a running turn.");
       try {
-        run = entry.session.start({ ...input, settings: input.settings ?? {} });
+        run = entry.session.start({
+          ...input,
+          settings: input.settings ?? {},
+          onUpdate(update) {
+            if (update.type === "started" && input.harness === "codex")
+              entry.context.settings = {
+                ...entry.context.settings,
+                model: input.settings?.model,
+                effort: input.settings?.effort,
+              };
+            input.onUpdate(update);
+          },
+        });
         await run.done;
       } catch (error) {
         if (!entry.session.available || !entry.session.hasBackgroundWork) this.retire(id, entry);
