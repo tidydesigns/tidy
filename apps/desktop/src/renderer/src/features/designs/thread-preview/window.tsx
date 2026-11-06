@@ -760,8 +760,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
             onPointerEnter={preloadCanvasEditor}
             onFocus={preloadCanvasEditor}
             type="button"
-            className="thread-design-peek"
-            aria-label={floating ? "Expand canvas" : `Open ${summary.name} preview`}
+            className="thread-design-peek inset-x-0 top-[max(40px,2.5rem)] bottom-0 h-[calc(100%_-_max(40px,2.5rem))]"
+            aria-label={floating ? `Expand ${summary.name} canvas` : `Open ${summary.name} preview`}
             aria-busy={!ready || undefined}
             aria-haspopup={floating ? "dialog" : undefined}
             aria-controls={floating ? id : undefined}
@@ -774,7 +774,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
             data-expanded={expanded}
             onClick={(event) => {
               if (!suppressClick.current || event.detail === 0) {
-                if (!warm) flushSync(() => onActivate(summary.id));
+                flushSync(() => onActivate(summary.id));
                 if (ready) transition(true);
                 else {
                   const request = ++openRequest.current;
@@ -809,7 +809,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
             </span>
           </Button>
           <div
-            className="thread-design-header"
+            className="thread-design-header h-[max(40px,2.5rem)] gap-2"
             onPointerDown={(event) => {
               if (event.target instanceof Element && event.target.closest("button")) return;
               beginDrag(event, "move");
@@ -819,10 +819,16 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
             onPointerCancel={(event) => finishDrag(event, true)}
             onLostPointerCapture={(event) => finishDrag(event, true)}
           >
+            <span
+              className="thread-design-title min-w-0 flex-1 truncate text-xs leading-normal text-muted-ink"
+              title={summary.name}
+            >
+              {summary.name}
+            </span>
             <Button
               type="button"
               className="thread-design-close"
-              aria-label="Dock preview"
+              aria-label={`Dock ${summary.name} preview`}
               onClick={() => {
                 remember();
                 onDock(summary.id);

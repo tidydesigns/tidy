@@ -16,6 +16,7 @@ import { DesignPreviewCache } from "./cache";
 import { threadDesigns } from "./discovery";
 import {
   discoverCanvases,
+  activateCanvas,
   parseCanvasDock,
   revealCanvas,
   toggleCanvas,
@@ -131,12 +132,10 @@ export function ThreadDesignDock({
     } catch {
       saved = parseCanvasDock(null);
     }
-    return thread.status === "running"
-      ? discoverCanvases(
-          saved,
-          threadDesigns(thread, designs).map((design) => design.id),
-        )
-      : saved;
+    return discoverCanvases(
+      saved,
+      threadDesigns(thread, designs).map((design) => design.id),
+    );
   });
   const latest = useRef(state);
   useLayoutEffect(() => {
@@ -187,8 +186,8 @@ export function ThreadDesignDock({
     [lastUser, toolActivities, designIdKey, designs, pathCache],
   );
   useEffect(() => {
-    if (thread.status === "running") setState((previous) => discoverCanvases(previous, candidates));
-  }, [thread.status, candidates]);
+    setState((previous) => discoverCanvases(previous, candidates));
+  }, [candidates]);
   const reveal = thread.designPreview;
   useEffect(() => {
     if (!reveal || state.revealedId === reveal.id || !designs.some((d) => d.id === reveal.designId))
@@ -270,11 +269,7 @@ export function ThreadDesignDock({
   }, []);
   const activate = useCallback((id: string) => {
     setFocusedId(id);
-    setState((previous) =>
-      !previous.openIds.includes(id) || previous.openIds.at(-1) === id
-        ? previous
-        : { ...previous, openIds: [...previous.openIds.filter((value) => value !== id), id] },
-    );
+    setState((previous) => activateCanvas(previous, id));
   }, []);
   const rememberGeometry = useCallback((id: string, geometry: CanvasGeometry) => {
     setState((previous) => ({ ...previous, geometry: { ...previous.geometry, [id]: geometry } }));
@@ -306,7 +301,7 @@ export function ThreadDesignDock({
             closeOnSelect={false}
             placement="top"
             align="end"
-            className="canvas-dock-menu"
+            className="canvas-dock-menu [&_[role=menu]]:w-80 [&_[data-slot=select-menu-label]]:overflow-visible [&_[data-slot=select-menu-label]]:text-clip [&_[data-slot=select-menu-label]]:wrap-anywhere [&_[data-slot=select-menu-label]]:whitespace-normal"
             triggerClassName="quiet-button canvas-dock-trigger"
             triggerContent={
               <>

@@ -2592,10 +2592,10 @@ export function App({
                   data-new-thread={!selectedThreadId || undefined}
                 >
                   <div
-                    className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
+                    className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active flex-wrap gap-y-1! max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
                   >
                     <div
-                      className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "max-[700px]:basis-full" : ""}`}
+                      className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "basis-60! max-[700px]:basis-full" : ""}`}
                     >
                       {thread || selectedSummary ? (
                         <ThreadTitle
@@ -2655,7 +2655,7 @@ export function App({
                       )}
                     </div>
                     {thread && (
-                      <div className="thread-context min-w-0 max-w-[390px] shrink-0 max-[700px]:ml-auto max-[700px]:max-w-full [&_.composer-context]:justify-end [&_.composer-context]:gap-4 [&_.thread-references]:m-0 [&_.thread-references]:whitespace-nowrap [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
+                      <div className="thread-context ms-auto! min-w-0 max-w-[min(30rem,100%)]! [&_.composer-context]:flex-wrap [&_.composer-context]:justify-end! [&_.composer-context]:gap-x-4! [&_.composer-context]:gap-y-1.5! [&_.composer-context>*]:max-w-full [&_.composer-context>*]:shrink-0 [&_.composer-context>*]:leading-normal [&_.composer-context>*]:whitespace-nowrap [&_.thread-references]:m-0 [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
                           repository={repository}
                           threadMode={

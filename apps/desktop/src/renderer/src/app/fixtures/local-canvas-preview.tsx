@@ -121,7 +121,7 @@ export async function runLocalCanvasPreviewTests(
     root.render(<Fixture api={api} value={saved} onUpdate={(value) => persisted.push(value)} />),
   );
   const expand = required(
-    host.querySelector<HTMLButtonElement>('[aria-label="Expand canvas"]'),
+    host.querySelector<HTMLButtonElement>('[aria-label="Expand Live preview canvas"]'),
     "expand button",
   );
   await until(
