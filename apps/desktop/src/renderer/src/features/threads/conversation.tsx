@@ -4,6 +4,7 @@ import { ThreadVideo } from "./video/thread-video";
 import { videoMimeType } from "../../../../shared/contracts/video-preview";
 import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
 import { codeFontClassName } from "../../styles/code-ui";
+import { VideoArtifact } from "./video-artifact";
 import {
   memo,
   useCallback,
@@ -53,6 +54,7 @@ const messageTime = new Intl.DateTimeFormat(undefined, {
 
 const positions = new Map<string, { top: number; following: boolean }>();
 const MarkdownContent = memo(function MarkdownContent({
+  videos,
   text,
   streaming,
   minimum,
@@ -62,6 +64,7 @@ const MarkdownContent = memo(function MarkdownContent({
   projectId,
   threadId,
 }: {
+  videos?: Message["videos"];
   text: string;
   streaming: boolean;
   minimum: number;
@@ -87,6 +90,14 @@ const MarkdownContent = memo(function MarkdownContent({
         if (node?.children.some((child) => child.type === "element" && child.tagName === "img"))
           return <span>{children}</span>;
         const link = parseChatLink(href);
+        if (
+          link?.kind === "file" &&
+          videos?.some((video) => {
+            const source = parseChatLink(video.sourceHref);
+            return source?.kind === "file" && source.path === link.path;
+          })
+        )
+          return <span>{children}</span>;
         if (href && link?.kind === "file" && /\.(?:png|jpe?g|gif|webp)$/i.test(link.name))
           return (
             <ChatImage
@@ -146,7 +157,7 @@ const MarkdownContent = memo(function MarkdownContent({
         );
       },
     }),
-    [api, projectId, threadId, active],
+    [api, projectId, threadId, active, videos],
   );
   return (
     <Markdown
@@ -188,6 +199,7 @@ const MessageBody = memo(function MessageBody({
       data-revealing={revealing && visible ? "" : undefined}
     >
       <MarkdownContent
+        videos={message.videos}
         text={buffered.text}
         streaming={streaming}
         minimum={buffered.minimum}
@@ -278,6 +290,16 @@ const ConversationEntry = memo(function ConversationEntry({
           {message.attachments && message.attachments.length > 0 && (
             <MessageAttachments api={api} projectId={projectId} files={message.attachments} />
           )}
+          {message.videos?.map((artifact) => (
+            <VideoArtifact
+              key={artifact.id}
+              artifact={artifact}
+              api={api}
+              projectId={projectId}
+              threadId={threadId}
+              active={active}
+            />
+          ))}
         </article>
         {message.role === "user" && (
           <div className="message-actions pointer-events-none absolute right-0 bottom-0 flex h-7 items-center gap-2 text-xs text-muted-ink opacity-0 group-focus-within/prompt:pointer-events-auto group-focus-within/prompt:opacity-100 group-hover/prompt:pointer-events-auto group-hover/prompt:opacity-100">

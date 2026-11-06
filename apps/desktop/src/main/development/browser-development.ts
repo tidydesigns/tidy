@@ -6,6 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect } from "vite";
 import { z } from "zod";
 import { projectAssetResponse } from "../workspace/project-assets";
+import { videoResponse } from "../media/video-response";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
 import type { WorkspaceService } from "../workspace/workspace-service";
 
@@ -155,8 +156,60 @@ else fetch('/__tidy/session', {method:'POST',headers:{'Content-Type':'applicatio
         return;
       }
       // Block cross-origin API requests, including requests with browser cookies.
-      if (request.method !== "GET" && !trustedOrigin(request)) {
+      if (request.method !== "GET" && request.method !== "HEAD" && !trustedOrigin(request)) {
         json(response, 403, { ok: false, error: "Untrusted origin." });
+        return;
+      }
+      if (path?.startsWith("/__tidy/videos/")) {
+        if (
+          (request.headers.origin && !trustedOrigin(request)) ||
+          request.headers["sec-fetch-site"] === "cross-site"
+        ) {
+          json(response, 403, { ok: false, error: "Untrusted origin." });
+          return;
+        }
+        const abort = new AbortController();
+        const media = await videoResponse(
+          new Request(new URL(request.url!, origin).href, {
+            method: request.method,
+            headers: request.headers.range ? { Range: request.headers.range } : undefined,
+            signal: abort.signal,
+          }),
+          (input) => service.readVideoBytes(input),
+        );
+        response.writeHead(media.status, Object.fromEntries(media.headers));
+        if (!media.body) {
+          response.end();
+          return;
+        }
+        const reader = media.body.getReader();
+        const close = () => {
+          abort.abort();
+          void reader.cancel().catch(() => {});
+        };
+        response.once("close", close);
+        try {
+          while (!response.destroyed) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!response.write(value))
+              await new Promise<void>((resolve) => {
+                const finish = () => {
+                  response.off("drain", finish);
+                  response.off("close", finish);
+                  resolve();
+                };
+                response.once("drain", finish);
+                response.once("close", finish);
+              });
+          }
+          response.end();
+        } catch {
+          response.destroy();
+        } finally {
+          response.off("close", close);
+          await reader.cancel().catch(() => {});
+        }
         return;
       }
       if (path?.startsWith("/__tidy/assets/")) {

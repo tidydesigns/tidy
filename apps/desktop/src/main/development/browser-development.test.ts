@@ -95,6 +95,71 @@ test("browser gateway requires authentication for APIs, events, source files and
   expect(response.status).toBe(403);
 });
 
+test("video ranges use authenticated thread artifacts, reject other origins and keep original downloads intact", async () => {
+  const f = await fixture();
+  const artifactId = randomUUID();
+  const thread: Thread = {
+    revision: 0,
+    id: randomUUID(),
+    projectId: f.projectId,
+    title: "Video",
+    harness: "codex",
+    designIds: [],
+    status: "completed",
+    updatedAt: new Date().toISOString(),
+    messages: [
+      {
+        id: randomUUID(),
+        role: "assistant",
+        text: "[Clip](./clip.mp4)",
+        videos: [
+          {
+            id: artifactId,
+            name: "clip.mp4",
+            sourceHref: "./clip.mp4",
+            status: "ready",
+            original: { size: 10, mimeType: "video/mp4" },
+            playback: { size: 10, mimeType: "video/mp4" },
+            playbackUsesOriginal: true,
+          },
+        ],
+      },
+    ],
+  };
+  await f.store.writeThread(thread);
+  const directory = join(await f.store.videoStorage(f.projectId), `video-${artifactId}`);
+  await mkdir(directory);
+  await writeFile(join(directory, "original"), "0123456789");
+  const url = new URL(
+    `/__tidy/videos/${f.projectId}/${thread.id}/${artifactId}/playback`,
+    f.origin,
+  );
+  expect((await fetch(url)).status).toBe(401);
+  const cookie = await f.login();
+  const range = await fetch(url, { headers: { Cookie: cookie, Range: "bytes=2-5" } });
+  expect(range.status).toBe(206);
+  expect(range.headers.get("Content-Range")).toBe("bytes 2-5/10");
+  expect(await range.text()).toBe("2345");
+  const head = await fetch(url, { method: "HEAD", headers: { Cookie: cookie } });
+  expect(head.status).toBe(200);
+  expect(head.headers.get("Content-Length")).toBe("10");
+  expect(
+    (await fetch(url, { headers: { Cookie: cookie, Origin: "https://other.example" } })).status,
+  ).toBe(403);
+  expect(
+    (await fetch(url, { headers: { Cookie: cookie, "Sec-Fetch-Site": "cross-site" } })).status,
+  ).toBe(403);
+  const original = await fetch(url.href.replace(/playback$/, "original"), {
+    headers: { Cookie: cookie },
+  });
+  expect(original.headers.get("Content-Disposition")).toContain("attachment;");
+  expect(await original.text()).toBe("0123456789");
+  expect(
+    (await fetch(url.href.replace(thread.id, randomUUID()), { headers: { Cookie: cookie } }))
+      .status,
+  ).toBe(404);
+});
+
 test("authenticated browser requests retain origin, host and operation validation", async () => {
   const { origin, login } = await fixture();
   const cookie = await login();

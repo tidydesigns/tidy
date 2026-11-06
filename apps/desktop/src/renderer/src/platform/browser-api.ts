@@ -1,4 +1,8 @@
 import { chooseBrowserProject } from "./browser-project-picker";
+import {
+  videoReferenceSchema,
+  videoVariantSchema,
+} from "../../../shared/contracts/video-artifacts";
 import { desktopEventSchema } from "../../../shared/contracts/desktop";
 import { browserRecovery } from "./browser-recovery";
 import {
@@ -108,6 +112,12 @@ const api: DesktopAPI = {
     frame: (input) => request("mobile-frame", input),
     input: (input) => request("mobile-input", input),
   },
+  async videoURL(input, inputVariant) {
+    const reference = videoReferenceSchema.parse(input);
+    const variant = videoVariantSchema.parse(inputVariant);
+    return `/__tidy/videos/${reference.projectId}/${reference.threadId}/${reference.artifactId}/${variant}`;
+  },
+  cancelVideo: (reference) => request("cancel-video", reference),
   projectDirectories: (path) => request("project-directories", path),
   projectCheckouts: (projectId) => request("project-checkouts", projectId),
   setupProject: (input) => request("setup-project", input),
