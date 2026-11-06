@@ -746,8 +746,8 @@ integration(
     ('deletion-bob','Bob','deletion-bob@example.test',true)`);
     await db.query(`insert into session (id,token,"userId","expiresAt","createdAt","updatedAt")
     values ('deletion-session','dummy-deletion-session','deletion-alice',now()+interval '1 day',now(),now())`);
-    await db.query(`insert into organization (id,name,slug,"createdAt","createdByUserId")
-    values ('deletion-org','Existing workspace','deletion-existing',now(),'deletion-bob')`);
+    await db.query(`insert into organization (id,name,slug,"createdAt")
+    values ('deletion-org','Existing workspace','deletion-existing',now())`);
     await db.query(`insert into member (id,"userId","organizationId",role,"createdAt") values
     ('deletion-member','deletion-alice','deletion-org','editor',now()),
     ('deletion-owner','deletion-bob','deletion-org','owner',now())`);
@@ -783,8 +783,8 @@ integration(
         await Bun.sleep(10);
       }
       expect(waiting).toBe(true);
-      await blocker.query(`insert into organization (id,name,slug,"createdAt","createdByUserId")
-      values ('deletion-added-org','Added workspace','deletion-added',now(),'deletion-bob')`);
+      await blocker.query(`insert into organization (id,name,slug,"createdAt")
+      values ('deletion-added-org','Added workspace','deletion-added',now())`);
       await blocker.query(`insert into member (id,"userId","organizationId",role,"createdAt") values
       ('deletion-added-owner','deletion-bob','deletion-added-org','owner',now()),
       ('deletion-added-member','deletion-alice','deletion-added-org','editor',now())`);
