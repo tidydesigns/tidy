@@ -314,7 +314,7 @@ export class ThreadPorts {
           if ((await inspectProcessIdentity(entry.pid)) !== entry.identity) continue;
           if (!targets.has(entry.identity))
             throw new Error(
-              "An unverified process still holds the previous agent's ownership token. Stop it manually before retrying.",
+              "An unverified process still holds the previous agent's ownership token. Tidy will retry automatically after it exits.",
             );
         }
         const groups = new Set(
@@ -326,7 +326,7 @@ export class ThreadPorts {
             (await inspectProcessIdentity(entry.pid)) === entry.identity
           )
             throw new Error(
-              "An unverified process remains in the previous agent's process group. Stop it manually before retrying.",
+              "An unverified process remains in the previous agent's process group. Tidy will retry automatically after it exits.",
             );
         }
       };
