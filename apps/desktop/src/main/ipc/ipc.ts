@@ -1,3 +1,4 @@
+import type { NativeBrowserRuntime } from "../browser/native-runtime";
 import { writeFile } from "node:fs/promises";
 import { terminalKeyboardFocus } from "../terminal/terminal-keyboard";
 import {
@@ -9,10 +10,12 @@ import {
 } from "../../shared/contracts/terminal";
 import {
   browserScopeSchema,
+  browserNativeBoundsSchema,
   BROWSER_CLIPBOARD_LIMIT,
   browserInputEnvelopeSchema,
   type BrowserWatch,
   type BrowserOutput,
+  type BrowserState,
   type BrowserInputEnvelope,
 } from "../../shared/contracts/browser";
 import { openConnectedChatLink } from "../workspace/chat-links";
@@ -232,6 +235,7 @@ export function registerWorkspaceIPC(
     discover: async () => [],
     forget: async () => {},
   },
+  nativeBrowser?: NativeBrowserRuntime,
 ) {
   function trusted(event: Pick<IpcMainInvokeEvent, "sender" | "senderFrame">) {
     if (
@@ -356,6 +360,11 @@ export function registerWorkspaceIPC(
   const browserWatches = new Map<
     string,
     {
+      native?: ReturnType<NativeBrowserRuntime["createPresenter"]>;
+      nativeRemote?: boolean;
+      nativeActive?: boolean;
+      nativeVisible?: boolean;
+      nativeState?: BrowserState;
       watch?: BrowserWatch;
       closed: boolean;
       pending: BrowserInputEnvelope[];
@@ -371,6 +380,11 @@ export function registerWorkspaceIPC(
     const key = `${event.sender.id}:${watchId}`;
     if (browserWatches.has(key)) throw new Error("This browser viewer is already attached.");
     const entry: {
+      native?: ReturnType<NativeBrowserRuntime["createPresenter"]>;
+      nativeRemote?: boolean;
+      nativeActive?: boolean;
+      nativeVisible?: boolean;
+      nativeState?: BrowserState;
       watch?: BrowserWatch;
       closed: boolean;
       pending: BrowserInputEnvelope[];
@@ -384,6 +398,25 @@ export function registerWorkspaceIPC(
         !trustedRendererURL(event.sender.mainFrame.url, rendererURL)
       )
         return;
+      if (output.kind === "state" && entry.native && entry.nativeRemote) {
+        entry.nativeState = output.state;
+        // Older surviving hosts must keep their existing stream protocol.
+        const supported = output.state.nativePresentationControl === true;
+        const available = entry.native.update(
+          output.state,
+          supported && entry.nativeVisible !== false,
+        );
+        const active = supported && available;
+        if (supported && entry.nativeActive !== active) {
+          entry.nativeActive = active;
+          entry.watch?.input({
+            tabId: null,
+            viewId: null,
+            input: { kind: "native-presentation", enabled: active },
+          });
+        }
+        if (!active) delete output.state.presentation;
+      }
       event.sender.send("tidy:browser-output", { watchId, output });
     };
     const navigated = (
@@ -394,6 +427,7 @@ export function registerWorkspaceIPC(
     const destroy = () => {
       entry.closed = true;
       entry.watch?.close();
+      entry.native?.close();
       browserWatches.delete(key);
       event.sender.removeListener("destroyed", destroy);
       event.sender.removeListener("did-start-navigation", navigated);
@@ -403,9 +437,24 @@ export function registerWorkspaceIPC(
     event.sender.on("did-start-navigation", navigated);
     try {
       const client = clientFor(event, machineId);
+      if ((!machineId || machineId === "local") && nativeBrowser) {
+        entry.nativeRemote = Boolean(client);
+        entry.native = nativeBrowser.createPresenter(
+          BrowserWindow.fromWebContents(event.sender)!,
+          () => {
+            entry.watch?.input({
+              tabId: null,
+              viewId: null,
+              input: { kind: "resize", width: 320, height: 240 },
+            });
+          },
+          (action) => send({ kind: "shortcut", action }),
+          (frame) => send(frame),
+        );
+      }
       entry.watch = client
-        ? client.watchBrowser(scope, watchId, send)
-        : await service.browser.watch(scope, watchId, send);
+        ? client.watchBrowser(scope, watchId, send, Boolean(entry.native))
+        : await service.browser.watch(scope, watchId, send, entry.native);
       if (entry.closed) entry.watch.close();
       else for (const input of entry.pending.splice(0)) entry.watch.input(input);
     } catch (error) {
@@ -415,6 +464,16 @@ export function registerWorkspaceIPC(
       if (entry.closed) event.sender.removeListener("destroyed", destroy);
     }
   });
+  ipcMain.on("tidy:browser-layout", (event, raw: unknown) => {
+    try {
+      trusted(event);
+      const { watchId, bounds } = z
+        .object({ watchId: z.uuid(), bounds: browserNativeBoundsSchema.nullable() })
+        .strict()
+        .parse(raw);
+      browserWatches.get(`${event.sender.id}:${watchId}`)?.native?.layout(bounds);
+    } catch {}
+  });
   ipcMain.on("tidy:browser-input", (event, raw: unknown) => {
     try {
       trusted(event);
@@ -423,6 +482,10 @@ export function registerWorkspaceIPC(
         .strict()
         .parse(raw);
       const entry = browserWatches.get(`${event.sender.id}:${watchId}`);
+      if (entry && input.input.kind === "visibility") {
+        entry.nativeVisible = input.input.visible;
+        if (entry.nativeState) entry.native?.update(entry.nativeState, entry.nativeVisible);
+      }
       if (entry?.watch) entry.watch.input(input);
       else if (entry && entry.pending.length < 16) entry.pending.push(input);
     } catch {}

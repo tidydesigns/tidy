@@ -57,6 +57,15 @@ test("browser boundaries reject oversized, malformed and non-finite input", () =
   expect(browserInputSchema.safeParse({ ...key, command: "moveWordLeft" }).success).toBe(true);
   expect(browserInputSchema.safeParse({ ...key, command: "insertHTML" }).success).toBe(false);
   expect(browserStateSchema.parse(emptyBrowserState).keyboardCommands).toBeUndefined();
+  for (const deviceScaleFactor of [0, 3, Infinity, NaN])
+    expect(
+      browserInputSchema.safeParse({ kind: "resize", width: 800, height: 600, deviceScaleFactor })
+        .success,
+    ).toBe(false);
+  expect(
+    browserInputSchema.safeParse({ kind: "resize", width: 800, height: 600, deviceScaleFactor: 2 })
+      .success,
+  ).toBe(true);
 });
 
 test("only loopback development links use the project-host browser", () => {

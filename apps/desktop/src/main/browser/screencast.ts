@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { browserFrameSize } from "../../shared/browser-viewport";
 import type { CDPSession, Page } from "puppeteer-core";
 import type { BrowserOutput, BrowserState } from "../../shared/contracts/browser";
 
@@ -6,8 +7,14 @@ type FrameView = Pick<Extract<BrowserOutput, { kind: "frame" }>, "tabId" | "view
 export type BrowserViewer = {
   id: string;
   visible: boolean;
+  native?: {
+    update(state: BrowserState, visible: boolean): boolean | void;
+    close(): void;
+  };
+  nativeEnabled?: boolean;
+  nativeActive?: boolean;
   send(event: BrowserOutput): void;
-  inflight: Set<number>;
+  inflight: Map<number, number>;
   pending?: Uint8Array;
   closed: boolean;
   view: FrameView | null;
@@ -19,6 +26,8 @@ type Capture = FrameView & {
   lastFrame?: Uint8Array;
   acknowledgements: number[];
   paused: boolean;
+  stalled: boolean;
+  stallTimer?: ReturnType<typeof setTimeout>;
 };
 const ignored = () => {};
 
@@ -44,6 +53,7 @@ export class BrowserScreencast {
 
   reset() {
     this.invalidate();
+    clearTimeout(this.capture?.stallTimer);
     this.capture = undefined;
     for (const viewer of this.viewers) {
       viewer.pending = undefined;
@@ -53,9 +63,17 @@ export class BrowserScreencast {
   }
 
   acknowledge(viewer: BrowserViewer, frameId: number) {
-    if (viewer.inflight.delete(frameId)) this.pushFrame(viewer);
+    if (!viewer.inflight.delete(frameId)) return;
+    const capture = this.capture;
+    if (capture) {
+      clearTimeout(capture.stallTimer);
+      capture.stallTimer = undefined;
+      capture.stalled = false;
+    }
+    this.pushFrame(viewer);
+    this.updateBackpressure();
     this.acknowledgeCapture();
-    if (this.capture?.paused) this.refresh();
+    if (capture?.paused) this.refresh();
   }
 
   async pauseWhile<T>({ run }: { run(): Promise<T> }) {
@@ -72,6 +90,7 @@ export class BrowserScreencast {
 
   async close() {
     this.invalidate();
+    clearTimeout(this.capture?.stallTimer);
     await this.capture?.session.detach().catch(ignored);
     this.capture = undefined;
   }
@@ -85,7 +104,7 @@ export class BrowserScreencast {
         this.dirty = false;
         await this.stream().catch((error: unknown) => {
           for (const viewer of this.viewers)
-            if (viewer.visible && !viewer.closed)
+            if (viewer.visible && !viewer.closed && !viewer.nativeActive)
               viewer.send({
                 kind: "error",
                 message:
@@ -103,7 +122,7 @@ export class BrowserScreencast {
     if (
       viewer.closed ||
       !viewer.visible ||
-      viewer.inflight.size >= 3 ||
+      !this.hasCredit(viewer) ||
       !viewer.pending ||
       !viewer.view
     )
@@ -111,7 +130,7 @@ export class BrowserScreencast {
     const frame = viewer.pending;
     viewer.pending = undefined;
     const frameId = ++this.frameSequence;
-    viewer.inflight.add(frameId);
+    viewer.inflight.set(frameId, frame.byteLength);
     viewer.send({
       kind: "frame",
       ...viewer.view,
@@ -120,15 +139,37 @@ export class BrowserScreencast {
     });
   }
 
+  private hasCredit(viewer: BrowserViewer) {
+    const bytes = [...viewer.inflight.values()].reduce((total, size) => total + size, 0);
+    return viewer.inflight.size < 3 && bytes + (viewer.pending?.byteLength ?? 0) <= 8 * 1024 * 1024;
+  }
+
+  private updateBackpressure() {
+    const capture = this.capture;
+    if (!capture || capture.paused) return;
+    const blocked = ![...this.viewers].some(
+      (viewer) =>
+        viewer.visible && !viewer.closed && !viewer.nativeActive && this.hasCredit(viewer),
+    );
+    if (!blocked) {
+      clearTimeout(capture.stallTimer);
+      capture.stallTimer = undefined;
+      capture.stalled = false;
+    } else if (!capture.stallTimer) {
+      // Brief decode/network delays should drop old frames, not restart Chrome's capture.
+      capture.stallTimer = setTimeout(() => {
+        capture.stallTimer = undefined;
+        if (this.capture !== capture) return;
+        capture.stalled = true;
+        this.refresh();
+      }, 500);
+      capture.stallTimer.unref();
+    }
+  }
+
   private acknowledgeCapture() {
     const capture = this.capture;
-    if (
-      !capture ||
-      ![...this.viewers].some(
-        (viewer) => viewer.visible && !viewer.closed && viewer.inflight.size < 3,
-      )
-    )
-      return;
+    if (!capture || capture.paused) return;
     for (const sessionId of capture.acknowledgements.splice(0))
       void capture.session.send("Page.screencastFrameAck", { sessionId }).catch(ignored);
   }
@@ -138,15 +179,18 @@ export class BrowserScreencast {
     const tab = selected?.state.url === "about:blank" ? undefined : selected;
     const viewers = this.pauses
       ? []
-      : [...this.viewers].filter((viewer) => viewer.visible && !viewer.closed);
+      : [...this.viewers].filter(
+          (viewer) => viewer.visible && !viewer.closed && !viewer.nativeActive,
+        );
     const current = this.capture;
+    const size = tab ? browserFrameSize(tab.state) : undefined;
     if (
       tab &&
       viewers.length &&
       current?.tabId === tab.state.id &&
       current.viewId === tab.state.viewId &&
-      current.width === tab.state.width &&
-      current.height === tab.state.height
+      current.width === size?.width &&
+      current.height === size?.height
     ) {
       for (const viewer of viewers) {
         if (viewer.view?.tabId === current.tabId && viewer.view.viewId === current.viewId) continue;
@@ -154,8 +198,8 @@ export class BrowserScreencast {
         viewer.pending = current.lastFrame;
         this.pushFrame(viewer);
       }
-      const blocked = !viewers.some((viewer) => viewer.inflight.size < 3);
-      if (blocked && !current.paused) {
+      const blocked = !viewers.some((viewer) => this.hasCredit(viewer));
+      if (blocked && current.stalled && !current.paused) {
         current.paused = true;
         await current.session.send("Page.stopScreencast");
       } else if (!blocked && current.paused) {
@@ -163,6 +207,7 @@ export class BrowserScreencast {
         this.acknowledgeCapture();
         await this.startCapture(current);
       }
+      this.updateBackpressure();
       this.acknowledgeCapture();
       return;
     }
@@ -174,6 +219,7 @@ export class BrowserScreencast {
       viewer.view = null;
     }
     if (current) {
+      clearTimeout(current.stallTimer);
       await current.session.send("Page.stopScreencast").catch(ignored);
       await current.session.detach().catch(ignored);
     }
@@ -189,10 +235,10 @@ export class BrowserScreencast {
       session,
       tabId: tab.state.id,
       viewId: tab.state.viewId,
-      width: tab.state.width,
-      height: tab.state.height,
+      ...browserFrameSize(tab.state),
       acknowledgements: [],
       paused: false,
+      stalled: false,
     };
     this.capture = capture;
     const view: FrameView = { tabId: capture.tabId, viewId: capture.viewId };
@@ -200,17 +246,12 @@ export class BrowserScreencast {
       if (generation !== this.generation || this.options.closed() || capture.paused) return;
       capture.lastFrame = Buffer.from(data, "base64");
       for (const viewer of this.viewers) {
-        if (!viewer.visible || viewer.closed) continue;
+        if (!viewer.visible || viewer.closed || viewer.nativeActive) continue;
         viewer.view = view;
         viewer.pending = capture.lastFrame;
         this.pushFrame(viewer);
       }
-      if (
-        ![...this.viewers].some(
-          (viewer) => viewer.visible && !viewer.closed && viewer.inflight.size < 3,
-        )
-      )
-        this.refresh();
+      this.updateBackpressure();
     };
     session.on("Page.screencastFrame", (frame) => {
       publish(frame.data);
@@ -236,7 +277,7 @@ export class BrowserScreencast {
   private startCapture(capture: Capture) {
     return capture.session.send("Page.startScreencast", {
       format: "jpeg",
-      quality: 70,
+      quality: 90,
       maxWidth: capture.width,
       maxHeight: capture.height,
       everyNthFrame: 1,

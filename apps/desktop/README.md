@@ -91,6 +91,8 @@ Shift-Enter move through find results.
 The first page installs a pinned Chrome Headless Shell into `~/.cache/tidy/browser`.
 Installation shows progress and can be retried after a failure. Set
 `TIDY_BROWSER_EXECUTABLE` to use a compatible installed Chrome/Chromium instead.
+Custom executables must support the `Page.startScreencast` options `maxFramesInFlight`
+and `sendLastFrame`, as provided by the bundled Chrome 156 runtime.
 The sandbox is enabled by default and is never disabled automatically. Hosts that
 cannot support it can explicitly set `TIDY_BROWSER_SANDBOX=0`.
 

@@ -1,6 +1,8 @@
+import { createBrowserInputBuffer } from "./browser-input-buffer";
 import { browserEditingCommand } from "./browser-keyboard";
 import {
   useCallback,
+  useMemo,
   useEffect,
   useRef,
   type RefObject,
@@ -89,13 +91,32 @@ export function BrowserPage({
       document.removeEventListener("visibilitychange", clear);
     };
   }, []);
+  const inputBuffer = useMemo(
+    () =>
+      createBrowserInputBuffer({
+        send: (envelope) => api.input(scope, envelope),
+        schedule: (callback) => requestAnimationFrame(callback),
+        cancel: (frame) => cancelAnimationFrame(frame),
+      }),
+    [api, scope.projectId, scope.threadId],
+  );
+  useEffect(() => () => inputBuffer.clear(), [inputBuffer, tab?.id, tab?.viewId, interactive]);
+  useEffect(() => {
+    const clear = () => inputBuffer.clear();
+    window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", clear);
+    return () => {
+      window.removeEventListener("blur", clear);
+      document.removeEventListener("visibilitychange", clear);
+    };
+  }, [inputBuffer]);
   const compositionView = useRef<Pick<BrowserInputEnvelope, "tabId" | "viewId"> | null>(null);
   const sendPage = useCallback(
     (input: Extract<BrowserInput, { kind: "mouse" | "wheel" | "key" | "text" }>) => {
       if (!interactive || !tab) return;
-      api.input(scope, { tabId: tab.id, viewId: tab.viewId, input });
+      inputBuffer.send({ tabId: tab.id, viewId: tab.viewId, input });
     },
-    [api, scope.projectId, scope.threadId, tab?.id, tab?.viewId, interactive],
+    [inputBuffer, tab?.id, tab?.viewId, interactive],
   );
   const insertText = (
     text: string,
@@ -110,7 +131,7 @@ export function BrowserPage({
       let end = Math.min(start + 16000, text.length);
       const last = text.charCodeAt(end - 1);
       if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
-      api.input(scope, { ...target, input: { kind: "text", text: text.slice(start, end) } });
+      inputBuffer.send({ ...target, input: { kind: "text", text: text.slice(start, end) } });
       start = end;
     }
   };
@@ -126,14 +147,6 @@ export function BrowserPage({
       y: Math.max(0, Math.min(tab.height - 1, (clientY - bounds.top) * scaleY)),
     };
   };
-  const move = useRef<BrowserInputEnvelope | null>(null);
-  const moveFrame = useRef<number | undefined>(undefined);
-  useEffect(
-    () => () => {
-      if (moveFrame.current !== undefined) cancelAnimationFrame(moveFrame.current);
-    },
-    [],
-  );
   const pointer = (
     event: PointerEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>,
     action: "move" | "down" | "up",
@@ -159,21 +172,7 @@ export function BrowserPage({
       clickCount: Math.min(3, action === "move" ? 0 : Math.max(1, event.detail)),
       modifiers: modifierBits(event),
     };
-    if (action === "move") {
-      move.current = { tabId: tab.id, viewId: tab.viewId, input };
-      if (moveFrame.current === undefined)
-        moveFrame.current = requestAnimationFrame(() => {
-          moveFrame.current = undefined;
-          if (move.current) api.input(scope, move.current);
-          move.current = null;
-        });
-    } else {
-      if (move.current) {
-        api.input(scope, move.current);
-        move.current = null;
-      }
-      sendPage(input);
-    }
+    sendPage(input);
   };
 
   useEffect(() => {

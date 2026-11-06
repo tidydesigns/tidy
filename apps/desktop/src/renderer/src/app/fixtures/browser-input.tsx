@@ -101,6 +101,7 @@ export async function runBrowserInputTests(root: Root) {
   pointer("pointerdown", 100, 150);
   pointer("pointermove", 100, 100);
   pointer("pointerup", 100, 100);
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const wheel = inputs.at(0);
   check(inputs.length === 1 && wheel?.kind === "wheel", "Touch panning sent a drag or click");
   check(

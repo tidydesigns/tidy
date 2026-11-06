@@ -10,6 +10,10 @@ export type BrowserDiscardDraft = z.infer<typeof browserDiscardDraftSchema>;
 export const browserTabSchema = z.object({
   id: z.uuid(),
   viewId: z.uuid(),
+  nativeTargetId: z
+    .string()
+    .regex(/^[A-Fa-f0-9]{32}$/)
+    .optional(),
   url: z.string().max(8192),
   title: z.string().max(500),
   loading: z.boolean(),
@@ -18,9 +22,12 @@ export const browserTabSchema = z.object({
   canGoForward: z.boolean(),
   width: z.number().int(),
   height: z.number().int(),
+  deviceScaleFactor: z.number().finite().min(0.1).max(2).optional(),
 });
 export const browserStateSchema = z.object({
   keyboardCommands: z.boolean().optional(),
+  nativePresentationControl: z.literal(true).optional(),
+  presentation: z.literal("native").optional(),
   phase: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("idle") }),
     z.object({ kind: z.literal("installing"), progress: z.number().min(0).max(1) }),
@@ -138,6 +145,7 @@ export const browserResultSchema = z.object({
 export type BrowserResult = z.infer<typeof browserResultSchema>;
 const point = { x: z.number().finite().min(0).max(7680), y: z.number().finite().min(0).max(4320) };
 export const browserInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("native-presentation"), enabled: z.boolean() }).strict(),
   z.object({ kind: z.literal("ack"), frameId: z.number().int().positive().safe() }).strict(),
   z.object({ kind: z.literal("take-control") }).strict(),
   z.object({ kind: z.literal("release-control") }).strict(),
@@ -147,6 +155,7 @@ export const browserInputSchema = z.discriminatedUnion("kind", [
       kind: z.literal("resize"),
       width: z.number().int().min(320).max(2560),
       height: z.number().int().min(240).max(1600),
+      deviceScaleFactor: z.number().finite().min(1).max(2).optional(),
     })
     .strict(),
   z
@@ -226,6 +235,10 @@ export const browserInputEnvelopeSchema = z
 export type BrowserInputEnvelope = z.infer<typeof browserInputEnvelopeSchema>;
 export const browserEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("state"), state: browserStateSchema }),
+  z.object({
+    kind: z.literal("shortcut"),
+    action: z.enum(["address", "find", "reload", "reload-ignore-cache", "back", "forward"]),
+  }),
   z.object({ kind: z.literal("error"), message: z.string() }),
   z.object({ kind: z.literal("disconnected"), message: z.string() }),
 ]);
@@ -247,8 +260,27 @@ export const browserOutputEnvelopeSchema = z.object({
   output: browserOutputSchema,
 });
 export type BrowserOutput = z.infer<typeof browserOutputSchema>;
+export const browserNativeBoundsSchema = z
+  .object({
+    zoom: z.number().finite().positive().max(5).optional(),
+    viewport: z
+      .object({
+        width: z.number().int().min(320).max(2560),
+        height: z.number().int().min(240).max(1600),
+      })
+      .strict()
+      .optional(),
+    occluded: z.boolean().optional(),
+    x: z.number().finite().min(0).max(32768),
+    y: z.number().finite().min(0).max(32768),
+    width: z.number().finite().min(1).max(16384),
+    height: z.number().finite().min(1).max(16384),
+  })
+  .strict();
+export type BrowserNativeBounds = z.infer<typeof browserNativeBoundsSchema>;
 export type BrowserWatch = { input(input: BrowserInputEnvelope): void; close(): void };
 export type BrowserAPI = {
+  present?(scope: BrowserScope, bounds: BrowserNativeBounds | null): void;
   discardDraft(input: z.infer<typeof browserDiscardDraftSchema>): Promise<void>;
   copy(text: string): Promise<void>;
   download(name: string, base64: string): Promise<void>;

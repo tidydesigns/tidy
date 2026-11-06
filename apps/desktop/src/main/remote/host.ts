@@ -21,6 +21,7 @@ export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
 const hostCapabilities = [
   "browser-v2",
+  "browser-native-presentation",
   "mobile-preview-v1",
   "browser-draft-discard",
   "thread-naming",
@@ -280,6 +281,7 @@ export function createRemoteHost({
               browser: service.browser,
               scope: scope.data,
               viewerId: viewerId.data,
+              native: url.searchParams.get("native") === "1",
               authorized: () => sessions.validate(ticket.clientId, ticket.token, { cached: true }),
             });
             return;

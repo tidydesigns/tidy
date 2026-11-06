@@ -35,7 +35,7 @@ import {
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
-import type { BrowserOutput } from "../../shared/contracts/browser";
+import type { BrowserInput, BrowserOutput } from "../../shared/contracts/browser";
 import { MAX_CHAT_IMAGE_BYTES } from "../../shared/contracts/chat-images";
 import { readChatImageSource } from "../../renderer/src/components/load-chat-image";
 import type { TerminalInput, TerminalOutput } from "../../shared/contracts/terminal";
@@ -2113,3 +2113,91 @@ test("PR status notifications require per-connection opt-in and keep legacy clie
   expect(legacy.events.some((value) => value.type === "pull-request-state")).toBe(false);
   expect(legacy.client.status.kind).toBe("connected");
 });
+for (const nativeSupported of [false, true]) {
+  test(`native browser presentation negotiates ${nativeSupported ? "current" : "older"} host support`, async () => {
+    const f = await fixture();
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    const fetch = globalThis.fetch;
+    const health = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        async (...args: Parameters<typeof fetch>) => {
+          const response = await fetch(...args);
+          if (String(args[0]) !== `${f.origin()}/health` || nativeSupported) return response;
+          const data = (await response.json()) as { capabilities: string[] };
+          return Response.json({
+            ...data,
+            capabilities: data.capabilities.filter(
+              (value) => value !== "browser-native-presentation",
+            ),
+          });
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    );
+    const attach = f.service.browser.watch.bind(f.service.browser);
+    let native: boolean | undefined;
+    const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+      native = Boolean(args[3]);
+      return attach(...args);
+    });
+    const watch = client.watchBrowser(
+      { projectId: f.project.id, threadId: randomUUID() },
+      randomUUID(),
+      () => {},
+      true,
+    );
+    try {
+      await until(() => native !== undefined);
+      expect(native).toBe(nativeSupported);
+    } finally {
+      watch.close();
+      observe.mockRestore();
+      health.mockRestore();
+    }
+  });
+}
+
+for (const enabled of [undefined, false, true]) {
+  test(`browser reconnect restores ${String(enabled)} native presentation after visibility`, async () => {
+    const f = await fixture();
+    const { client, drops } = f.client();
+    await until(() => client.status.kind === "connected");
+    const inputs: BrowserInput[][] = [];
+    const attach = f.service.browser.watch.bind(f.service.browser);
+    const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+      const watch = await attach(...args);
+      const received: (typeof inputs)[number] = [];
+      inputs.push(received);
+      return {
+        close: watch.close,
+        input: (envelope) => {
+          received.push(envelope.input);
+          watch.input(envelope);
+        },
+      };
+    });
+    const watch = client.watchBrowser(
+      { projectId: f.project.id, threadId: randomUUID() },
+      randomUUID(),
+      () => {},
+      true,
+    );
+    const visibility = { kind: "visibility", visible: true } as const;
+    watch.input({ tabId: null, viewId: null, input: visibility });
+    if (enabled !== undefined)
+      watch.input({ tabId: null, viewId: null, input: { kind: "native-presentation", enabled } });
+    const expected: BrowserInput[] =
+      enabled === undefined ? [visibility] : [visibility, { kind: "native-presentation", enabled }];
+    try {
+      await until(() => inputs[0]?.length === expected.length);
+      expect(inputs[0]).toEqual(expected);
+      drops[0]();
+      await until(() => inputs[1]?.length === expected.length);
+      expect(inputs[1]).toEqual(expected);
+    } finally {
+      watch.close();
+      observe.mockRestore();
+    }
+  }, 15000);
+}

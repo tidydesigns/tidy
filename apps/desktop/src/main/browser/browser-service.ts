@@ -14,8 +14,11 @@ import {
   type BrowserResult,
 } from "../../shared/contracts/browser";
 import { BrowserScreencast, type BrowserViewer } from "./screencast";
+import { BrowserInputQueue } from "./input-queue";
 import { BrowserRuntime } from "./runtime";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
+
+type BrowserBackend = Pick<BrowserRuntime, "get" | "close"> & { readonly native?: boolean };
 
 type Tab = {
   page: Page;
@@ -62,7 +65,7 @@ export class BrowserService {
   private closing = false;
   private readonly scratch = new PrivateScratch();
   private cleanupPromises = new Set<Promise<unknown>>();
-  private readonly runtime = new BrowserRuntime(
+  private runtime: BrowserBackend = new BrowserRuntime(
     (progress) => {
       for (const workspace of this.workspaces.values()) {
         if (workspace.phase.kind === "starting" || workspace.phase.kind === "installing") {
@@ -76,6 +79,18 @@ export class BrowserService {
   );
 
   constructor(private readonly authorize: (scope: BrowserScope) => Promise<void>) {}
+
+  useNativeConnection(directory: string) {
+    if (!(this.runtime instanceof BrowserRuntime))
+      throw new Error("A native browser is already configured.");
+    this.runtime.useNativeConnection(directory);
+  }
+
+  useRuntime(runtime: BrowserBackend) {
+    if ([...this.workspaces.values()].some((workspace) => workspace.context))
+      throw new Error("The browser is already running.");
+    this.runtime = runtime;
+  }
 
   private cleanup(action: Promise<unknown>) {
     this.cleanupPromises.add(action);
@@ -151,6 +166,7 @@ export class BrowserService {
     const tab = workspace.activeTabId ? workspace.tabs.get(workspace.activeTabId) : undefined;
     return {
       keyboardCommands: true,
+      nativePresentationControl: true,
       phase: workspace.phase,
       tabs: [...workspace.tabs.values()].map((tab) => ({ ...tab.state })),
       activeTabId: workspace.activeTabId,
@@ -188,8 +204,24 @@ export class BrowserService {
   }
 
   private broadcast(workspace: Workspace) {
-    for (const viewer of workspace.stream.viewers)
-      viewer.send({ kind: "state", state: this.snapshot(workspace, viewer.id) });
+    const viewers = [...workspace.stream.viewers].sort(
+      (a, b) => Number(b.id === workspace.controller) - Number(a.id === workspace.controller),
+    );
+    for (const viewer of viewers) {
+      const state = this.snapshot(workspace, viewer.id);
+      const active = Boolean(
+        viewer.native &&
+        this.runtime.native &&
+        viewer.nativeEnabled !== false &&
+        viewer.native.update(state, viewer.visible) !== false,
+      );
+      if (active) state.presentation = "native";
+      if (viewer.nativeActive !== active) {
+        viewer.nativeActive = active;
+        workspace.stream.refresh();
+      }
+      viewer.send({ kind: "state", state });
+    }
   }
 
   private setController(workspace: Workspace, controller: string | null) {
@@ -391,6 +423,9 @@ export class BrowserService {
       state: {
         id,
         viewId: randomUUID(),
+        ...(this.runtime.native
+          ? { nativeTargetId: (await cdp.send("Target.getTargetInfo")).targetInfo.targetId }
+          : {}),
         url: page.url(),
         title: "New tab",
         loading: false,
@@ -403,7 +438,8 @@ export class BrowserService {
     };
     page.setDefaultTimeout(8000);
     page.setDefaultNavigationTimeout(20000);
-    await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+    if (!this.runtime.native)
+      await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     await cdp.send("Fetch.enable", {
       patterns: ["file:*", "chrome:*", "devtools:*", "chrome-extension:*"].map((urlPattern) => ({
         urlPattern,
@@ -824,7 +860,12 @@ export class BrowserService {
     }
   }
 
-  async watch(scope: BrowserScope, id: string, send: BrowserViewer["send"]): Promise<BrowserWatch> {
+  async watch(
+    scope: BrowserScope,
+    id: string,
+    send: BrowserViewer["send"],
+    native?: BrowserViewer["native"],
+  ): Promise<BrowserWatch> {
     await this.authorize(scope);
     const workspace = this.workspace(scope);
     if (workspace.stream.viewers.size >= 8) throw new Error("Too many viewers for this browser.");
@@ -832,24 +873,56 @@ export class BrowserService {
       id,
       send,
       visible: true,
-      inflight: new Set(),
+      native,
+      inflight: new Map(),
       closed: false,
       view: null,
     };
     workspace.stream.viewers.add(viewer);
-    viewer.send({ kind: "state", state: this.snapshot(workspace, id) });
+    this.broadcast(workspace);
     workspace.stream.refresh();
-    let queued = Promise.resolve();
-    let pendingInputs = 0;
+    const failed = (error: unknown) => {
+      if (!viewer.closed) send({ kind: "error", message: errorMessage(error) });
+    };
+    const dispatch = async (
+      { input, tabId, viewId }: Parameters<BrowserWatch["input"]>[0],
+      controlGeneration: number,
+    ) => {
+      const stillControls = () =>
+        !viewer.closed &&
+        !workspace.lifetime.signal.aborted &&
+        workspace.controller === id &&
+        controlGeneration === workspace.controlGeneration;
+      if (!stillControls()) return;
+      await this.authorize(scope);
+      if (!stillControls()) return;
+      if (
+        ["mouse", "wheel", "key", "text"].includes(input.kind) &&
+        workspace.tabs.get(tabId ?? "")?.state.viewId !== viewId
+      )
+        return;
+      await this.dispatch(workspace, input, tabId, stillControls);
+    };
+    const queue = new BrowserInputQueue({ dispatch, failed });
     const answeringDialogs = new Set<string>();
     return {
       input: ({ input, tabId, viewId }) => {
         if (viewer.closed) return;
+        if (input.kind === "native-presentation") {
+          if (viewer.native && viewer.nativeEnabled !== input.enabled) {
+            viewer.nativeEnabled = input.enabled;
+            this.broadcast(workspace);
+            workspace.stream.refresh();
+          }
+          return;
+        }
         if (input.kind === "ack") {
           workspace.stream.acknowledge(viewer, input.frameId);
           return;
         }
         if (input.kind === "take-control") {
+          if (workspace.controller === id) return;
+          queue.clear();
           for (const action of workspace.agentActions)
             action.abort(new Error("A viewer took control of this browser."));
           this.setController(workspace, id);
@@ -858,6 +931,7 @@ export class BrowserService {
           return;
         }
         if (input.kind === "release-control") {
+          queue.clear();
           if (workspace.controller === id) {
             this.setController(workspace, null);
             void this.releaseKeys(workspace);
@@ -867,6 +941,7 @@ export class BrowserService {
         }
         if (input.kind === "visibility") {
           if (viewer.visible === input.visible) return;
+          queue.clear();
           viewer.visible = input.visible;
           viewer.view = null;
           viewer.pending = undefined;
@@ -876,45 +951,48 @@ export class BrowserService {
             void this.releaseKeys(workspace);
             this.broadcast(workspace);
           }
+          this.broadcast(workspace);
           workspace.stream.refresh();
           return;
         }
+        if (input.kind === "resize" && viewer.native && this.runtime.native) {
+          const tab = workspace.tabs.get(workspace.activeTabId ?? "");
+          if (tab)
+            void this.authorize(scope)
+              .then(async () => {
+                const { cssLayoutViewport } = await tab.cdp.send("Page.getLayoutMetrics");
+                if (viewer.closed || !workspace.tabs.has(tab.state.id)) return;
+                const density = await tab.cdp.send("Runtime.evaluate", {
+                  expression: "devicePixelRatio",
+                  returnByValue: true,
+                });
+                if (
+                  viewer.closed ||
+                  workspace.activeTabId !== tab.state.id ||
+                  !workspace.tabs.has(tab.state.id)
+                )
+                  return;
+                const scale = Math.max(0.1, Math.min(1, Number(density.result.value) || 1));
+                const width = Math.round(cssLayoutViewport.clientWidth),
+                  height = Math.round(cssLayoutViewport.clientHeight);
+                if (
+                  width === tab.state.width &&
+                  height === tab.state.height &&
+                  scale === (tab.state.deviceScaleFactor ?? 1)
+                )
+                  return;
+                tab.state.width = width;
+                tab.state.height = height;
+                tab.state.deviceScaleFactor = scale;
+                this.invalidateView(workspace, tab);
+                workspace.stream.refresh();
+              })
+              .catch(failed);
+          return;
+        }
+        if (workspace.controller !== id) return;
         const controlGeneration = workspace.controlGeneration;
-        const dispatch = async () => {
-          if (
-            viewer.closed ||
-            workspace.lifetime.signal.aborted ||
-            workspace.controller !== id ||
-            controlGeneration !== workspace.controlGeneration
-          )
-            return;
-          await this.authorize(scope);
-          if (
-            viewer.closed ||
-            workspace.lifetime.signal.aborted ||
-            workspace.controller !== id ||
-            controlGeneration !== workspace.controlGeneration
-          )
-            return;
-          if (
-            ["mouse", "wheel", "key", "text"].includes(input.kind) &&
-            workspace.tabs.get(tabId ?? "")?.state.viewId !== viewId
-          )
-            return;
-          await this.dispatch(
-            workspace,
-            input,
-            tabId,
-            () =>
-              !viewer.closed &&
-              !workspace.lifetime.signal.aborted &&
-              workspace.controller === id &&
-              controlGeneration === workspace.controlGeneration,
-          );
-        };
-        const failed = (error: unknown) => {
-          if (!viewer.closed) send({ kind: "error", message: errorMessage(error) });
-        };
+        const envelope = { input, tabId, viewId };
         if (input.kind === "dialog") {
           if (
             answeringDialogs.has(input.dialogId) ||
@@ -922,28 +1000,24 @@ export class BrowserService {
           )
             return;
           answeringDialogs.add(input.dialogId);
-          void dispatch()
+          void dispatch(envelope, controlGeneration)
             .catch(failed)
             .finally(() => answeringDialogs.delete(input.dialogId));
           return;
         }
-        if (pendingInputs >= 64) {
+        if (!queue.push(envelope, controlGeneration)) {
+          queue.clear();
           this.setController(workspace, null);
           void this.releaseKeys(workspace);
           this.broadcast(workspace);
           send({ kind: "error", message: "Browser input fell behind. Take control to continue." });
           return;
         }
-        pendingInputs++;
-        queued = queued
-          .then(dispatch)
-          .catch(failed)
-          .finally(() => {
-            pendingInputs--;
-          });
       },
       close: () => {
+        queue.clear();
         viewer.closed = true;
+        viewer.native?.close();
         workspace.stream.viewers.delete(viewer);
         workspace.stream.refresh();
         this.discardEmpty(workspace);
@@ -1063,14 +1137,20 @@ export class BrowserService {
       case "text":
         await tab.cdp.send("Input.insertText", { text: input.text });
         break;
-      case "resize":
+      case "resize": {
+        // Headless Shell emits CSS-sized screencasts even with DPR emulation.
+        // Native views use the display's physical density without emulation.
+        if (this.runtime.native) return;
+        const deviceScaleFactor = 1;
         await this.withRenderLock({
           workspace,
           run: async () => {
             if (
               !stillControls() ||
               workspace.activeTabId !== tabId ||
-              (tab.state.width === input.width && tab.state.height === input.height)
+              (tab.state.width === input.width &&
+                tab.state.height === input.height &&
+                (tab.state.deviceScaleFactor ?? 1) === deviceScaleFactor)
             )
               return;
             await this.releaseKeys(workspace);
@@ -1080,10 +1160,11 @@ export class BrowserService {
               await tab.page.setViewport({
                 width: input.width,
                 height: input.height,
-                deviceScaleFactor: 1,
+                deviceScaleFactor,
               });
               tab.state.width = input.width;
               tab.state.height = input.height;
+              tab.state.deviceScaleFactor = deviceScaleFactor;
             } finally {
               this.broadcast(workspace);
               workspace.stream.refresh();
@@ -1091,6 +1172,7 @@ export class BrowserService {
           },
         });
         break;
+      }
       case "dialog":
         if (tab.dialog?.id === input.dialogId) {
           const dialog = tab.dialog.value;
@@ -1100,6 +1182,7 @@ export class BrowserService {
           this.broadcast(workspace);
         }
         break;
+      case "native-presentation":
       case "ack":
       case "take-control":
       case "release-control":
@@ -1178,6 +1261,7 @@ export class BrowserService {
       workspace.lifetime.abort(new Error("The browser is closing."));
       for (const viewer of workspace.stream.viewers) {
         viewer.closed = true;
+        viewer.native?.close();
       }
       workspace.stream.viewers.clear();
       workspace.stream.invalidate();

@@ -6,6 +6,7 @@ import {
   type BrowserAction,
   type BrowserInput,
   type BrowserState,
+  type BrowserOutput,
 } from "../../../../shared/contracts/browser";
 import { projectBrowserState, confirmBrowserState, type BrowserPending } from "./browser-pending";
 import { createBrowserFramePainter } from "./browser-frame-painter";
@@ -20,6 +21,9 @@ export function useBrowserSession({
   visible: boolean;
   canvas: RefObject<HTMLCanvasElement | null>;
 }) {
+  const [shortcut, setShortcut] = useState<Extract<BrowserOutput, { kind: "shortcut" }> | null>(
+    null,
+  );
   const [state, setState] = useState<BrowserState>(emptyBrowserState);
   const [error, setError] = useState("");
   const [dismissedError, setDismissedError] = useState<string | null>(null);
@@ -64,6 +68,9 @@ export function useBrowserSession({
     const unwatch = api.watch(scope, (event) => {
       if (stopped) return;
       switch (event.kind) {
+        case "shortcut":
+          setShortcut(event);
+          break;
         case "frame":
           painter.draw(event);
           break;
@@ -77,7 +84,8 @@ export function useBrowserSession({
           if (projected.activeTabId !== old.activeTabId) setPainted(null);
           if (
             old.phase.kind !== event.state.phase.kind ||
-            old.activeTabId !== event.state.activeTabId
+            old.activeTabId !== event.state.activeTabId ||
+            (old.control !== "you" && event.state.control === "you")
           )
             setError("");
           break;
@@ -156,6 +164,7 @@ export function useBrowserSession({
     );
   };
   return {
+    shortcut,
     state,
     stateRef,
     visibleRef,
