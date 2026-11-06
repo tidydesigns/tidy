@@ -2214,3 +2214,45 @@ for (const harness of ["codex", "claude", "opencode"] as const) {
     }
   });
 }
+
+test.each(["rejected", "malformed"])(
+  "OpenCode ignores a late %s prompt response after a successor submission",
+  async (response) => {
+    const { createOpenCodeAdapter } = await import("./opencode-adapter");
+    const { HarnessTransport } = await import("./harness-transport");
+    const cwd = await mkdtemp(join(directory, "opencode-late-response-"));
+    const transport = new HarnessTransport({ executable, cwd, args: ["acp"], protocol: "jsonrpc" });
+    const completed: Array<Error | undefined> = [];
+    const done = Promise.withResolvers<void>();
+    const adapter = createOpenCodeAdapter({
+      input: { harness: "opencode", executable, cwd },
+      transport,
+      emit() {},
+      turnEmitter: () => () => {},
+      complete(error) {
+        completed.push(error);
+        done.resolve();
+      },
+      accepted() {},
+      submitting() {},
+      ask() {},
+      cancelApproval() {},
+      isActive: () => true,
+      activity() {},
+    });
+    transport.onMessage = (message) => adapter.consume(message);
+    try {
+      await adapter.initialize();
+      // Exercise the adapter's generation boundary while the first request is still pending.
+      await adapter.submit({ prompt: `defer-prompt-response ${response}`, onUpdate() {} });
+      await adapter.submit({ prompt: "release-prompt-response", onUpdate() {} });
+      await done.promise;
+      // Drain both the success and rejection handlers for the responses sent together.
+      await Bun.sleep(0);
+      expect(completed).toEqual([undefined]);
+    } finally {
+      transport.close();
+      await transport.done;
+    }
+  },
+);

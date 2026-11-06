@@ -202,8 +202,8 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
       // ACP acknowledges completion rather than prompt acceptance; progress confirms acceptance.
       void completion
         .then((result) => {
-          const { usage } = promptResponse.parse(result);
           if (turnEmit !== emitTurn) return;
+          const { usage } = promptResponse.parse(result);
           if (usage)
             emitTurn({
               type: "usage",
@@ -217,11 +217,12 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
             });
           context.complete();
         })
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          if (turnEmit !== emitTurn) return;
           context.complete(
             error instanceof Error ? error : new Error("OpenCode could not complete this turn."),
-          ),
-        );
+          );
+        });
     },
     consume(message) {
       if (message.method === "session/request_permission" && message.id !== undefined) {

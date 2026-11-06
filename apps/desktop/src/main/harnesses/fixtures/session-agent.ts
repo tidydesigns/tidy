@@ -24,6 +24,7 @@ function cost(amount: number) {
 }
 let sequence = 0;
 let promptId: unknown;
+let deferredPrompt: { id: unknown; rejected: boolean } | undefined;
 let turnId = "";
 let pendingApproval = false;
 let stubborn = false;
@@ -263,6 +264,18 @@ for await (const line of createInterface({ input: process.stdin })) {
       };
       if (prompt.includes("early-stop")) setTimeout(begin, 20);
       else begin();
+    }
+    if (acp && prompt.startsWith("defer-prompt-response ")) {
+      deferredPrompt = { id: promptId, rejected: prompt.endsWith("rejected") };
+      continue;
+    }
+    if (acp && prompt === "release-prompt-response" && deferredPrompt) {
+      send(
+        deferredPrompt.rejected
+          ? { id: deferredPrompt.id, error: { code: -32603, message: "Old prompt failed" } }
+          : { id: deferredPrompt.id, result: { stopReason: 123 } },
+      );
+      deferredPrompt = undefined;
     }
     const failureCode = prompt.match(/structured-failure-fixture ([A-Za-z_]+)/)?.[1];
     if (failureCode || prompt.includes("provider-failure-fixture")) {
