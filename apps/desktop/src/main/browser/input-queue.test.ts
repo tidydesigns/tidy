@@ -75,13 +75,22 @@ test("coalescing preserves view, control generation, drag buttons and wheel modi
   queue.push(envelope(move(1)), 1);
   queue.push(envelope(move(2)), 2);
   queue.push({ ...envelope(move(3)), viewId: "next-view" }, 2);
-  queue.push(envelope(move(4, 1)), 2);
+  queue.push({ ...envelope(move(4, 1)), viewId: "next-view" }, 2);
   queue.push(envelope(wheel(1)));
   queue.push(envelope({ ...wheel(2), kind: "wheel", modifiers: 4 }));
   queue.push(envelope({ kind: "release-keys" }));
   blocked.resolve();
   await idle.promise;
-  expect(sent).toHaveLength(8);
+  expect(sent).toEqual([
+    envelope(move(0)),
+    envelope(move(1)),
+    envelope(move(2)),
+    { ...envelope(move(3)), viewId: "next-view" },
+    { ...envelope(move(4, 1)), viewId: "next-view" },
+    envelope(wheel(1)),
+    envelope({ ...wheel(2), kind: "wheel", modifiers: 4 }),
+    envelope({ kind: "release-keys" }),
+  ]);
 });
 
 test("control handoff discards queued input while keeping discrete overload bounded", async () => {

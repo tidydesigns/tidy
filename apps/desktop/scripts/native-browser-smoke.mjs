@@ -237,8 +237,43 @@ const deadline = setTimeout(() => {
   });
   await until(() => mirroredFrame);
   assert.deepEqual(nativeImage.createFromBuffer(Buffer.from(mirroredFrame.data)).getSize(), {
-    width: 640,
-    height: 400,
+    width: Math.round(320 * physical.dpr),
+    height: Math.round(200 * physical.dpr),
+  });
+  const painterBundle = join(dir, "painter.js");
+  const painterEntry = join(dir, "painter-entry.ts");
+  await writeFile(
+    painterEntry,
+    `import {createBrowserFramePainter} from ${JSON.stringify(join(root, "src/renderer/src/features/browser/browser-frame-painter.ts"))}; globalThis.BrowserFramePainter = {createBrowserFramePainter};`,
+  );
+  execFileSync(
+    "bun",
+    ["build", painterEntry, "--target=browser", "--format=iife", "--outfile=" + painterBundle],
+    { stdio: "pipe" },
+  );
+  await window.webContents.executeJavaScript(await readFile(painterBundle, "utf8"));
+  const painted = await window.webContents.executeJavaScript(`new Promise(resolve => {
+    const canvas = document.createElement('canvas');
+    let painted = false;
+    const painter = BrowserFramePainter.createBrowserFramePainter({
+      canvas: () => canvas,
+      state: () => (${JSON.stringify({ ...state, presentation: undefined })}),
+      visible: () => true,
+      painted: () => { painted = true; },
+      acknowledge: () => {
+        painter.close();
+        resolve({ painted, width: canvas.width, height: canvas.height });
+      },
+    });
+    painter.draw({
+      ...${JSON.stringify({ ...mirroredFrame, data: undefined })},
+      data: Uint8Array.from(atob(${JSON.stringify(Buffer.from(mirroredFrame.data).toString("base64"))}), c => c.charCodeAt(0)),
+    });
+  })`);
+  assert.deepEqual(painted, {
+    painted: true,
+    width: Math.round(320 * physical.dpr),
+    height: Math.round(200 * physical.dpr),
   });
   mirrored.close();
   const secondWindow = new BrowserWindow({ show: true, width: 800, height: 600 });
