@@ -1676,7 +1676,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         },
       };
       await pullRequestStatus({
-        api: { pullRequestState: async () => "merged" },
+        api: { pullRequestState: async () => "open" },
         projectId,
         url,
         scope,
@@ -1721,7 +1721,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       );
       const icon = required(link.querySelector("svg"), "Cached PR icon");
       check(current?.loading, "Bootstrap should still be pending");
-      check(icon.getAttribute("data-state") === "merged", "Cached status missing before bootstrap");
+      check(icon.getAttribute("data-state") === "open", "Cached status missing before bootstrap");
       const sparse = { ...snapshot.threads[0], pullRequests: undefined, revision: 2 };
       flushSync(() => {
         for (const listener of listeners) listener({ type: "thread-summary", thread: sparse });
@@ -1742,7 +1742,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       );
       check(
         link.querySelector("svg") === icon &&
-          icon.getAttribute("data-state") === "merged" &&
+          icon.getAttribute("data-state") === "open" &&
           link.textContent?.includes("#42"),
         "Bootstrap changed the PR contents or cleared its known colour",
       );
