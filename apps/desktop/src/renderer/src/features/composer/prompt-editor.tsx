@@ -21,6 +21,7 @@ import {
   remapAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 import { attachmentReferenceClassName, attachmentSize } from "./message-attachments";
+import { skillCommand } from "../../../../shared/contracts/skills";
 import "./prompt-editor.css";
 
 export type PromptEditorHandle = {
@@ -43,11 +44,13 @@ type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPas
   disabled?: boolean;
   placeholder?: string;
   maxLength?: number;
+  skill?: { name: string };
 };
 
 function read(node: Node): string {
   if (node instanceof HTMLElement && node.dataset.attachmentId)
     return attachmentReference({ id: node.dataset.attachmentId });
+  if (node instanceof HTMLElement && node.dataset.skillCommand) return node.dataset.skillCommand;
   if (node.nodeName === "BR") return node.nextSibling ? "\n" : "";
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
   return Array.from(
@@ -89,7 +92,10 @@ function select(root: HTMLElement, start: number, end: number) {
       const size = read(node).length;
       if (remaining <= size) {
         if (node.nodeType === Node.TEXT_NODE) return [node, remaining];
-        if (node.nodeName === "BR" || (node instanceof HTMLElement && node.dataset.attachmentId))
+        if (
+          node.nodeName === "BR" ||
+          (node instanceof HTMLElement && (node.dataset.attachmentId || node.dataset.skillCommand))
+        )
           return [parent, index + (remaining > 0 ? 1 : 0)];
         return point(node, remaining);
       }
@@ -120,7 +126,7 @@ function dividers(root: HTMLElement) {
   const segments: { node: Node; start: number; end: number }[] = [];
   let position = 0;
   function visit(node: Node) {
-    if (node instanceof HTMLElement && node.dataset.attachmentId) {
+    if (node instanceof HTMLElement && (node.dataset.attachmentId || node.dataset.skillCommand)) {
       position += read(node).length;
     } else if (node.nodeName === "BR") {
       if (node.nextSibling) position++;
@@ -189,7 +195,7 @@ function revealCaret(root: HTMLElement) {
     root.scrollTop -= bounds.top + root.clientTop + padding - caret.top;
 }
 
-function fragment(text: string, files: AttachedFile[]) {
+function attachmentFragment(text: string, files: AttachedFile[]) {
   const result = document.createDocumentFragment();
   for (const part of attachmentParts(text, files)) {
     if (part.kind === "text") result.append(document.createTextNode(part.text));
@@ -199,11 +205,37 @@ function fragment(text: string, files: AttachedFile[]) {
       chip.contentEditable = "false";
       chip.draggable = false;
       chip.dataset.attachmentId = part.referenceId;
+      chip.dataset.promptToken = "attachment";
       chip.title = `${part.file.name} · ${attachmentSize(part.file.size)}`;
       chip.textContent = part.file.name;
       result.append(chip);
     }
   }
+  return result;
+}
+
+function fragment(text: string, files: AttachedFile[], skill?: { name: string }) {
+  const command = skill ? skillCommand(text, [skill.name]) : null;
+  if (!command || !skill) return attachmentFragment(text, files);
+  const result = document.createDocumentFragment();
+  result.append(attachmentFragment(text.slice(0, command.start), files));
+  const token = text.slice(command.start, command.end);
+  const chip = document.createElement("span");
+  chip.className = "skill-reference";
+  chip.contentEditable = "false";
+  chip.draggable = false;
+  chip.dataset.promptToken = "skill";
+  chip.dataset.skillCommand = token;
+  chip.title = `Skill: ${skill.name}`;
+  chip.setAttribute("aria-label", `Skill: ${skill.name}`);
+  const kind = document.createElement("span");
+  kind.className = "skill-reference-kind";
+  kind.textContent = "Skill";
+  const name = document.createElement("span");
+  name.className = "skill-reference-name";
+  name.textContent = skill.name;
+  chip.append(kind, name);
+  result.append(chip, attachmentFragment(text.slice(command.end), files));
   return result;
 }
 
@@ -220,6 +252,7 @@ export function PromptEditor({
   disabled,
   placeholder,
   maxLength = 32_000,
+  skill,
   className,
   autoFocus,
   onKeyDown,
@@ -279,17 +312,23 @@ export function PromptEditor({
   useLayoutEffect(() => {
     const root = input.current;
     if (!root || composing.current) return;
-    if (read(root) !== value) {
+    const command = skill ? skillCommand(value, [skill.name]) : null;
+    const renderedCommand =
+      root.querySelector<HTMLElement>("[data-skill-command]")?.dataset.skillCommand;
+    if (
+      read(root) !== value ||
+      renderedCommand !== (command && value.slice(command.start, command.end))
+    ) {
       const cursor = offset(root);
       const focused = document.activeElement === root;
-      root.replaceChildren(fragment(value, files));
+      root.replaceChildren(fragment(value, files, skill));
       if (value.endsWith("\n")) root.append(document.createElement("br"));
       if (focused) select(root, Math.min(cursor, value.length), Math.min(cursor, value.length));
     }
     dividers(root);
     root.dataset.empty = String(!value);
     lastValue.current = value;
-  }, [value, files]);
+  }, [value, files, skill]);
   useLayoutEffect(() => {
     const root = input.current;
     if (!root) return;
@@ -310,14 +349,14 @@ export function PromptEditor({
     if (!root || composing.current) return;
     const next = read(root);
     if (next.length > maxLength) {
-      root.replaceChildren(fragment(lastValue.current, files));
+      root.replaceChildren(fragment(lastValue.current, files, skill));
       select(root, lastValue.current.length, lastValue.current.length);
       return;
     }
     const selection = window.getSelection();
     const focus = selection?.focusNode;
     const chip = (focus instanceof Element ? focus : focus?.parentElement)?.closest(
-      "[data-attachment-id]",
+      "[data-prompt-token]",
     );
     if (selection?.isCollapsed && chip && root.contains(chip)) {
       const range = document.createRange();
@@ -352,7 +391,7 @@ export function PromptEditor({
       return;
     }
     const container = document.createElement("div");
-    container.append(fragment(next, attached));
+    container.append(fragment(next, attached, skill));
     const replacement = document.createRange();
     replacement.selectNodeContents(root);
     selection?.removeAllRanges();

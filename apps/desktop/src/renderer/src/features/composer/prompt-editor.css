@@ -7,6 +7,38 @@
   background-clip: content-box;
   background-attachment: local;
 }
+.skill-reference {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 22px;
+  margin-inline: 1px;
+  overflow: hidden;
+  vertical-align: -5px;
+  border: 1px solid light-dark(#d8d5eb, #46415f);
+  border-radius: 6px;
+  background: light-dark(#f4f2ff, #29263a);
+  color: light-dark(#3f356e, #d8d2ff);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.skill-reference-kind {
+  align-self: stretch;
+  padding-inline: 6px;
+  border-inline-end: 1px solid light-dark(#d8d5eb, #46415f);
+  color: light-dark(#625691, #b6addf);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.skill-reference-name {
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: 7px;
+  text-overflow: ellipsis;
+}
 @media (forced-colors: none) {
   ::highlight(tidy-prompt-divider) {
     color: transparent;

@@ -3006,6 +3006,9 @@ export function App({
                         id="thread-prompt"
                         aria-label="Message"
                         value={draft.text}
+                        rememberedSkill={
+                          draft.skill?.harness === selectedHarness ? draft.skill : undefined
+                        }
                         onChange={(text) => changePrompt(text)}
                         history={promptHistory}
                         onRecall={(entry) =>

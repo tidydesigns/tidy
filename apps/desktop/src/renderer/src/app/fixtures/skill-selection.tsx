@@ -117,6 +117,15 @@ export async function runSkillSelectionTests(root: Root) {
             `Skill selection lost surrounding text (${skills.length}, ${width}, ${prefix}, ${action}): ${value}`,
           );
           check(!host.querySelector(".skill-picker"), "Picker remained open after selection");
+          const skillToken = host.querySelector<HTMLElement>("[data-prompt-token=skill]");
+          check(
+            skillToken?.textContent === `Skill${skills[0].name}`,
+            "Skill token was not rendered",
+          );
+          check(
+            skillToken?.dataset.skillCommand === `${prefix}${skills[0].name}`,
+            "Skill token lost its invocation prefix",
+          );
           check(!forwarded, "Selection also submitted the message");
           check(document.activeElement === editor, "Selection lost composer focus");
           key("Enter");

@@ -15,7 +15,12 @@ import { createPortal } from "react-dom";
 import { PromptEditor, type PromptEditorHandle } from "./prompt-editor";
 import { Button } from "@tidy/ui/button";
 import { codeScrollbarClassName } from "../../styles/code-ui";
-import { matchingSkills, skillQuery, type Skill } from "../../../../shared/contracts/skills";
+import {
+  matchingSkills,
+  promptSkill,
+  skillQuery,
+  type Skill,
+} from "../../../../shared/contracts/skills";
 import type { Message } from "../../../../shared/contracts/desktop";
 
 type HistoryEntry = Pick<Message, "text"> & { attachments?: AttachedFile[] };
@@ -28,6 +33,7 @@ type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
   history?: readonly HistoryEntry[];
   historyDisabled?: boolean;
   onRecall?(entry: HistoryEntry): void;
+  rememberedSkill?: Pick<Skill, "id" | "name">;
 };
 
 export function SkillPrompt({
@@ -41,6 +47,7 @@ export function SkillPrompt({
   history = [],
   historyDisabled = false,
   onRecall,
+  rememberedSkill,
   ...props
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -67,6 +74,7 @@ export function SkillPrompt({
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const query = skillQuery(value, cursor);
+  const invokedSkill = promptSkill(value, skills, rememberedSkill).skill;
   const matches = useMemo(() => matchingSkills(skills, query ?? ""), [skills, query]);
   const [rowHeight, setRowHeight] = useState(34);
   const virtualized = matches.length > 100;
@@ -254,6 +262,7 @@ export function SkillPrompt({
         {...props}
         ref={assignInput}
         value={value}
+        skill={invokedSkill}
         role="textbox"
         aria-autocomplete="list"
         aria-haspopup="listbox"
