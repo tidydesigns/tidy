@@ -400,11 +400,26 @@ export const HarnessUsage = memo(function HarnessUsage({
                       <div className="account-usage-line" key={item.id}>
                         <span>{item.title ?? "Rate-limit reset"}</span>
                         <span className="account-usage-muted">
-                          {item.expiresAt !== undefined && item.expiresAt !== null
-                            ? `Expires ${new Date(item.expiresAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                            : item.expiresAt === null
-                              ? "No expiry"
-                              : "Expiry not reported"}
+                          {item.expiresAt !== undefined && item.expiresAt !== null ? (
+                            <time
+                              dateTime={new Date(item.expiresAt * 1000).toISOString()}
+                              aria-label={`Expires ${localTime(item.expiresAt)}`}
+                              title={localTime(item.expiresAt)}
+                            >
+                              Expires{" "}
+                              {new Date(item.expiresAt * 1000).toLocaleString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                                timeZoneName: "short",
+                              })}
+                            </time>
+                          ) : item.expiresAt === null ? (
+                            "No expiry"
+                          ) : (
+                            "Expiry not reported"
+                          )}
                         </span>
                       </div>
                     ))}
