@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import type { DesignAgentAction } from "../../shared/contracts/design-agent";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
 import type { startHarness } from "../harnesses/harnesses";
@@ -57,7 +59,6 @@ async function call(connection: AgentMcpConnection, name: string, args: unknown)
     }),
   });
   if (response.status !== 200) throw new Error(`Tool HTTP ${response.status}`);
-  const { z } = await import("zod");
   const body = await response.text();
   const json =
     body.startsWith("event:") || body.startsWith("data:") || body.startsWith(":")
@@ -654,6 +655,297 @@ test("stopping the parent revokes an MCP result wait without a continuation", as
     0,
   );
   expect(f.runs).toHaveLength(2);
+});
+
+async function localDesignAction(prompt: string, action: DesignAgentAction) {
+  const configuration = prompt.match(/--config '([^']+)'/)?.[1];
+  if (!configuration) throw new Error("Missing local design connection.");
+  const config = await readFile(configuration, "utf8");
+  const url = config.match(/^url = "([^"]+)"/m)?.[1];
+  const token = config.match(/Bearer ([a-f0-9]{64})/)?.[1];
+  if (!url || !token) throw new Error("Invalid local design connection.");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(action),
+  });
+  if (!response.ok) throw new Error(`Design HTTP ${response.status}`);
+  return z.object({ design: z.object({ id: z.uuid() }) }).parse(await response.json()).design;
+}
+
+test.each(["codex", "claude", "opencode"] as const)(
+  "%s can create and edit matching artboards through an already-open MCP connection in its first turn",
+  async (harness) => {
+    const f = await fixture();
+    const thread = await f.service.startThread({
+      projectId: f.project.id,
+      harness,
+      prompt: "Create matching light and dark designs",
+      designIds: [],
+    });
+    const tools = await f.runs[0].input.agentTools?.open();
+    if (!tools) throw new Error("Missing tool connection.");
+    cleanups.push(async () => tools.close());
+    expect((await call(tools, "tidy_context", {})).design_ids).toEqual([]);
+    const action = {
+      kind: "design-create",
+      requestId: randomUUID(),
+      name: "Light & Dark",
+    } as const;
+    const design = await localDesignAction(f.runs[0].input.prompt, action);
+    expect((await call(tools, "tidy_context", {})).design_ids).toEqual([design.id]);
+    const info = await call(tools, "canvas_read", { design_id: design.id });
+    const edit = {
+      design_id: design.id,
+      expected_version: info.version,
+      request_id: randomUUID(),
+      operations: [
+        {
+          kind: "add",
+          nodes: [
+            {
+              id: "light",
+              name: "Light",
+              type: "artboard",
+              parentId: null,
+              box: { x: 0, y: 0, width: 1440, height: 900 },
+              style: { fill: "#ffffff" },
+            },
+            {
+              id: "dark",
+              name: "Dark",
+              type: "artboard",
+              parentId: null,
+              box: { x: 1500, y: 0, width: 1440, height: 900 },
+              style: { fill: "#111111" },
+            },
+          ],
+        },
+      ],
+    };
+    await call(tools, "canvas_edit", edit);
+    expect((await f.store.readDesign(f.project.id, design.id, false)).document.nodes).toMatchObject(
+      edit.operations[0].nodes,
+    );
+    expect(await f.store.designs(f.project.id)).toHaveLength(1);
+    await f.service.stopThread(f.project.id, thread.id);
+    await expect(call(tools, "canvas_read", { design_id: design.id })).rejects.toThrow();
+  },
+);
+
+test.each([
+  ["codex", "read-only"],
+  ["claude", "plan"],
+] as const)(
+  "%s can open a design during %s mode without gaining write access",
+  async (harness, permissionMode) => {
+    const f = await fixture();
+    const design = await f.store.createDesign(f.project.id);
+    await f.service.startThread({
+      projectId: f.project.id,
+      harness,
+      settings: { permissionMode },
+      prompt: "Inspect an existing design",
+      designIds: [],
+    });
+    const tools = await f.runs[0].input.agentTools!.open();
+    cleanups.push(async () => tools.close());
+    await expect(call(tools, "canvas_read", { design_id: design.id })).rejects.toThrow(
+      "not attached",
+    );
+    await localDesignAction(f.runs[0].input.prompt, { kind: "design-open", designId: design.id });
+    expect((await call(tools, "canvas_read", { design_id: design.id })).version).toBe(
+      design.version,
+    );
+    expect((await call(tools, "tidy_context", {})).writable).toBe(false);
+    await expect(
+      call(tools, "canvas_edit", {
+        design_id: design.id,
+        expected_version: design.version,
+        request_id: randomUUID(),
+        operations: [
+          { kind: "update", node_ids: [design.document.nodes[0].id], changes: { name: "Denied" } },
+        ],
+      }),
+    ).rejects.toThrow("read-only");
+  },
+);
+
+test("opening another design mid-turn cannot expand a delegated assignment's canvas authority", async () => {
+  const f = await fixture();
+  const assigned = await f.store.createDesign(f.project.id);
+  const unassigned = await f.store.createDesign(f.project.id);
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Inspect the assigned design",
+    designIds: [assigned.id],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  await call(tools, "task_delegate", {
+    request_id: randomUUID(),
+    prompt: "Inspect",
+    design_ids: [assigned.id],
+  });
+  await until(async () => f.runs.length === 2);
+  const childTools = await f.runs[1].input.agentTools!.open();
+  cleanups.push(async () => childTools.close());
+  await localDesignAction(f.runs[1].input.prompt, { kind: "design-open", designId: unassigned.id });
+  expect((await call(childTools, "tidy_context", {})).design_ids).toEqual([assigned.id]);
+  expect((await call(childTools, "canvas_read", { design_id: assigned.id })).version).toBe(
+    assigned.version,
+  );
+  await expect(call(childTools, "canvas_read", { design_id: unassigned.id })).rejects.toThrow(
+    "not attached",
+  );
+  await expect(call(tools, "canvas_read", { design_id: unassigned.id })).rejects.toThrow(
+    "not attached",
+  );
+});
+
+test.each(["auto", "read-only"] as const)(
+  "incoming work in %s mode cannot gain canvas access by opening an unassigned design",
+  async (permissionMode) => {
+    const f = await fixture();
+    const assigned = await f.store.createDesign(f.project.id);
+    const unassigned = await f.store.createDesign(f.project.id);
+    await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      settings: { permissionMode },
+      prompt: "Coordinate the assigned design",
+      designIds: [assigned.id],
+    });
+    const recipient = await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      settings: { permissionMode },
+      prompt: "Independent conversation",
+      designIds: [assigned.id],
+    });
+    const senderTools = await f.runs[0].input.agentTools!.open();
+    cleanups.push(async () => senderTools.close());
+    await f.service.setThreadWorkPermission(f.project.id, recipient.id, true);
+    await call(senderTools, "thread_send", {
+      thread_id: recipient.id,
+      request_id: randomUUID(),
+      message: "Inspect the assigned design",
+    });
+    f.runs[1].complete();
+    await until(async () => f.runs.length === 3);
+    expect(await f.service.tasks.store.forChild(f.project.id, recipient.id)).toBeUndefined();
+    const recipientTools = await f.runs[2].input.agentTools!.open();
+    cleanups.push(async () => recipientTools.close());
+    await localDesignAction(f.runs[2].input.prompt, {
+      kind: "design-open",
+      designId: unassigned.id,
+    });
+    expect((await f.service.readThread(f.project.id, recipient.id)).designIds).toContain(
+      unassigned.id,
+    );
+    expect((await call(recipientTools, "tidy_context", {})).design_ids).toEqual([assigned.id]);
+    expect((await call(recipientTools, "canvas_read", { design_id: assigned.id })).version).toBe(
+      assigned.version,
+    );
+    await expect(call(recipientTools, "canvas_read", { design_id: unassigned.id })).rejects.toThrow(
+      "not attached",
+    );
+    const edit = (design: typeof assigned) => ({
+      design_id: design.id,
+      expected_version: design.version,
+      request_id: randomUUID(),
+      operations: [
+        { kind: "update", node_ids: [design.document.nodes[0].id], changes: { name: "Reviewed" } },
+      ],
+    });
+    if (permissionMode === "auto") {
+      await expect(call(recipientTools, "canvas_edit", edit(unassigned))).rejects.toThrow(
+        "not attached",
+      );
+      await call(recipientTools, "canvas_edit", edit(assigned));
+      expect(
+        (await f.store.readDesign(f.project.id, assigned.id, false)).document.nodes[0].name,
+      ).toBe("Reviewed");
+    } else {
+      await expect(call(recipientTools, "canvas_edit", edit(assigned))).rejects.toThrow(
+        "read-only",
+      );
+    }
+    expect((await f.store.readDesign(f.project.id, unassigned.id, false)).version).toBe(
+      unassigned.version,
+    );
+  },
+);
+
+test("a failed design attachment checkpoint grants no canvas access and a retry repairs it", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Create",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const action = { kind: "design-create", requestId: randomUUID(), name: "Foundation" } as const;
+  const checkpoint = spyOn(f.store, "writeThread").mockRejectedValueOnce(
+    new Error("Checkpoint failed"),
+  );
+  try {
+    await expect(localDesignAction(f.runs[0].input.prompt, action)).rejects.toThrow(
+      "Design HTTP 400",
+    );
+  } finally {
+    checkpoint.mockRestore();
+  }
+  const [created] = await f.store.designs(f.project.id);
+  expect(created).toBeDefined();
+  const live = await f.service.readThread(f.project.id, thread.id);
+  expect(live.designIds).toEqual([]);
+  expect(live.designPreview).toBeUndefined();
+  expect((await call(tools, "tidy_context", {})).design_ids).toEqual([]);
+  await expect(call(tools, "canvas_read", { design_id: created.id })).rejects.toThrow(
+    "not attached",
+  );
+  expect(await localDesignAction(f.runs[0].input.prompt, action)).toEqual({ id: created.id });
+  expect((await call(tools, "canvas_read", { design_id: created.id })).design_id).toBe(created.id);
+  expect((await f.store.designs(f.project.id)).map((design) => design.id)).toEqual([created.id]);
+});
+
+test("first-turn creation respects the 20-design limit and permits retries at capacity", async () => {
+  const f = await fixture();
+  const existing = await Promise.all(
+    Array.from({ length: 19 }, () => f.store.createDesign(f.project.id)),
+  );
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Create the final foundation",
+    designIds: existing.map((design) => design.id),
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const action = {
+    kind: "design-create",
+    requestId: randomUUID(),
+    name: "Application foundation — Light & Dark — International workspace, navigation, projects, settings and collaboration review",
+  } as const;
+  const created = await localDesignAction(f.runs[0].input.prompt, action);
+  expect((await call(tools, "tidy_context", {})).design_ids).toEqual([
+    ...existing.map((d) => d.id),
+    created.id,
+  ]);
+  expect(await localDesignAction(f.runs[0].input.prompt, action)).toEqual(created);
+  await expect(
+    localDesignAction(f.runs[0].input.prompt, {
+      ...action,
+      requestId: randomUUID(),
+      name: "One beyond capacity",
+    }),
+  ).rejects.toThrow();
+  expect(await f.store.designs(f.project.id)).toHaveLength(20);
+  expect((await call(tools, "canvas_read", { design_id: created.id })).design_id).toBe(created.id);
 });
 
 test("canvas edits through real MCP preserve exact versions and cannot access an unattached design", async () => {

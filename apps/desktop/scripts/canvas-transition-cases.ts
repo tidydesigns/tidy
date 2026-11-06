@@ -1,10 +1,22 @@
 import assert from "node:assert/strict";
 
-/** Shared by native CI and the existing shared-browser driver. No second UI implementation. */
-export async function canvasTransitionCases(driver, origin, { coldOrigin } = {}) {
+type CanvasTransitionDriver = {
+  evaluate<T = unknown>(expression: string): Promise<T>;
+  click(label: string): Promise<void>;
+  fill(label: string, text: string): Promise<void>;
+  navigate(url: string): Promise<void>;
+};
+type ArtworkRect = Pick<DOMRect, "x" | "y" | "width" | "height">;
+
+export async function canvasTransitionCases(
+  driver: CanvasTransitionDriver,
+  origin: string,
+  { coldOrigin }: { coldOrigin?: string } = {},
+) {
   const { evaluate, click, fill, navigate } = driver;
-  const passed = [];
-  async function wait(expression) {
+  const passed: string[] = [];
+  const expandLabel = "Expand Form — Landing page canvas";
+  async function wait(expression: string) {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
       if (await evaluate(expression)) return;
@@ -12,35 +24,35 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
     }
     throw Error(`Canvas transition timed out: ${expression}`);
   }
-  async function colors(expected) {
-    const actual = await evaluate(
+  async function colors(expected: string) {
+    const actual = await evaluate<string[]>(
       `Array.from(document.querySelectorAll('.thread-design-peek,.thread-design-lens,.thread-design-dialog,.thread-design-canvas,.tidy-editor,[aria-label="Design canvas"]'), e => getComputedStyle(e).backgroundColor)`,
     );
     assert.equal(actual.length, 6);
     assert.deepEqual([...new Set(actual)], [expected]);
   }
-  async function transition(open, artwork = true) {
-    function aligned(target, source) {
-      for (const axis of ["x", "y", "width", "height"])
+  async function transition(open: boolean, artwork = true) {
+    function aligned(target: ArtworkRect, source: ArtworkRect) {
+      for (const axis of ["x", "y", "width", "height"] as const)
         assert.ok(
           Math.abs(target[axis] - source[axis]) < 1,
           `Artwork ${axis} jumped: ${target[axis]} vs ${source[axis]}`,
         );
     }
-    let target;
+    let target: ArtworkRect | undefined;
     if (open)
       await evaluate(`new Promise(resolve => {
         document.querySelector('.thread-design-peek').scrollIntoView({block: 'nearest'});
         requestAnimationFrame(() => requestAnimationFrame(resolve));
       })`);
-    const source = await evaluate(
+    const source = await evaluate<{ id: string; rect: ArtworkRect | null } | null>(
       `(() => {const n=document.querySelector('.thread-design-peek [data-thumbnail-node]');return n ? {id:n.dataset.thumbnailNode,rect:${open ? "n.getBoundingClientRect().toJSON()" : "null"}} : null})()`,
     );
     await evaluate(
       `(() => {const original=Element.prototype.animate,rect=Element.prototype.getBoundingClientRect;window.__canvasTransitionCheck={original,rect,reads:0,animations:[],nodes:Array.from(document.querySelectorAll('.thread-design-canvas [data-node-id]'))};Element.prototype.getBoundingClientRect=function(){if(this.matches('[data-node-id],[data-thumbnail-node]'))window.__canvasTransitionCheck.reads++;return rect.call(this)};Element.prototype.animate=function(...args){const a=original.apply(this,args);if(this.matches('.thread-design-dialog,.thread-design-canvas,.thread-design-transition-edge')){a.pause();a.currentTime=0;window.__canvasTransitionCheck.animations.push(a)}return a};return true})()`,
     );
     try {
-      await click(open ? "Expand canvas" : "Minimise canvas");
+      await click(open ? expandLabel : "Minimise canvas");
       await wait(
         `document.querySelector('.thread-design-dialog').dataset.phase === '${open ? "opening" : "closing"}'`,
       );
@@ -57,11 +69,14 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
           `(() => {for(const a of window.__canvasTransitionCheck.animations)a.currentTime=a.effect.getTiming().duration-0.001;return true})()`,
         );
       if (artwork && source) {
-        target = await evaluate(
+        target = await evaluate<ArtworkRect | undefined>(
           `document.querySelector('.thread-design-canvas [data-node-id="${source.id}"]')?.getBoundingClientRect().toJSON()`,
         );
         assert.ok(target, `Editor must contain the preview's ${source.id}`);
-        if (open) aligned(target, source.rect);
+        if (open) {
+          assert.ok(source.rect);
+          aligned(target, source.rect);
+        }
       }
       assert.equal(await evaluate(`document.activeElement.matches(':focus-visible')`), false);
     } finally {
@@ -72,8 +87,8 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
     await wait(
       `document.querySelector('.thread-design-dialog').dataset.phase === '${open ? "open" : "closed"}'`,
     );
-    if (!open && target) {
-      const restored = await evaluate(
+    if (!open && target && source) {
+      const restored = await evaluate<ArtworkRect>(
         `document.querySelector('.thread-design-peek [data-thumbnail-node="${source.id}"]').getBoundingClientRect().toJSON()`,
       );
       aligned(target, restored);
@@ -97,7 +112,7 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
     );
     assert.equal(
       await evaluate(`document.activeElement.getAttribute('aria-label')`),
-      open ? "Minimise canvas" : "Expand canvas",
+      open ? "Minimise canvas" : expandLabel,
     );
     assert.equal(await evaluate(`document.activeElement.matches(':focus-visible')`), false);
     assert.equal(
@@ -109,7 +124,7 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
       "",
     );
   }
-  const mutate = (body) =>
+  const mutate = (body: string) =>
     evaluate(
       `(async()=>{const projectId='f0f0f0f0-0000-4000-8000-000000000001',designId='f0f0f0f0-0000-4000-8000-000000000002';const d=await window.tidy.readDesign(projectId,designId);${body};await window.tidy.updateDesign({projectId,designId,expectedVersion:d.version,document:d.document});return true})()`,
     );
@@ -131,19 +146,19 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
         document.querySelector('.thread-design-peek').scrollIntoView({block: 'nearest'});
         requestAnimationFrame(() => requestAnimationFrame(resolve));
       })`);
-      const source = await evaluate(
+      const source = await evaluate<ArtworkRect>(
         `document.querySelector('.thread-design-peek [data-thumbnail-node="landing"]').getBoundingClientRect().toJSON()`,
       );
       await evaluate(
         `(()=>{const original=Element.prototype.animate;window.__coldAnimations={original,animations:[]};Element.prototype.animate=function(...args){const a=original.apply(this,args);if(this.matches('.thread-design-dialog,.thread-design-canvas,.thread-design-transition-edge')){a.pause();a.currentTime=0;window.__coldAnimations.animations.push(a)}return a};return true})()`,
       );
-      let loading;
+      let loading: ArtworkRect | undefined;
       try {
-        await click("Expand canvas");
-        const first = await evaluate(
+        await click(expandLabel);
+        const first = await evaluate<ArtworkRect>(
           `document.querySelector('.thread-design-canvas [data-thumbnail-node="landing"]').getBoundingClientRect().toJSON()`,
         );
-        for (const axis of ["x", "y", "width", "height"])
+        for (const axis of ["x", "y", "width", "height"] as const)
           assert.ok(
             Math.abs(first[axis] - source[axis]) < 1,
             `Cold opening artwork ${axis} must align: ${first[axis]} vs ${source[axis]}`,
@@ -154,7 +169,7 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
         );
       }
       await wait(`document.querySelector('.thread-design-dialog').dataset.phase==='open'`);
-      loading = await evaluate(
+      loading = await evaluate<ArtworkRect | undefined>(
         `document.querySelector('.thread-design-canvas [data-thumbnail-node="landing"]')?.getBoundingClientRect().toJSON()`,
       );
       assert.ok(loading, "Loading artwork must remain visible while the editor downloads");
@@ -162,11 +177,11 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
       await wait(`document.querySelector('.thread-design-dialog').dataset.phase==='closed'`);
       assert.equal(
         await evaluate(`document.activeElement.getAttribute('aria-label')`),
-        "Expand canvas",
+        expandLabel,
       );
-      await click("Expand canvas");
+      await click(expandLabel);
       await wait(`document.querySelector('.thread-design-dialog').dataset.phase==='open'`);
-      loading = await evaluate(
+      loading = await evaluate<ArtworkRect | undefined>(
         `document.querySelector('.thread-design-canvas [data-thumbnail-node="landing"]')?.getBoundingClientRect().toJSON()`,
       );
       assert.ok(loading, "Reopening must not wait for the delayed editor download");
@@ -177,10 +192,10 @@ export async function canvasTransitionCases(driver, origin, { coldOrigin } = {})
       await wait(
         `Boolean(document.querySelector('.thread-design-canvas [data-node-id="landing"]'))`,
       );
-      const ready = await evaluate(
+      const ready = await evaluate<ArtworkRect>(
         `document.querySelector('.thread-design-canvas [data-node-id="landing"]').getBoundingClientRect().toJSON()`,
       );
-      for (const axis of ["x", "y", "width", "height"])
+      for (const axis of ["x", "y", "width", "height"] as const)
         assert.ok(
           Math.abs(ready[axis] - loading[axis]) < 1,
           `Editor handoff must preserve artwork ${axis}`,

@@ -12,6 +12,7 @@ export type ThreadCanvasDock = {
   openIds: string[];
   geometry: Record<string, CanvasGeometry>;
   revealedId?: string;
+  autoOpenedId?: string;
 };
 
 export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
@@ -49,7 +50,19 @@ export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
     }
     const revealedId =
       "revealedId" in value && typeof value.revealedId === "string" ? value.revealedId : undefined;
-    return { ids, openIds, geometry, ...(revealedId ? { revealedId } : {}) };
+    const autoOpenedId =
+      "autoOpenedId" in value &&
+      typeof value.autoOpenedId === "string" &&
+      openIds.includes(value.autoOpenedId)
+        ? value.autoOpenedId
+        : undefined;
+    return {
+      ids,
+      openIds,
+      geometry,
+      ...(revealedId ? { revealedId } : {}),
+      ...(autoOpenedId ? { autoOpenedId } : {}),
+    };
   } catch {
     return empty;
   }
@@ -62,17 +75,31 @@ export function discoverCanvases(state: ThreadCanvasDock, ids: string[]): Thread
     ...state,
     ids: [...state.ids, ...new Set(added)],
     openIds: state.ids.length ? state.openIds : [added[0]],
+    ...(!state.ids.length ? { autoOpenedId: added[0] } : {}),
   };
 }
 
 export function toggleCanvas(state: ThreadCanvasDock, id: string): ThreadCanvasDock {
   if (!state.ids.includes(id)) return state;
-  return {
+  const next = {
     ...state,
     openIds: state.openIds.includes(id)
       ? state.openIds.filter((value) => value !== id)
       : [...state.openIds, id],
   };
+  if (next.autoOpenedId === id) delete next.autoOpenedId;
+  return next;
+}
+
+export function activateCanvas(state: ThreadCanvasDock, id: string): ThreadCanvasDock {
+  if (!state.openIds.includes(id)) return state;
+  if (state.openIds.at(-1) === id && state.autoOpenedId !== id) return state;
+  const next = {
+    ...state,
+    openIds: [...state.openIds.filter((value) => value !== id), id],
+  };
+  if (next.autoOpenedId === id) delete next.autoOpenedId;
+  return next;
 }
 
 /** Remember consumption with the thread's dock state so navigation cannot replay a reveal. */
@@ -82,9 +109,17 @@ export function revealCanvas(
 ): ThreadCanvasDock {
   if (state.revealedId === reveal.id) return state;
   const next = discoverCanvases(state, [reveal.designId]);
-  return {
+  const manuallyOpened =
+    state.openIds.includes(reveal.designId) && state.autoOpenedId !== reveal.designId;
+  const result = {
     ...next,
     revealedId: reveal.id,
-    openIds: [...next.openIds.filter((id) => id !== reveal.designId), reveal.designId],
+    openIds: [
+      ...next.openIds.filter((id) => id !== next.autoOpenedId && id !== reveal.designId),
+      reveal.designId,
+    ],
   };
+  if (manuallyOpened) delete result.autoOpenedId;
+  else result.autoOpenedId = reveal.designId;
+  return result;
 }

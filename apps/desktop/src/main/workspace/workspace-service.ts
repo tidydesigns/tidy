@@ -695,7 +695,21 @@ export class WorkspaceService {
         thread.executionProjectId,
         [...designIds].sort(),
       ]),
-      open: () => this.agentMcp.session({ ...scope, authorize: () => this.authorizeAgent(scope) }),
+      open: () =>
+        this.agentMcp.session({
+          ...scope,
+          authorize: () => this.authorizeAgent(scope),
+          resolveDesignIds: () => {
+            const job = this.jobs.get(thread.id);
+            if (!job || job.thread.projectId !== scope.projectId) return [];
+            const assignment = this.taskAuthority(job)?.task;
+            return job.thread.designIds.filter(
+              (id) =>
+                (!lineage || lineage.designIds.includes(id)) &&
+                (!assignment || assignment.designIds.includes(id)),
+            );
+          },
+        }),
     };
   }
 

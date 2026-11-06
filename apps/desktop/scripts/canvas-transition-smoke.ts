@@ -14,7 +14,7 @@ if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2_147_483_647)
 
 const desktop = fileURLToPath(new URL("..", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "tidy-canvas-transitions-"));
-const mime = {
+const mime: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
   ".css": "text/css",
@@ -26,7 +26,7 @@ let releaseEditor = () => {};
 let editorReady = Promise.resolve();
 const server = createServer(async (request, response) => {
   try {
-    const url = new URL(request.url, "http://localhost");
+    const url = new URL(request.url ?? "/", "http://localhost");
     const path = decodeURIComponent(url.pathname);
     if (path === "/desktop-demo/") {
       releaseEditor();
@@ -55,10 +55,12 @@ const server = createServer(async (request, response) => {
   }
 });
 try {
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = server.address().port;
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing fixture address.");
+  const port = address.port;
   const build = await Bun.build({
-    entrypoints: [join(desktop, "scripts/canvas-transition-electron.mjs")],
+    entrypoints: [join(desktop, "scripts/canvas-transition-electron.ts")],
     target: "node",
     external: ["electron"],
     outdir: temporary,
@@ -74,7 +76,7 @@ try {
     [join(temporary, "runner.mjs"), `http://127.0.0.1:${port}`, join(temporary, "profile")],
     { env: environment, stdio: "inherit" },
   );
-  let escalation;
+  let escalation: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   const deadline = setTimeout(() => {
     timedOut = true;
@@ -83,7 +85,7 @@ try {
     escalation = setTimeout(() => child.kill("SIGKILL"), 5_000);
   }, timeout);
   try {
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       child.once("error", reject);
       child.once("exit", (code, signal) =>
         code === 0 && !timedOut
