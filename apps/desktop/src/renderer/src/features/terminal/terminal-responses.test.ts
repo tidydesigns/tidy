@@ -157,3 +157,43 @@ test("clipboard writes cannot originate in replay, cancelled strings or nested p
   parser.write(sequence);
   expect(copied).toEqual(["hi"]);
 });
+
+test("large clipboard messages remain bounded and correct under fragmented delivery", () => {
+  const value = "x".repeat(128_000);
+  const sequence = `\x1b]52;c;${Buffer.from(value).toString("base64")}\x1b\\`;
+  for (const chunkSize of [1, 17, 4096, sequence.length]) {
+    const copied: string[] = [];
+    const parser = new TerminalResponses({}, (text) => copied.push(text));
+    for (let offset = 0; offset < sequence.length; offset += chunkSize)
+      parser.write(sequence.slice(offset, offset + chunkSize));
+    expect(copied).toEqual([value]);
+  }
+  const copied: string[] = [];
+  const parser = new TerminalResponses({}, (text) => copied.push(text));
+  parser.write(`\x1b]52;c;${Buffer.from(value + "x").toString("base64")}\x07`);
+  expect(copied).toEqual([]);
+  parser.write("\x1b]52;c;aGk=\x07");
+  expect(copied).toEqual(["hi"]);
+});
+
+test("mixed terminal control streams preserve behavior across arbitrary byte chunking", () => {
+  const text = "日本語 👩‍💻";
+  const clip = `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`;
+  const input = new TextEncoder().encode(
+    `ordinary 🌻\x1b[c${clip}\x1bPtmux;${clip}\x1b\\\x1b]10;?\x07\x1b]52;c;aGk=\x18\x07\x1b[>c`,
+  );
+  for (let seed = 1; seed <= 50; seed++) {
+    let random = seed;
+    const copied: string[] = [];
+    const parser = new TerminalResponses(theme, (value) => copied.push(value));
+    let replies = "";
+    for (let offset = 0; offset < input.length;) {
+      random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
+      const end = Math.min(input.length, offset + 1 + (random % 31));
+      replies += parser.write(input.subarray(offset, end));
+      offset = end;
+    }
+    expect(replies).toBe(da1 + foreground + da2);
+    expect(copied).toEqual([text]);
+  }
+});

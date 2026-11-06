@@ -128,11 +128,46 @@ test("legacy and UTF-8 mouse encodings never send corrupted raw-byte coordinates
   expect(f.sent).toEqual(['\x1b[M #"']);
   down(1000);
   expect(f.sent).toHaveLength(1); // Non-ASCII raw bytes would be UTF-8 encoded by IPC.
+  f.canvas.dispatchEvent(
+    new f.window.MouseEvent("mouseup", { bubbles: true, clientX: 35, clientY: 50 }),
+  );
+  f.sent.length = 0;
   f.modes.add(1005);
   down(1000);
-  expect(f.sent[1]).toBe('\x1b[M \u0084"');
+  expect(f.sent[0]).toBe('\x1b[M \u0084"');
+  f.canvas.dispatchEvent(
+    new f.window.MouseEvent("mouseup", { bubbles: true, clientX: 1000, clientY: 50 }),
+  );
+  f.sent.length = 0;
   f.modes.add(1015);
   down(1000);
-  expect(f.sent[2]).toBe("\x1b[32;100;2M");
+  expect(f.sent[0]).toBe("\x1b[32;100;2M");
+  f.terminal.dispose();
+});
+
+test("drag ownership survives modifier changes and losing window focus releases the application", () => {
+  const f = mouseFixture();
+  f.modes.add(1003);
+  const send = (type: string, shiftKey = false, buttons = 0) =>
+    f.canvas.dispatchEvent(
+      new f.window.MouseEvent(type, { bubbles: true, clientX: 35, clientY: 50, shiftKey, buttons }),
+    );
+  send("mousedown", true, 1);
+  send("mousemove", false, 1); // Shift released during local selection.
+  send("mouseup");
+  expect(f.sent).toEqual([]);
+  expect(f.localSelections()).toBe(1);
+  send("mousedown", false, 1);
+  send("mousemove", true, 1); // Shift pressed during an application drag.
+  expect(f.sent).toEqual(["\x1b[<0;3;2M", "\x1b[<32;3;2M"]);
+  f.window.dispatchEvent(new f.window.Event("blur"));
+  expect(f.sent.at(-1)).toBe("\x1b[<0;3;2m");
+  const count = f.sent.length;
+  f.window.document.body.dispatchEvent(
+    new f.window.MouseEvent("mousemove", { bubbles: true, clientX: 1000, buttons: 1 }),
+  );
+  expect(f.sent).toHaveLength(count);
+  send("mouseup");
+  expect(f.sent).toHaveLength(count);
   f.terminal.dispose();
 });

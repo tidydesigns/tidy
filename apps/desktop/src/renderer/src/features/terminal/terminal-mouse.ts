@@ -2,7 +2,6 @@ import type { Terminal } from "ghostty-web";
 
 /** ghostty-web 0.4 does not forward application mouse events. */
 export function installTerminalMouse(terminal: Terminal) {
-  let pressed: number | undefined;
   let lastMotion = "";
   let wheelRemainder = 0;
   let cleanup = () => {};
@@ -81,57 +80,71 @@ export function installTerminalMouse(terminal: Terminal) {
   const open = terminal.open.bind(terminal);
   terminal.open = (element) => {
     const document = element.ownerDocument;
+    const lifetime = new AbortController();
+    let drag: AbortController | undefined;
+    let pressed: number | undefined;
+    let lastEvent: MouseEvent | undefined;
     const consume = (event: MouseEvent) => {
       event.preventDefault();
       event.stopImmediatePropagation();
     };
+    const finishDrag = (event = lastEvent, notify = true) => {
+      const button = pressed;
+      pressed = undefined;
+      drag?.abort();
+      drag = undefined;
+      if (notify && button !== undefined && event && tracking() && !mode(9))
+        report(event, button, true);
+      lastMotion = "";
+    };
+    const move = (event: MouseEvent) => {
+      if (!tracking()) return;
+      // Ownership is chosen on mouse-down. Releasing Shift during a local
+      // selection must not turn it into application input (or vice versa).
+      if (pressed === undefined && (event.shiftKey || event.buttons)) return;
+      consume(event);
+      lastEvent = event;
+      if (mode(1003) || (mode(1002) && pressed !== undefined))
+        report(event, (pressed ?? 3) | 32, false, true);
+    };
+    const up = (event: MouseEvent) => {
+      if (event.button !== pressed) return;
+      consume(event);
+      finishDrag(event);
+    };
     const down = (event: MouseEvent) => {
       if (!tracking() || event.shiftKey || event.button > 2) return;
+      const data = encode(event, event.button);
+      if (!data) return;
       consume(event);
       terminal.focus();
       terminal.clearSelection();
+      finishDrag();
       pressed = event.button;
-      report(event, pressed);
-    };
-    const move = (event: MouseEvent) => {
-      if (pressed === undefined && !element.contains(event.target as Node)) return;
-      if (!tracking() || event.shiftKey) return;
-      if (!mode(1003) && !(mode(1002) && pressed !== undefined)) return;
-      consume(event);
-      report(event, (pressed ?? 3) | 32, false, true);
-    };
-    const up = (event: MouseEvent) => {
-      if (pressed === undefined || event.button !== pressed) return;
-      const button = pressed;
-      pressed = undefined;
-      if (!tracking()) return;
-      consume(event);
-      if (!mode(9)) report(event, button, true);
+      lastEvent = event;
+      terminal.input(data, true);
+      // Only a live drag needs document-wide capture. Idle terminals have none.
+      drag = new AbortController();
+      document.addEventListener("mousemove", move, { capture: true, signal: drag.signal });
+      document.addEventListener("mouseup", up, { capture: true, signal: drag.signal });
     };
     const blur = () => {
-      pressed = undefined;
-      lastMotion = "";
+      finishDrag();
       wheelRemainder = 0;
     };
     const context = (event: MouseEvent) => {
       if (tracking() && !event.shiftKey) consume(event);
     };
-    // Register before open so application mouse input precedes local selection/scrollbars.
-    element.addEventListener("mousedown", down, true);
-    element.addEventListener("contextmenu", context, true);
-    element.addEventListener("click", context, true);
-    element.addEventListener("dblclick", context, true);
-    document.addEventListener("mousemove", move, true);
-    document.addEventListener("mouseup", up, true);
-    document.defaultView?.addEventListener("blur", blur);
+    // Register before open so application input precedes local selection/scrollbars.
+    const options = { capture: true, signal: lifetime.signal };
+    element.addEventListener("mousedown", down, options);
+    element.addEventListener("mousemove", move, options);
+    for (const name of ["contextmenu", "click", "dblclick"] as const)
+      element.addEventListener(name, context, options);
+    document.defaultView?.addEventListener("blur", blur, { signal: lifetime.signal });
     cleanup = () => {
-      element.removeEventListener("mousedown", down, true);
-      element.removeEventListener("contextmenu", context, true);
-      element.removeEventListener("click", context, true);
-      element.removeEventListener("dblclick", context, true);
-      document.removeEventListener("mousemove", move, true);
-      document.removeEventListener("mouseup", up, true);
-      document.defaultView?.removeEventListener("blur", blur);
+      finishDrag(undefined, false);
+      lifetime.abort();
     };
     try {
       open(element);

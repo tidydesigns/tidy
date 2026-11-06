@@ -60,6 +60,7 @@ let pty = spawn(tmux, ["-S", socket, "-f", config, "new-session", "-s", "test", 
   rows: 30,
 });
 let exited = false;
+let outputSequence = 0;
 const copied: string[] = [];
 const clipboard = new TerminalResponses({}, (text) => copied.push(text));
 const terminal = {
@@ -73,6 +74,7 @@ const terminal = {
     pty.write(data);
   },
   write(data: string | Uint8Array) {
+    outputSequence++;
     native.write(data);
     const reply = native.readResponse();
     if (reply) pty.write(reply);
@@ -151,8 +153,26 @@ try {
     () => command("capture-pane", "-p", "-t", "test:0.0").startsWith("SELECT_ME"),
     "copy selection text",
   );
+  await wait(
+    () =>
+      native
+        .getLine(0)
+        ?.slice(0, 9)
+        .map((cell) => String.fromCodePoint(cell.codepoint))
+        .join("") === "SELECT_ME",
+    "selection text reaches terminal",
+  );
+  const beforeSelection = outputSequence;
   mouse("mousedown", 1, 1);
   mouse("mousemove", 10, 1);
+  // A real drag spans frames. tmux 3.8 suppresses OSC 52 while a pane redraw
+  // is pending, so observe the selection on the wire before releasing it.
+  await wait(
+    () =>
+      outputSequence > beforeSelection &&
+      command("display-message", "-p", "#{selection_present}") === "1",
+    "selection redraw reaches terminal",
+  );
   mouse("mouseup", 10, 1);
   await wait(
     () => copied.some((text) => text.trim() === "SELECT_ME"),

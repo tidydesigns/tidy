@@ -14,8 +14,9 @@ export class TerminalResponses {
   private state: State = "ground";
   private sequence = "";
   private overflow = false;
-  private decoder = new TextDecoder();
-  private clipboardSequence = false;
+  private decoder?: TextDecoder;
+  private sequenceLimit = 64;
+  private readonly stringControl = /[\x07\x18\x1a\x1b]/g;
   private liveSequence = true;
   constructor(
     private readonly theme: ITheme,
@@ -26,8 +27,8 @@ export class TerminalResponses {
     this.state = "ground";
     this.sequence = "";
     this.overflow = false;
-    this.decoder = new TextDecoder();
-    this.clipboardSequence = false;
+    this.decoder = undefined;
+    this.sequenceLimit = 64;
     this.liveSequence = true;
   }
 
@@ -35,8 +36,9 @@ export class TerminalResponses {
     if (!live) this.liveSequence = false;
     const text =
       typeof data === "string"
-        ? this.decoder.decode() + data
-        : this.decoder.decode(data, { stream: true });
+        ? (this.decoder?.decode() ?? "") + data
+        : (this.decoder ??= new TextDecoder()).decode(data, { stream: true });
+    if (typeof data === "string") this.decoder = undefined;
     const replies: string[] = [];
     for (let index = 0; index < text.length; index++) {
       // Most output is ordinary text. Skip it without allocating cells or strings.
@@ -47,6 +49,17 @@ export class TerminalResponses {
         this.state = "escape";
         this.liveSequence = live;
         continue;
+      }
+      // OSC/DCS payloads can be large. Search whole chunks instead of allocating
+      // one string per character; discarded payloads stay bounded too.
+      if (this.state === "osc" || this.state === "string") {
+        this.stringControl.lastIndex = index;
+        const end = this.stringControl.exec(text)?.index ?? text.length;
+        if (end > index) {
+          if (this.state === "osc") this.collect(text.slice(index, end));
+          index = end - 1;
+          continue;
+        }
       }
       const char = text[index];
       if (char === "\x18" || char === "\x1a") {
@@ -84,7 +97,7 @@ export class TerminalResponses {
         if (char < " " || char === "\x7f") continue;
         this.sequence = "";
         this.overflow = false;
-        this.clipboardSequence = false;
+        this.sequenceLimit = 64;
         this.state =
           char === "[" ? "csi" : char === "]" ? "osc" : "PX^_".includes(char) ? "string" : "ground";
         continue;
@@ -103,24 +116,36 @@ export class TerminalResponses {
     return replies.join("");
   }
 
-  private collect(char: string) {
-    const limit = this.clipboardSequence ? Math.ceil(terminalClipboardLimit / 3) * 4 + 32 : 64;
-    if (this.sequence.length < limit && !this.overflow) {
-      this.sequence += char;
-      if (this.copy && this.state === "osc" && this.sequence === "52;")
-        this.clipboardSequence = true;
-    } else this.overflow = true;
+  private collect(part: string) {
+    if (this.overflow) return;
+    // Classify the prefix once; slicing a growing string on every small chunk
+    // would repeatedly flatten it and turn fragmented input into quadratic work.
+    if (
+      this.copy &&
+      this.state === "osc" &&
+      this.sequence.length < 3 &&
+      (this.sequence + part.slice(0, 3)).startsWith("52;")
+    )
+      this.sequenceLimit = Math.ceil(terminalClipboardLimit / 3) * 4 + 32;
+    if (this.sequence.length + part.length <= this.sequenceLimit) this.sequence += part;
+    else {
+      this.overflow = true;
+      this.sequence = "";
+    }
   }
 
   private oscReply() {
-    if (this.copy && this.clipboardSequence && this.liveSequence) {
+    if (this.copy && this.liveSequence && this.sequence.startsWith("52;")) {
       // Write only. Never answer clipboard queries or interpret nested/passthrough OSCs.
       const match = /^52;([cpsq0-7]*);([A-Za-z0-9+/]*={0,2})$/.exec(this.sequence);
       if (match && (!match[1] || /[cs]/.test(match[1]))) {
         try {
-          const bytes = Uint8Array.from(atob(match[2]), (char) => char.charCodeAt(0));
-          if (bytes.length <= terminalClipboardLimit)
+          const binary = atob(match[2]);
+          if (binary.length <= terminalClipboardLimit) {
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             this.copy(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+          }
         } catch {
           // Malformed base64 or UTF-8 is untrusted terminal output, not a UI error.
         }
