@@ -49,6 +49,7 @@ function fakeInstance(theme: ITheme, size?: { cols: number; rows: number }) {
       },
       write(data: string) {
         record.data += data;
+        if (data.includes("\x1b[c")) dataListener?.("\x1b[?1;2c");
       },
       reset() {
         record.resets++;
@@ -127,6 +128,18 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     endCount = 0;
   let receive: (output: TerminalOutput) => void = () => {};
   const writes: TerminalInput[] = [];
+  const copied: string[] = [];
+  let blockCopy = false;
+  let failCopy = false;
+  let releaseCopy: (() => void) | undefined;
+  const copy = async (text: string) => {
+    copied.push(text);
+    if (failCopy) throw new Error("Clipboard unavailable");
+    if (blockCopy)
+      await new Promise<void>((resolve) => {
+        releaseCopy = resolve;
+      });
+  };
   const api: TerminalAPI = {
     async end() {
       endCount++;
@@ -141,7 +154,7 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
           sequence: 1,
           cols: 120,
           rows: 30,
-          data: "initial",
+          data: "initial\x1b[c",
           reset: true,
           exited: false,
           exitCode: null,
@@ -172,6 +185,7 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
           fontSize,
           theme,
           onTitle() {},
+          copy,
         }),
       );
       for (let index = 0; index < 8; index++)
@@ -180,15 +194,17 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
   try {
     await render(terminalThemes.light);
     expect(records).toHaveLength(1);
-    expect(records[0].data).toBe("initial");
+    expect(records[0].data).toBe("initial\x1b[c");
     expect(records[0].resets).toBe(0);
+    expect(writes).toEqual([]); // History queries must not become shell input.
     await render(terminalThemes.dark);
     expect(records).toHaveLength(2);
     expect(records[0].disposed).toBe(true);
-    expect(records[1].data).toBe("initial");
+    expect(records[1].data).toBe("initial\x1b[c");
     expect(records[1].initialCols).toBe(120);
     expect(watchCount).toBe(1);
     expect(closeCount).toBe(0);
+    expect(writes).toEqual([]); // A theme replay must not resend terminal replies.
     records[1].terminal.emitData("typed");
     expect(writes).toEqual([{ kind: "write", sessionId: "session", data: "typed" }]);
     await render(terminalThemes.light, false);
@@ -198,7 +214,7 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     );
     await render(terminalThemes.light);
     expect(records).toHaveLength(3);
-    expect(records[2].data).toBe("initiallater");
+    expect(records[2].data).toBe("initial\x1b[clater");
     delayCreate = true;
     await render(terminalThemes.dark);
     await act(async () =>
@@ -210,7 +226,7 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
       releaseCreate?.();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(records[3].data).toBe("initiallaterincoming");
+    expect(records[3].data).toBe("initial\x1b[claterincoming");
     expect(records[3].terminal.options.fontSize).toBe(18);
     delayCreate = true;
     await render(terminalThemes.light, true, 18);
@@ -248,6 +264,56 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     expect(closeCount).toBe(1);
     expect(endCount).toBe(0);
     expect(container.querySelectorAll("canvas")).toHaveLength(1);
+    await act(async () =>
+      receive({ kind: "data", sessionId: "session", sequence: 2, data: "\x1b[c" }),
+    );
+    expect(writes.at(-1)).toEqual({ kind: "write", sessionId: "session", data: "\x1b[?1;2c" });
+    expect(
+      writes.filter((entry) => entry.kind === "write" && entry.data === "\x1b[?1;2c"),
+    ).toHaveLength(1);
+    const osc = "\x1b]52;c;aGk=\x07";
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 3, data: osc }));
+    expect(copied).toEqual(["hi"]);
+    await render(terminalThemes.dark, true, 18);
+    expect(copied).toEqual(["hi"]); // Theme replay must not overwrite the desktop clipboard.
+    await act(async () =>
+      receive({
+        kind: "snapshot",
+        sessionId: "session",
+        sequence: 4,
+        cols: 120,
+        rows: 30,
+        data: osc + osc.slice(0, 4),
+        reset: true,
+        exited: false,
+        exitCode: null,
+      }),
+    );
+    await act(async () =>
+      receive({ kind: "data", sessionId: "session", sequence: 5, data: osc.slice(4) }),
+    );
+    expect(copied).toEqual(["hi"]); // Even a partial query beginning in replay stays suppressed.
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 6, data: osc }));
+    expect(copied).toEqual(["hi", "hi"]);
+    blockCopy = true;
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 7, data: osc }));
+    await act(async () =>
+      receive({
+        kind: "data",
+        sessionId: "session",
+        sequence: 8,
+        data: "\x1b]52;c;b2xk\x07\x1b]52;c;bmV3\x07",
+      }),
+    );
+    expect(copied).toEqual(["hi", "hi", "hi"]);
+    blockCopy = false;
+    await act(async () => {
+      releaseCopy?.();
+    });
+    expect(copied).toEqual(["hi", "hi", "hi", "new"]); // Serialize writes and coalesce pending text.
+    failCopy = true;
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 9, data: osc }));
+    expect(container.textContent).toContain("Could not copy terminal text.");
   } finally {
     delayCreate = false;
     releaseCreate?.();

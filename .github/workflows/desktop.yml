@@ -43,10 +43,18 @@ jobs:
         name: Install virtual display dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          sudo apt-get install --yes xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 neovim tmux
           tidy_sandbox_helper="$(realpath apps/desktop/node_modules/electron/dist/chrome-sandbox)"
           sudo chown root:root "$tidy_sandbox_helper"
           sudo chmod 4755 "$tidy_sandbox_helper"
+      - if: runner.os == 'macOS'
+        name: Install terminal regression dependencies
+        run: brew install neovim tmux
+      - name: Test real Neovim and tmux terminals
+        run: |
+          nvim --version
+          tmux -V
+          bun test apps/desktop/src/renderer/src/features/terminal/terminal-neovim.test.ts apps/desktop/src/renderer/src/features/terminal/terminal-tmux.test.ts
       - name: Test native video file boundaries
         run: >-
           bun test

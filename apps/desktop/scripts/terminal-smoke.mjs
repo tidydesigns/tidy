@@ -186,8 +186,13 @@ app.on("browser-window-created", (_event, window) => {
           await wait(`document.querySelector('.terminal-surface canvas').width!==${previousWidth}`);
           if (process.env.TIDY_TEST_SCREENSHOT)
             await writeFile(process.env.TIDY_TEST_SCREENSHOT, (await page.capturePage()).toPNG());
+          const quitStarted = performance.now();
           await send("\x1b:qa!\r");
           await wait(`${output}.includes('\\u001b[?1049l')`);
+          assert.ok(
+            performance.now() - quitStarted < 750,
+            "Neovim must not wait for the one-second DA1 timeout",
+          );
           await send("printf 'TIDY_NVIM_RETURNED\\n'\r");
           await wait(`${output}.includes('TIDY_NVIM_RETURNED\\r\\n')`);
         }

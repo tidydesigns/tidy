@@ -156,13 +156,7 @@ export function terminalDriver(terminal: Terminal) {
       };
       // Ghostty skips the scrollbar entirely at opacity 0, leaving its last
       // pixels behind unless the text underneath is repainted once.
-      paint(
-        frame,
-        force || (paintedOpacity > 0 && opacity === 0),
-        terminal.viewportY,
-        terminal,
-        opacity,
-      );
+      paint(frame, force || (paintedOpacity > 0 && opacity === 0), offset, terminal, opacity);
       paintedOpacity = opacity;
       if (cursor.y !== driver.lastCursorY) {
         driver.lastCursorY = cursor.y;
