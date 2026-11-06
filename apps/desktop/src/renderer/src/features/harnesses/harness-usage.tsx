@@ -392,49 +392,58 @@ export const HarnessUsage = memo(function HarnessUsage({
                 </div>
               )}
               {harness === "codex" && ready && api.codexUsage && api.consumeCodexReset ? (
-                <CodexResetControls api={api} projectId={projectId} onRedeemed={() => { void cache.refresh(true); }} />
+                <CodexResetControls
+                  api={api}
+                  projectId={projectId}
+                  refreshing={snapshot.loading}
+                  onRedeemed={() => {
+                    void cache.refresh(true);
+                  }}
+                />
               ) : (
-              {usage?.resets && usage.resets.availableCount > 0 && (
-                <details className="account-usage-section account-usage-disclosure">
-                  <summary>
-                    Banked resets<span>{usage.resets.availableCount} available</span>
-                  </summary>
-                  <div className="account-usage-reset-list">
-                    {usage.resets.items?.map((item) => (
-                      <div className="account-usage-line" key={item.id}>
-                        <span>{item.title ?? "Rate-limit reset"}</span>
-                        <span className="account-usage-muted">
-                          {item.expiresAt !== undefined && item.expiresAt !== null ? (
-                            <time
-                              dateTime={new Date(item.expiresAt * 1000).toISOString()}
-                              aria-label={`Expires ${localTime(item.expiresAt)}`}
-                              title={localTime(item.expiresAt)}
-                            >
-                              Expires{" "}
-                              {new Date(item.expiresAt * 1000).toLocaleString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                                timeZoneName: "short",
-                              })}
-                            </time>
-                          ) : item.expiresAt === null ? (
-                            "No expiry"
-                          ) : (
-                            "Expiry not reported"
-                          )}
-                        </span>
+                <>
+                  {usage?.resets && usage.resets.availableCount > 0 && (
+                    <details className="account-usage-section account-usage-disclosure">
+                      <summary>
+                        Banked resets<span>{usage.resets.availableCount} available</span>
+                      </summary>
+                      <div className="account-usage-reset-list">
+                        {usage.resets.items?.map((item) => (
+                          <div className="account-usage-line" key={item.id}>
+                            <span>{item.title ?? "Rate-limit reset"}</span>
+                            <span className="account-usage-muted">
+                              {item.expiresAt !== undefined && item.expiresAt !== null ? (
+                                <time
+                                  dateTime={new Date(item.expiresAt * 1000).toISOString()}
+                                  aria-label={`Expires ${localTime(item.expiresAt)}`}
+                                  title={localTime(item.expiresAt)}
+                                >
+                                  Expires{" "}
+                                  {new Date(item.expiresAt * 1000).toLocaleString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                    timeZoneName: "short",
+                                  })}
+                                </time>
+                              ) : item.expiresAt === null ? (
+                                "No expiry"
+                              ) : (
+                                "Expiry not reported"
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                        {!usage.resets.items?.length && (
+                          <div className="account-usage-muted">
+                            Expiry details aren't reported by this connection.
+                          </div>
+                        )}
                       </div>
-                    ))}
-                    {!usage.resets.items?.length && (
-                      <div className="account-usage-muted">
-                        Expiry details aren't reported by this connection.
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
+                    </details>
+                  )}
+                </>
               )}
               {usage?.credits &&
                 (usage.credits.unlimited || usage.credits.balance !== undefined) && (
