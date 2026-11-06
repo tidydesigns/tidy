@@ -1,7 +1,8 @@
 import { app, BrowserWindow } from "electron";
-import { canvasTransitionCases } from "./canvas-transition-cases.mjs";
+import { canvasTransitionCases } from "./canvas-transition-cases";
 
 const [, , origin, profile] = process.argv;
+if (!origin || !profile) throw new Error("Canvas transitions require an origin and profile.");
 app.setPath("userData", profile);
 console.info("Canvas transitions: starting Electron");
 app.whenReady().then(async () => {
@@ -19,11 +20,12 @@ app.whenReady().then(async () => {
   });
   const page = window.webContents;
   page.debugger.attach("1.3");
-  const evaluate = (expression) => page.executeJavaScript(expression);
-  async function click(label) {
+  const evaluate = <T = unknown>(expression: string): Promise<T> =>
+    page.executeJavaScript(expression);
+  async function click(label: string) {
     console.info(`Canvas transitions: click ${label}`);
     page.focus();
-    const point = await evaluate(`(async () => {
+    const point = await evaluate<{ x: number; y: number }>(`(async () => {
       const label = ${JSON.stringify(label)};
       const deadline = Date.now() + 15_000;
       let previous;
@@ -71,9 +73,11 @@ app.whenReady().then(async () => {
             features: [{ name: "prefers-reduced-motion", value: "no-preference" }],
           });
         },
-        fill: async (label, text) => {
+        fill: async (label: string, text: string) => {
           await click(label);
-          const modifiers = [process.platform === "darwin" ? "meta" : "control"];
+          const modifiers: Array<"meta" | "control"> = [
+            process.platform === "darwin" ? "meta" : "control",
+          ];
           page.sendInputEvent({ type: "keyDown", keyCode: "A", modifiers });
           page.sendInputEvent({ type: "keyUp", keyCode: "A", modifiers });
           page.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
