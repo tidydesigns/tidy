@@ -334,3 +334,45 @@ test("concurrent terminal opens cannot share another thread's pending shell", as
   expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
   expect(f.counts().starts).toBe(1);
 });
+
+test("tiny output chunks have bounded metadata and retained resume sequences remain exact", async () => {
+  const f = fixture();
+  const scope = { projectId: f.projectId, cols: 80, rows: 24 };
+  const first = await f.service.watch(scope, (event) => f.events.push(event));
+  const initial = snapshot(f.events);
+  first.close();
+  for (let i = 0; i < 25_000; i++) f.emit(String(i % 10));
+  const replay: TerminalOutput[] = [];
+  const old = await f.service.watch(
+    { ...scope, resume: { sessionId: initial.sessionId, sequence: 0 } },
+    (event) => replay.push(event),
+  );
+  const full = snapshot(replay);
+  expect(full.reset).toBe(true);
+  expect(full.data.length).toBe(8192);
+  expect(full.data).toBe(
+    Array.from({ length: 8192 }, (_, i) => String((25_000 - 8192 + i) % 10)).join(""),
+  );
+  old.close();
+  const resumed: TerminalOutput[] = [];
+  await f.service.watch(
+    { ...scope, resume: { sessionId: initial.sessionId, sequence: full.sequence - 4 } },
+    (event) => resumed.push(event),
+  );
+  expect(snapshot(resumed)).toMatchObject({ reset: false, data: "6789", sequence: full.sequence });
+});
+
+test("backpressure also bounds unacknowledged tiny-frame metadata", async () => {
+  const f = fixture();
+  const watch = await f.service.watch({ projectId: f.projectId, cols: 80, rows: 24 }, (event) =>
+    f.events.push(event),
+  );
+  const initial = snapshot(f.events);
+  watch.input({ kind: "ack", sessionId: initial.sessionId, sequence: initial.sequence });
+  for (let i = 0; i < 1024; i++) f.emit("x");
+  expect(f.counts().pauses).toBe(1);
+  const last = f.events.at(-1);
+  if (last?.kind !== "data") throw new Error("Missing output");
+  watch.input({ kind: "ack", sessionId: initial.sessionId, sequence: last.sequence });
+  expect(f.counts().resumes).toBe(1);
+});

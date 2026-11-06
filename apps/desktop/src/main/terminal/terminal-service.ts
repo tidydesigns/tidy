@@ -14,9 +14,11 @@ import {
 
 const require = createRequire(import.meta.url);
 const HISTORY_BYTES = 1024 * 1024;
+const HISTORY_CHUNKS = 8192;
 const MAX_SESSIONS = 8;
 const MAX_VIEWERS = 16;
 const WINDOW_BYTES = 128 * 1024;
+const WINDOW_CHUNKS = 1024;
 export function terminalEnvironment() {
   const env: Record<string, string> = {};
   for (const key of [
@@ -66,6 +68,8 @@ type Viewer = {
   bytes: number;
   timer?: ReturnType<typeof setTimeout>;
 };
+const viewerBlocked = (viewer: Viewer) =>
+  viewer.bytes >= WINDOW_BYTES || viewer.pending.size >= WINDOW_CHUNKS;
 type Session = {
   id: string;
   key: string;
@@ -77,6 +81,7 @@ type Session = {
   rows: number;
   sequence: number;
   history: Chunk[];
+  historyStart: number;
   historyBytes: number;
   pending: string;
   flush?: ReturnType<typeof setImmediate>;
@@ -174,6 +179,7 @@ export class TerminalService {
         rows: scope.rows,
         sequence: 0,
         history: [],
+        historyStart: 0,
         historyBytes: 0,
         pending: "",
         exited: false,
@@ -218,8 +224,18 @@ export class TerminalService {
       const chunk = { sequence: ++session.sequence, data, bytes: Buffer.byteLength(data) };
       session.history.push(chunk);
       session.historyBytes += chunk.bytes;
-      while (session.historyBytes > HISTORY_BYTES)
-        session.historyBytes -= session.history.shift()!.bytes;
+      // Bound object overhead as well as payload bytes. A long-running shell
+      // can emit millions of one-character chunks; shifting that array on
+      // every write would also make eviction linear in the retained history.
+      while (
+        session.historyBytes > HISTORY_BYTES ||
+        session.history.length - session.historyStart > HISTORY_CHUNKS
+      )
+        session.historyBytes -= session.history[session.historyStart++].bytes;
+      if (session.historyStart > 0 && session.historyStart * 2 >= session.history.length) {
+        session.history = session.history.slice(session.historyStart);
+        session.historyStart = 0;
+      }
       for (const viewer of session.viewers) {
         viewer.pending.set(chunk.sequence, chunk.bytes);
         viewer.bytes += chunk.bytes;
@@ -229,8 +245,10 @@ export class TerminalService {
     this.flow(session);
   }
   private flow(session: Session) {
+    let pause = false;
     for (const viewer of session.viewers) {
-      if (viewer.bytes >= WINDOW_BYTES)
+      if (viewerBlocked(viewer)) {
+        pause = true;
         viewer.timer ??= setTimeout(() => {
           viewer.send({
             kind: "error",
@@ -240,12 +258,11 @@ export class TerminalService {
           session.viewers.delete(viewer);
           this.flow(session);
         }, 15_000);
-      else {
+      } else {
         clearTimeout(viewer.timer);
         viewer.timer = undefined;
       }
     }
-    const pause = [...session.viewers].some((v) => v.bytes >= WINDOW_BYTES);
     if (!session.exited && pause !== session.paused) {
       session.paused = pause;
       if (pause) session.pty.pause();
@@ -270,15 +287,17 @@ export class TerminalService {
     const resume =
       scope.resume?.sessionId === session.id &&
       scope.resume.sequence <= session.sequence &&
-      scope.resume.sequence >= (session.history[0]?.sequence ?? session.sequence + 1) - 1;
+      scope.resume.sequence >=
+        (session.history[session.historyStart]?.sequence ?? session.sequence + 1) - 1;
     const data = session.history
+      .slice(session.historyStart)
       .filter((chunk) => !resume || chunk.sequence > scope.resume!.sequence)
       .map((chunk) => chunk.data)
       .join("");
     // Attach before publishing a snapshot; subsequent output is ordered after it.
     session.viewers.add(viewer);
-    viewer.pending.set(session.sequence, Buffer.byteLength(data));
     viewer.bytes = Buffer.byteLength(data);
+    viewer.pending.set(session.sequence, viewer.bytes);
     send({
       kind: "snapshot",
       sessionId: session.id,
@@ -315,11 +334,13 @@ export class TerminalService {
   private input(session: Session, viewer: Viewer, input: TerminalInput) {
     if (input.kind === "ack") {
       if (input.sequence > session.sequence) return;
-      for (const [sequence, bytes] of viewer.pending)
-        if (sequence <= input.sequence) {
-          viewer.bytes -= bytes;
-          viewer.pending.delete(sequence);
-        }
+      // Insertion order is sequence order, including the initial snapshot.
+      // An ACK need only visit the consumed prefix, not every outstanding chunk.
+      for (const [sequence, bytes] of viewer.pending) {
+        if (sequence > input.sequence) break;
+        viewer.bytes -= bytes;
+        viewer.pending.delete(sequence);
+      }
       this.flow(session);
       return;
     }

@@ -1,4 +1,5 @@
 import { bundledCanvasFontCss } from "./scripts/canvas-fonts";
+import { terminalWasmAsset } from "./scripts/terminal-wasm-asset";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { bundleLicenseBannerForInputs } from "../../scripts/bundle-licenses";
@@ -14,6 +15,7 @@ export const rendererConfig = {
     rolldownOptions: { output: { banner: licenceBanner, comments: { legal: true } } },
   },
   plugins: [
+    { name: "ghostty-external-wasm", apply: "build", transform: terminalWasmAsset },
     react(),
     tailwindcss(),
     {

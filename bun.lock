@@ -249,6 +249,7 @@
     "unrs-resolver",
   ],
   "patchedDependencies": {
+    "ghostty-web@0.4.0": "patches/ghostty-web@0.4.0.patch",
     "better-auth@1.7.7": "patches/better-auth@1.7.7.patch",
     "pg@8.23.0": "patches/pg@8.23.0.patch",
     "zod@4.6.7": "patches/zod@4.6.7.patch",
