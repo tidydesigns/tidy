@@ -5,6 +5,12 @@ const skills = [
   { id: "review-id", name: "review", description: "" },
   { id: "audit-id", name: "audit", description: "" },
 ];
+test("plain drafts do not require a skill catalog", () => {
+  expect(recoverSkills({ text: "Explain this", ids: [], skills: [] })).toEqual({
+    kind: "ready",
+    skills: [],
+  });
+});
 test("recovered IDs keep their own names after prompt commands are reordered", () => {
   expect(
     recoverSkills({ text: "Use $audit then /review", ids: ["review-id", "audit-id"], skills }),

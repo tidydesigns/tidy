@@ -1122,7 +1122,8 @@ export function App({
       const next = {
         ...latest,
         text,
-        recoveredSkills: skillCommands(text).length ? latest.recoveredSkills : undefined,
+        recoveredSkills:
+          latest.recoveredSkills && skillCommands(text).length ? latest.recoveredSkills : undefined,
         ...(attachments === undefined ? {} : { attachments }),
         skill: skill
           ? { id: skill.id, name: skill.name, harness: selectedHarness }

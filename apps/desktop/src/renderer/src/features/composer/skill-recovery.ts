@@ -9,6 +9,7 @@ export function recoverSkills({
   ids: readonly string[];
   skills: readonly Skill[];
 }): { kind: "unavailable" } | { kind: "ready"; skills: Pick<Skill, "id" | "name">[] } {
+  if (!ids.length) return { kind: "ready", skills: [] };
   const catalog = new Map(skills.map((skill) => [skill.id, skill]));
   const names = new Set(skillCommands(text).map((command) => command.name));
   const selected: Pick<Skill, "id" | "name">[] = [];
