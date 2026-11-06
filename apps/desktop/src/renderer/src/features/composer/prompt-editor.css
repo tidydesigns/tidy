@@ -35,6 +35,12 @@
   text-overflow: ellipsis;
 }
 @media (forced-colors: none) {
+  .skill-reference {
+    background: light-dark(#f3f0fa, #2c2837);
+  }
+  .skill-reference svg {
+    color: light-dark(#7c65ad, #b7a1df);
+  }
   ::highlight(tidy-prompt-divider) {
     color: transparent;
   }
