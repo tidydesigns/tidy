@@ -1,7 +1,7 @@
 import { WorktreePreferencesStore } from "../repository/worktree-preferences";
 import { WorktreeStorage } from "./worktree-storage";
 import { isDeepStrictEqual } from "node:util";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PrivateState } from "../platform/private-state";
 import {
   appendFile,
@@ -388,6 +388,27 @@ export class ProjectStore {
     const claim = this.storageClaim(project.path);
     if (claim.pending === 0) claim.retained = true;
     return path;
+  }
+
+  /** Generated media is private host data; agents cannot replace encoder output paths in a checkout. */
+  async videoStorage(projectId: string) {
+    const project = this.project(projectId);
+    const key = createHash("sha256")
+      .update(project.path)
+      .update("\0")
+      .update(project.id)
+      .digest("hex");
+    const base = join(await realpath(this.directory), "video-artifacts");
+    const root = join(base, key);
+    for (const path of [base, root]) {
+      await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      const info = await lstat(path);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error("Private video storage is unavailable.");
+    }
+    return root;
   }
 
   private async read(path: string) {

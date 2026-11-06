@@ -47,6 +47,19 @@ import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
 import { attachmentReference } from "../../shared/models/attachment-references";
+import {
+  VideoArtifacts,
+  readVideoArtifact,
+  videoLinks,
+  videoPending,
+} from "../media/video-artifacts";
+import {
+  videoReadSchema,
+  videoReferenceSchema,
+  type VideoArtifact,
+  type VideoRead,
+  type VideoReference,
+} from "../../shared/contracts/video-artifacts";
 import { HarnessSessions } from "../harnesses/harness-sessions";
 import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import { harnessNames } from "../../shared/contracts/harness-updates";
@@ -441,6 +454,8 @@ export class WorkspaceService {
   private worktreePreferenceRevision = 0;
   private worktreeCleanup?: Promise<void>;
   private worktreeCleanupTimer?: ReturnType<typeof setInterval>;
+  private videos = new VideoArtifacts();
+  private videoCache = new Map<string, VideoArtifact>();
   superviseHarnessParent = false;
 
   constructor(
@@ -638,6 +653,119 @@ export class WorkspaceService {
       ...page,
       parent: parent ? { threadId: parent.id, title: parent.title } : null,
     });
+  }
+
+  private queueVideos(thread: Thread) {
+    if (this.closing) return;
+    for (const message of thread.messages)
+      for (const artifact of message.videos ?? []) {
+        if (!videoPending(artifact)) continue;
+        const reference = {
+          projectId: thread.projectId,
+          threadId: thread.id,
+          artifactId: artifact.id,
+        };
+        const update = (patch: Partial<VideoArtifact>) => this.updateVideo(reference, patch);
+        try {
+          this.videos.enqueue({
+            artifact,
+            root: this.executionProject(thread).path,
+            storage: async () => {
+              await this.assertProjectAccess(thread.projectId);
+              return this.store.videoStorage(thread.projectId);
+            },
+            update,
+          });
+        } catch (error) {
+          void update({
+            status: "failed",
+            error: error instanceof Error ? error.message : "Video processing is unavailable.",
+          }).catch(() => {});
+        }
+      }
+  }
+
+  private async updateVideo(reference: VideoReference, patch: Partial<VideoArtifact>) {
+    await this.serialize(reference.threadId, async () => {
+      await this.assertProjectAccess(reference.projectId);
+      const job = this.jobs.get(reference.threadId);
+      const thread =
+        job?.thread ?? (await this.store.readThread(reference.projectId, reference.threadId));
+      if (thread.projectId !== reference.projectId)
+        throw new Error("This video belongs to another project.");
+      const message = thread.messages.find((message) =>
+        message.videos?.some((video) => video.id === reference.artifactId),
+      );
+      const artifact = message?.videos?.find((video) => video.id === reference.artifactId);
+      if (!artifact || !videoPending(artifact)) return;
+      Object.assign(artifact, patch);
+      thread.revision++;
+      await this.store.writeThread(thread);
+      if (job && message) job.changedMessages.add(message.id);
+      if (job) this.emit({ type: "thread", thread });
+      else {
+        const { messages, toolActivities, ...metadata } = thread;
+        delete metadata.queuedMessages;
+        delete metadata.queueError;
+        this.emit({
+          type: "thread-patch",
+          thread: metadata,
+          summary: summarizeThread(thread),
+          messages: messages.filter((item) => item.id === message?.id),
+          toolActivities: [],
+          toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
+        });
+      }
+    });
+  }
+
+  async readVideo(value: VideoRead) {
+    // JSON encoding belongs only at the remote RPC boundary.
+    const { bytes, ...metadata } = await this.readVideoBytes(value);
+    return {
+      ...metadata,
+      base64: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"),
+    };
+  }
+
+  async readVideoBytes(value: VideoRead) {
+    const input = videoReadSchema.parse(value);
+    await this.assertProjectAccess(input.projectId);
+    const key = `${input.projectId}/${input.threadId}/${input.artifactId}`;
+    let artifact = this.videoCache.get(key);
+    if (!artifact) {
+      const thread = await this.readThread(input.projectId, input.threadId);
+      artifact = thread.messages
+        .flatMap((message) => message.videos ?? [])
+        .find((video) => video.id === input.artifactId);
+      if (artifact && !videoPending(artifact)) {
+        if (this.videoCache.size >= 256)
+          this.videoCache.delete(this.videoCache.keys().next().value!);
+        this.videoCache.set(key, artifact);
+      }
+    }
+    if (!artifact) throw new Error("Video not found in this thread.");
+    const result = await readVideoArtifact(
+      await this.store.videoStorage(input.projectId),
+      artifact,
+      input,
+    );
+    await this.assertProjectAccess(input.projectId);
+    return result;
+  }
+
+  async cancelVideo(value: VideoReference) {
+    const reference = videoReferenceSchema.parse(value);
+    await this.assertProjectAccess(reference.projectId);
+    const thread = await this.readThread(reference.projectId, reference.threadId);
+    if (
+      !thread.messages.some((message) =>
+        message.videos?.some((video) => video.id === reference.artifactId),
+      )
+    )
+      throw new Error("Video not found in this thread.");
+    this.videos.cancel(reference.artifactId);
+    await this.updateVideo(reference, { status: "cancelled", error: undefined });
   }
 
   async removeProject(projectId: string) {
@@ -1009,7 +1137,9 @@ export class WorkspaceService {
         throw new Error("This thread belongs to another project.");
       return this.withThreadLineage(structuredClone(active));
     }
-    return this.withThreadLineage(await this.store.readThread(projectId, threadId));
+    const thread = await this.store.readThread(projectId, threadId);
+    this.queueVideos(thread);
+    return this.withThreadLineage(thread);
   }
 
   renameThread(projectId: string, threadId: string, value: string) {
@@ -2296,6 +2426,7 @@ export class WorkspaceService {
       : undefined;
     const context = [
       `The working directory is ${JSON.stringify(project.path)}.`,
+      "When returning a generated video, create the finished file inside this checkout and include a direct Markdown link, for example [Video](./output/demo.mp4), in your final response. Tidy registers up to four linked MP4, MOV, M4V, WebM, MKV or AVI files per message as video artifacts, preserves the original, and prepares inline playback asynchronously using host ffprobe/ffmpeg. Do not embed video bytes in chat. Prefer a compatible MP4 (H.264 yuv420p with AAC audio) or WebM (VP8/VP9 with Opus/Vorbis). Preserve the user's requested master quality; Tidy keeps compatible video up to 4K/60fps and creates a separate 1080p fallback when video conversion is needed. Use deterministic frames and wait for fonts/assets when rendering animation. Files must be regular files under 1 GiB, without symlinks, inside this checkout. Host video tools must be installed; never claim playback succeeded without checking your generated file.",
       owner.cloud
         ? `You are working with designs in a synced Tidy workspace. Design files live in ${JSON.stringify(designDirectory)} and image assets in ${JSON.stringify(assetDirectory)}. Edit those original files; the desktop app syncs their changes. Conversations and repository files stay local.`
         : thread.worktree
@@ -2757,6 +2888,15 @@ export class WorkspaceService {
     if (request.kind === "handover") job.thread.status = "running";
     job.thread.activity = request.kind === "handover" ? "Resuming with updated access" : undefined;
     job.thread.pendingApprovals = undefined;
+    if (request.kind === "complete" && !job.stopped) {
+      const ownedMessages = new Set(job.messages.values());
+      for (const message of job.thread.messages) {
+        if (message.role === "assistant" && ownedMessages.has(message.id) && !message.videos) {
+          const videos = videoLinks(message.text);
+          if (videos.length) message.videos = videos;
+        }
+      }
+    }
     job.thread.revision++;
     job.thread.updatedAt = new Date().toISOString();
     if (request.kind !== "handover" && !job.turn.endedAt) job.turn.endedAt = job.thread.updatedAt;
@@ -2790,6 +2930,7 @@ export class WorkspaceService {
     this.emit({ type: "thread", thread: job.thread });
     if (!job.thread.doneAt && ["completed", "idle", "stopped"].includes(job.thread.status))
       this.requestThreadCompletion(job.thread.projectId, true);
+    if (!writeFailure) this.queueVideos(job.thread);
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
     if (request.kind === "done" && writeFailure) throw writeFailure.cause;
     const next = job.thread.queuedMessages?.[0];
@@ -3201,6 +3342,7 @@ export class WorkspaceService {
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));
     await this.terminal.close();
     await this.mobile.close();
+    await this.videos.close();
     await this.drainRequests(requestDrainTimeoutMs);
     this.repositoryObservers.close();
     for (const watcher of this.watchers.values()) watcher.close();

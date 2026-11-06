@@ -200,6 +200,20 @@ function workspaceApi(machineId?: string): DesktopAPI {
       frame: (input) => scopedRequest("mobile-frame", input),
       input: (input) => scopedRequest("mobile-input", input),
     },
+    videoURL: async (reference, variant) => {
+      const url: unknown = await ipcRenderer.invoke("tidy:video-url", {
+        reference,
+        variant,
+        machineId,
+      });
+      if (
+        typeof url !== "string" ||
+        !/^tidy:\/\/app\/__tidy\/video-stream\/[a-f0-9]{64}$/.test(url)
+      )
+        throw new Error("Invalid video response.");
+      return url;
+    },
+    cancelVideo: (reference) => scopedRequest("cancel-video", reference),
     projectDirectories: (path) => scopedRequest("project-directories", path),
     projectCheckouts: (projectId) => scopedRequest("project-checkouts", projectId),
     setupProject: (input) => scopedRequest("setup-project", input),

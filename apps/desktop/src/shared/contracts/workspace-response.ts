@@ -16,6 +16,7 @@ import {
 } from "./repository-files";
 import { draftImportResultSchema } from "./draft-import";
 import { branchSwitchResultSchema, repositoryContextSchema } from "./repository-context";
+import { videoChunkSchema as videoArtifactChunkSchema } from "./video-artifacts";
 import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
 import { directorySchema } from "./browser-directory";
 import { skillCatalogSchema } from "./skills";
@@ -59,6 +60,8 @@ export const workspaceResponseSchemas = {
   "browser-discard-draft": z.void(),
   "browser-command": browserResultSchema,
   "browser-query": browserResultSchema,
+  "read-video": videoArtifactChunkSchema,
+  "cancel-video": z.void(),
   "project-directories": directorySchema,
   "project-checkouts": z.array(projectCheckoutSchema),
   "setup-project": projectSetupResultSchema,

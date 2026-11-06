@@ -31,6 +31,7 @@ import {
 } from "./message-queue";
 import type { HarnessUpdateState, UpdatableHarnessId } from "./harness-updates";
 import type { CloudAPI } from "./cloud-sync";
+import { videoArtifactSchema, type VideoReference, type VideoVariant } from "./video-artifacts";
 
 const id = z.string().uuid();
 export const nativeSessionIdSchema = z
@@ -76,6 +77,7 @@ const messageSchema = z.object({
     .object({ startedAt: z.string().datetime(), endedAt: z.string().datetime().optional() })
     .optional(),
   attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
+  videos: z.array(videoArtifactSchema).max(4).optional(),
 });
 export const storedThreadSchema = z.object({
   revision: z.number().int().min(0).default(0),
@@ -204,6 +206,8 @@ export type DesktopAPI = {
   mobile?: import("./mobile").MobileAPI;
   terminal?: import("./terminal").TerminalAPI;
   browser?: import("./browser").BrowserAPI;
+  videoURL?(reference: VideoReference, variant: VideoVariant): Promise<string>;
+  cancelVideo?(reference: VideoReference): Promise<void>;
   projectDirectories?(path: string): Promise<import("./browser-directory").Directory>;
   projectCheckouts?(projectId?: string): Promise<import("./project-setup").ProjectCheckout[]>;
   setupProject?(

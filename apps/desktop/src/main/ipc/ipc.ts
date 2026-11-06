@@ -16,6 +16,9 @@ import {
   type BrowserInputEnvelope,
 } from "../../shared/contracts/browser";
 import { openConnectedChatLink } from "../workspace/chat-links";
+import { decodeVideoChunk, issueVideoURL, revokeVideoURLs } from "../media/video-response";
+import { videoReferenceSchema, videoVariantSchema } from "../../shared/contracts/video-artifacts";
+import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { discoverTailnet } from "../remote/tailscale";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { basename } from "node:path";
@@ -608,6 +611,41 @@ export function registerWorkspaceIPC(
       };
     }
   }
+  const videoOwners = new WeakSet<Electron.WebContents>();
+  ipcMain.handle("tidy:video-url", async (event, value: unknown) => {
+    trusted(event);
+    const input = z
+      .object({
+        reference: videoReferenceSchema,
+        variant: videoVariantSchema,
+        machineId: machineIdSchema.optional(),
+      })
+      .strict()
+      .parse(value);
+    const client = clientFor(event, input.machineId);
+    const read = async (request: import("../../shared/contracts/video-artifacts").VideoRead) => {
+      trusted(event);
+      if (clientFor(event, input.machineId) !== client)
+        throw new Error("The video host changed. Reopen this thread.");
+      if (!client) return service.dispatch(() => service.readVideoBytes(request));
+      return decodeVideoChunk(
+        parseWorkspaceResponse(
+          "read-video",
+          await invoke(event, "read-video", request, input.machineId),
+        ),
+      );
+    };
+    await read({ ...input.reference, variant: input.variant, offset: 0, length: 0 });
+    if (!videoOwners.has(event.sender)) {
+      videoOwners.add(event.sender);
+      const owner = event.sender.id;
+      event.sender.once("destroyed", () => revokeVideoURLs(owner));
+      event.sender.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) revokeVideoURLs(owner);
+      });
+    }
+    return issueVideoURL(event.sender.id, input.reference, input.variant, read, client ?? service);
+  });
   ipcMain.handle("tidy:workspace", (event, value: unknown) => {
     trusted(event);
     const request = z

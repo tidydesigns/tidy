@@ -140,6 +140,7 @@ const remoteReadOperations = new Set([
   "mobile-frame",
   "browser-state",
   "browser-query",
+  "read-video",
   "project-directories",
   "project-checkouts",
   "worktree-storage",

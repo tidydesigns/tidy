@@ -27,6 +27,7 @@ import { SessionStore } from "./session-store";
 import * as sessionStore from "./session-store";
 
 import {
+  isRemoteMutation,
   hostDescriptorSchema,
   remoteFrameSchema,
   type ConnectionStatus,
@@ -38,6 +39,7 @@ import type { BrowserOutput } from "../../shared/contracts/browser";
 import { MAX_CHAT_IMAGE_BYTES } from "../../shared/contracts/chat-images";
 import { readChatImageSource } from "../../renderer/src/components/load-chat-image";
 import type { TerminalInput, TerminalOutput } from "../../shared/contracts/terminal";
+import { VIDEO_CHUNK_BYTES } from "../../shared/contracts/video-artifacts";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -474,6 +476,75 @@ test("orchestration capabilities gate legacy hosts and refresh after reconnect",
     cancel.mockRestore();
   }
 }, 15_000);
+
+test("remote video playback reads bounded chunks without exposing other threads or persisting bytes in receipts", async () => {
+  const f = await fixture();
+  const source = Buffer.alloc(VIDEO_CHUNK_BYTES + 19, 7);
+  source.write("0123456789");
+  const artifactId = randomUUID(),
+    threadId = randomUUID();
+  await f.store.writeThread({
+    revision: 0,
+    id: threadId,
+    projectId: f.project.id,
+    title: "Video",
+    harness: "codex",
+    designIds: [],
+    messages: [
+      {
+        id: randomUUID(),
+        role: "assistant",
+        text: "[Video](./clip.mp4)",
+        videos: [
+          {
+            id: artifactId,
+            name: "clip.mp4",
+            sourceHref: "./clip.mp4",
+            status: "ready",
+            original: { size: source.length, mimeType: "video/mp4" },
+            playback: { size: source.length, mimeType: "video/mp4" },
+            playbackUsesOriginal: true,
+          },
+        ],
+      },
+    ],
+    status: "completed",
+    updatedAt: new Date().toISOString(),
+  });
+  const storage = join(await f.store.videoStorage(f.project.id), `video-${artifactId}`);
+  await mkdir(storage);
+  await writeFile(join(storage, "original"), source);
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const input = {
+    projectId: f.project.id,
+    threadId,
+    artifactId,
+    variant: "playback" as const,
+    offset: 3,
+    length: 4,
+  };
+  const chunk = await client.operation("read-video", input);
+  expect(Buffer.from(chunk.base64, "base64").toString()).toBe("3456");
+  expect(chunk.size).toBe(source.length);
+  const large = await client.operation("read-video", {
+    ...input,
+    offset: 0,
+    length: VIDEO_CHUNK_BYTES,
+  });
+  expect(Buffer.from(large.base64, "base64")).toEqual(source.subarray(0, VIDEO_CHUNK_BYTES));
+  const tail = await client.operation("read-video", {
+    ...input,
+    offset: VIDEO_CHUNK_BYTES,
+    length: 19,
+  });
+  expect(Buffer.from(tail.base64, "base64")).toEqual(source.subarray(VIDEO_CHUNK_BYTES));
+  await expect(
+    client.operation("read-video", { ...input, threadId: randomUUID() }),
+  ).rejects.toThrow();
+  await expect(client.operation("read-video", { ...input, length: 1_048_577 })).rejects.toThrow();
+  expect(isRemoteMutation("read-video")).toBe(false);
+});
 
 test("authenticated WebSocket serves validated requests and remote directory selection", async () => {
   const f = await fixture();

@@ -29,6 +29,7 @@ import {
 import { repositoryPathSchema } from "../../shared/contracts/repository-files";
 import { DraftImports } from "../workspace/draft-imports";
 import { terminalSessionSchema } from "../../shared/contracts/terminal";
+import { videoReadSchema, videoReferenceSchema } from "../../shared/contracts/video-artifacts";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
 import {
@@ -74,6 +75,7 @@ export function createWorkspaceRequests<Context>(
   const harnessDiscovery = new HarnessDiscovery();
   const imports = new DraftImports(store, (projectId) => service.assertProjectAccess(projectId));
   const uuid = z.string().uuid();
+  // All video bytes travel in bounded chunks; media never enters thread snapshots.
   const projectId = uuid;
   const handlers = new Map<string, (input: unknown, context: Context) => Promise<unknown>>();
   function handle<T extends z.ZodType>(
@@ -147,6 +149,8 @@ export function createWorkspaceRequests<Context>(
       threads: service.withLiveThreads(snapshot.project.id, snapshot.threads),
     };
   }
+  handle("read-video", videoReadSchema, (input) => service.readVideo(input));
+  handle("cancel-video", videoReferenceSchema, (input) => service.cancelVideo(input));
   // A scalar ID keeps this acknowledgement machine-scoped after registration is removed.
   handle("remove-project", uuid, async (id) => {
     await service.removeProject(id);

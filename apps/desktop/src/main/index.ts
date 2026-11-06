@@ -1,4 +1,5 @@
 import { machineConnections } from "./remote/machine-connections";
+import { nativeVideoResponse } from "./media/video-response";
 import { projectLocks } from "./remote/project-locks";
 import { RemoteClient } from "./remote/client";
 import { MachineProfiles } from "./remote/profiles";
@@ -58,7 +59,13 @@ import {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: APP_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      codeCache: true,
+      stream: true,
+    },
   },
 ]);
 const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
@@ -486,6 +493,11 @@ app
         const url = new URL(request.url);
         if (url.host !== "app" || url.username || url.password)
           return new Response(null, { status: 404 });
+        if (url.pathname.startsWith("/__tidy/video-stream/"))
+          return nativeVideoResponse(
+            request,
+            entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
+          );
         if (url.pathname.startsWith("/__tidy/assets/"))
           return projectAssetResponse(
             store,
