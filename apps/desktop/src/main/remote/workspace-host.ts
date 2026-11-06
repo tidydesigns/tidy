@@ -68,6 +68,7 @@ export async function workspaceRuntime(directory: string) {
   }
 }
 
+/** Copy a legacy registry once, preserving cloud classification and thread preferences without replacing destination state. */
 export async function migrateWorkspaceRegistry(source: string, destination: string) {
   try {
     await readLocalFile(join(destination, "projects.json"));

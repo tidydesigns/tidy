@@ -19,6 +19,7 @@ import {
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SessionContext, TurnInput, HarnessAdapter, AdapterContext } from "./session-types";
 
+/** Preserve approval content while making terminal controls and bidirectional overrides visible as literals. */
 const approvalText = (value: string) =>
   value.replace(
     /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,

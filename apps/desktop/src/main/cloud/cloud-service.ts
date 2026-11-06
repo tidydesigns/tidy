@@ -228,20 +228,30 @@ export class CloudService implements CloudAPI {
     this.action = work.catch(() => {});
     return work;
   }
+  /** Fence account-bound reads during teardown; failed teardown reopens admission only for the same transition. */
   async signOut() {
     this.accountChanging = true;
     this.latestAccount = undefined;
     this.workspaces.clear();
     this.workspaceWork.clear();
-    this.generation++;
+    const generation = ++this.generation;
+    const accountId = this.auth.accountId;
     // Cancel an outstanding browser login immediately, then stop account-bound work.
     this.auth.cancelSignIn();
-    await this.initialize();
-    await this.service.stopCloudThreads();
-    await this.sync.stop();
-    await this.auth.signOut();
-    this.emit();
-    await this.action;
+    try {
+      await this.initialize();
+      await this.service.stopCloudThreads();
+      await this.sync.stop();
+      await this.auth.signOut();
+      this.emit();
+      await this.action;
+    } catch (error) {
+      if (generation === this.generation && !this.closed && accountId === this.auth.accountId) {
+        this.accountChanging = false;
+        this.emit();
+      }
+      throw error;
+    }
   }
   private cacheKey(kind: string, organizationId = "") {
     if (!this.auth.accountId) throw new Error("Sign in to Tidy to open your workspace.");
@@ -296,6 +306,7 @@ export class CloudService implements CloudAPI {
     this.updateAccountRequest = request;
     return request;
   }
+  /** Reject cached and network results when their account generation or transition state changes. */
   async catalog(organizationId: string, cachedOnly = false) {
     const generation = this.generation;
     await this.initialize();

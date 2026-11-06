@@ -9,6 +9,7 @@ import { checkDeletionOwnership } from "./deletion-eligibility";
 import { mcpAnalyticsId } from "./mcp-consent";
 
 export const DELETED_USER = "tidy-deleted-user";
+/** Lock organizations before the account; abort with 409 if membership expands before applying any deletion effects. */
 export async function deleteAccount(userId: string, sessionId: string, confirmation: string) {
   if (userId === DELETED_USER) throw new PrivacyError("Account unavailable.", 403);
   const client = await db.connect();

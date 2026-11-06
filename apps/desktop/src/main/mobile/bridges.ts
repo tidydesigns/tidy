@@ -362,6 +362,7 @@ const emulatorEndpointSchema = z.object({
   "port.adb": z.string().optional(),
 });
 
+/** Read ownership and contents from one descriptor; reject links, oversized files, and unrelated emulator identities. */
 export async function readEmulatorEndpoint(path: string, serial: string) {
   const contents = await readLocalFile(path, 64_000, async (info) => {
     if (process.getuid && info.uid !== process.getuid())
@@ -379,6 +380,7 @@ export async function readEmulatorEndpoint(path: string, serial: string) {
   return { port: properties["grpc.port"], token: properties["grpc.token"] };
 }
 
+/** Search a bounded set of discovery records, accepting only endpoints validated for the requested emulator. */
 async function emulatorEndpoint(serial: string) {
   const roots = [
     process.env.XDG_RUNTIME_DIR,

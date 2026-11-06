@@ -4,6 +4,7 @@ import { hostDescriptorSchema, type PreparedHost } from "../../shared/remote";
 import { RemoteFailure } from "./errors";
 import { shellQuote, type SshSession } from "./ssh";
 
+/** Wait for authenticated SSH forwarding readiness before probing health; cancellation and SSH closure take precedence. */
 export async function openTunnel({
   ssh,
   host,

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { preparedHostSchema } from "../../shared/remote";
 import { SshSession } from "./ssh";
 import { openTunnel } from "./tunnel";
+import { RemoteFailure } from "./errors";
 
 class LocalSession extends SshSession {
   child?: ReturnType<typeof spawn>;
@@ -14,12 +15,13 @@ class LocalSession extends SshSession {
   override launch({ command = [] }: Parameters<SshSession["launch"]>[0]) {
     const marker = command.join(" ").match(/TIDY_FORWARD_[a-f0-9]{32}/)?.[0];
     if (!marker) throw new Error("The tunnel command has no readiness marker.");
-    const emit = `() => process.stdout.write(${JSON.stringify(`${marker}\n`)})`;
     const child = spawn(
       process.execPath,
       [
         "-e",
-        `const ready = ${emit}; ${this.hold ? 'process.stdin.once("data", ready)' : "ready()"}; setInterval(() => {}, 1000)`,
+        'const ready = () => process.stdout.write(process.argv[1] + "\\n"); if (process.argv[2] === "hold") process.stdin.once("data", ready); else ready(); setInterval(() => {}, 1000)',
+        marker,
+        this.hold ? "hold" : "ready",
       ],
       { stdio: "pipe" },
     );
@@ -139,4 +141,70 @@ for (const outcome of ["ready", "closed"] as const) {
       fetching.mockRestore();
     }
   });
+}
+
+for (const parsing of ["rejected", "mismatch"] as const) {
+  for (const outcome of ["ready", "cancelled", "closed"] as const) {
+    test(`tunnel ${parsing} health preserves ${outcome} error precedence`, async () => {
+      const session = new LocalSession({
+        target: "fixture",
+        temporaryDirectory: "unused",
+        prompt: async () => null,
+      });
+      const host = preparedHostSchema.parse({
+        protocol: 3,
+        hostId: randomUUID(),
+        instanceId: randomUUID(),
+        buildId: "fixture",
+        pid: process.pid,
+        port: 1234,
+        managed: false,
+        clientId: randomUUID(),
+        token: "a".repeat(64),
+      });
+      const entered = Promise.withResolvers<void>(),
+        release = Promise.withResolvers<void>();
+      const originalFetch = globalThis.fetch;
+      const parsingError = new RemoteFailure("protocol", "Health parsing failed");
+      const fetching = spyOn(globalThis, "fetch").mockImplementation(
+        Object.assign(
+          async () => {
+            const response = Response.json({ ...host, hostId: randomUUID(), activeRuns: 0 });
+            response.json = async () => {
+              entered.resolve();
+              await release.promise;
+              if (parsing === "rejected") throw parsingError;
+              return { ...host, hostId: randomUUID(), activeRuns: 0 };
+            };
+            return response;
+          },
+          { preconnect: originalFetch.preconnect },
+        ),
+      );
+      const controller = new AbortController();
+      const reason = new Error("Connection replaced");
+      const pending = openTunnel({ ssh: session, host, signal: controller.signal });
+      try {
+        await entered.promise;
+        if (outcome === "cancelled") controller.abort(reason);
+        if (outcome === "closed") {
+          session.child?.kill();
+          await session.stopped;
+        }
+        release.resolve();
+        const error = await pending.catch((error: unknown) => error);
+        if (outcome === "cancelled") expect(error).toBe(reason);
+        else if (outcome === "closed")
+          expect(error).toMatchObject({ kind: "unavailable", message: "SSH tunnel closed." });
+        else if (parsing === "rejected") expect(error).toBe(parsingError);
+        else expect(error).toMatchObject({ kind: "identity" });
+      } finally {
+        release.resolve();
+        session.child?.kill();
+        await session.stopped;
+        await pending.catch(() => {});
+        fetching.mockRestore();
+      }
+    });
+  }
 }

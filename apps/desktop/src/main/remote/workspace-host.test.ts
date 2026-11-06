@@ -166,6 +166,7 @@ test("migrated cloud projects remain inaccessible through native requests while 
   const cloud = await legacy.register(cloudPath, "Private cloud workspace");
   const design = await legacy.createDesign(cloud.id);
   const local = await legacy.open(localPath);
+  await legacy.setThreadMode(local.project.id, "local");
   await migrateWorkspaceRegistry(source, destination);
   const migrated = new ProjectStore(destination);
   await migrated.initialize();
@@ -185,7 +186,7 @@ test("migrated cloud projects remain inaccessible through native requests while 
     requests.invoke("read-design", { projectId: cloud.id, designId: design.id }, undefined),
   ).rejects.toThrow("cloud workspace");
   expect(await requests.invoke("project-snapshot", local.project.id, undefined)).toMatchObject({
-    project: { id: local.project.id, path: local.project.path },
+    project: { id: local.project.id, path: local.project.path, threadMode: "local" },
   });
 });
 

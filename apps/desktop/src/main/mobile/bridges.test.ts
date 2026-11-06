@@ -33,6 +33,7 @@ test("endpoint reads preserve serial and adb matching and reject invalid ports a
     }
     expect(await readEmulatorEndpoint(root, "emulator-5554")).toBeNull();
     expect(await readEmulatorEndpoint(join(root, "missing.ini"), "emulator-5554")).toBeNull();
+    await writeFile(path, endpoint);
     await symlink(path, join(root, "linked.ini"));
     expect(await readEmulatorEndpoint(join(root, "linked.ini"), "emulator-5554")).toBeNull();
   } finally {
