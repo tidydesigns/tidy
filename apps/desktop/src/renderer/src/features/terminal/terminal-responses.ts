@@ -1,10 +1,12 @@
 import type { ITheme, Terminal } from "ghostty-web";
 
+export const terminalClipboardLimit = 128_000;
+
 type State = "ground" | "escape" | "csi" | "osc" | "string" | "osc-escape" | "string-escape";
 
 /**
- * Replies missing from ghostty-web 0.4's WASM build. Keep this deliberately
- * smaller than a VT parser: no screen state, capability guesses or side effects.
+ * Replies missing from ghostty-web 0.4's WASM build and optional write-only
+ * clipboard handling. This scanner does not maintain screen state.
  * A bounded streaming scanner avoids replying to query-shaped text inside OSC,
  * DCS, APC, PM or SOS payloads, including across PTY chunk boundaries.
  */
@@ -13,16 +15,24 @@ export class TerminalResponses {
   private sequence = "";
   private overflow = false;
   private decoder = new TextDecoder();
-  constructor(private readonly theme: ITheme) {}
+  private clipboardSequence = false;
+  private liveSequence = true;
+  constructor(
+    private readonly theme: ITheme,
+    private readonly copy?: (text: string) => void,
+  ) {}
 
   reset() {
     this.state = "ground";
     this.sequence = "";
     this.overflow = false;
     this.decoder = new TextDecoder();
+    this.clipboardSequence = false;
+    this.liveSequence = true;
   }
 
-  write(data: string | Uint8Array): string {
+  write(data: string | Uint8Array, live = true): string {
+    if (!live) this.liveSequence = false;
     const text =
       typeof data === "string"
         ? this.decoder.decode() + data
@@ -35,6 +45,7 @@ export class TerminalResponses {
         if (next < 0) break;
         index = next;
         this.state = "escape";
+        this.liveSequence = live;
         continue;
       }
       const char = text[index];
@@ -46,7 +57,7 @@ export class TerminalResponses {
       if (this.state === "osc-escape" || this.state === "string-escape") {
         const osc = this.state === "osc-escape";
         if (char === "\\") {
-          if (osc && !this.overflow) replies.push(this.colorReply());
+          if (osc && !this.overflow) replies.push(this.oscReply());
           this.state = "ground";
         } else {
           // An embedded escape is payload, never a new query. Discard this OSC.
@@ -58,13 +69,14 @@ export class TerminalResponses {
       if (this.state === "osc" || this.state === "string") {
         if (char === "\x1b") this.state = this.state === "osc" ? "osc-escape" : "string-escape";
         else if (this.state === "osc" && char === "\x07") {
-          if (!this.overflow) replies.push(this.colorReply());
+          if (!this.overflow) replies.push(this.oscReply());
           this.state = "ground";
         } else if (this.state === "osc") this.collect(char);
         continue;
       }
       if (char === "\x1b") {
         this.state = "escape";
+        this.liveSequence = live;
         continue;
       }
       if (this.state === "escape") {
@@ -72,6 +84,7 @@ export class TerminalResponses {
         if (char < " " || char === "\x7f") continue;
         this.sequence = "";
         this.overflow = false;
+        this.clipboardSequence = false;
         this.state =
           char === "[" ? "csi" : char === "]" ? "osc" : "PX^_".includes(char) ? "string" : "ground";
         continue;
@@ -91,11 +104,29 @@ export class TerminalResponses {
   }
 
   private collect(char: string) {
-    if (this.sequence.length < 64 && !this.overflow) this.sequence += char;
-    else this.overflow = true;
+    const limit = this.clipboardSequence ? Math.ceil(terminalClipboardLimit / 3) * 4 + 32 : 64;
+    if (this.sequence.length < limit && !this.overflow) {
+      this.sequence += char;
+      if (this.copy && this.state === "osc" && this.sequence === "52;")
+        this.clipboardSequence = true;
+    } else this.overflow = true;
   }
 
-  private colorReply() {
+  private oscReply() {
+    if (this.copy && this.clipboardSequence && this.liveSequence) {
+      // Write only. Never answer clipboard queries or interpret nested/passthrough OSCs.
+      const match = /^52;([cpsq0-7]*);([A-Za-z0-9+/]*={0,2})$/.exec(this.sequence);
+      if (match && (!match[1] || /[cs]/.test(match[1]))) {
+        try {
+          const bytes = Uint8Array.from(atob(match[2]), (char) => char.charCodeAt(0));
+          if (bytes.length <= terminalClipboardLimit)
+            this.copy(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+        } catch {
+          // Malformed base64 or UTF-8 is untrusted terminal output, not a UI error.
+        }
+      }
+    }
+
     const color =
       this.sequence === "10;?"
         ? this.theme.foreground

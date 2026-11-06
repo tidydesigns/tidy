@@ -128,6 +128,18 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     endCount = 0;
   let receive: (output: TerminalOutput) => void = () => {};
   const writes: TerminalInput[] = [];
+  const copied: string[] = [];
+  let blockCopy = false;
+  let failCopy = false;
+  let releaseCopy: (() => void) | undefined;
+  const copy = async (text: string) => {
+    copied.push(text);
+    if (failCopy) throw new Error("Clipboard unavailable");
+    if (blockCopy)
+      await new Promise<void>((resolve) => {
+        releaseCopy = resolve;
+      });
+  };
   const api: TerminalAPI = {
     async end() {
       endCount++;
@@ -173,6 +185,7 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
           fontSize,
           theme,
           onTitle() {},
+          copy,
         }),
       );
       for (let index = 0; index < 8; index++)
@@ -258,6 +271,49 @@ test("theme changes keep the stream attached, defer hidden tabs, and cancel stal
     expect(
       writes.filter((entry) => entry.kind === "write" && entry.data === "\x1b[?1;2c"),
     ).toHaveLength(1);
+    const osc = "\x1b]52;c;aGk=\x07";
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 3, data: osc }));
+    expect(copied).toEqual(["hi"]);
+    await render(terminalThemes.dark, true, 18);
+    expect(copied).toEqual(["hi"]); // Theme replay must not overwrite the desktop clipboard.
+    await act(async () =>
+      receive({
+        kind: "snapshot",
+        sessionId: "session",
+        sequence: 4,
+        cols: 120,
+        rows: 30,
+        data: osc + osc.slice(0, 4),
+        reset: true,
+        exited: false,
+        exitCode: null,
+      }),
+    );
+    await act(async () =>
+      receive({ kind: "data", sessionId: "session", sequence: 5, data: osc.slice(4) }),
+    );
+    expect(copied).toEqual(["hi"]); // Even a partial query beginning in replay stays suppressed.
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 6, data: osc }));
+    expect(copied).toEqual(["hi", "hi"]);
+    blockCopy = true;
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 7, data: osc }));
+    await act(async () =>
+      receive({
+        kind: "data",
+        sessionId: "session",
+        sequence: 8,
+        data: "\x1b]52;c;b2xk\x07\x1b]52;c;bmV3\x07",
+      }),
+    );
+    expect(copied).toEqual(["hi", "hi", "hi"]);
+    blockCopy = false;
+    await act(async () => {
+      releaseCopy?.();
+    });
+    expect(copied).toEqual(["hi", "hi", "hi", "new"]); // Serialize writes and coalesce pending text.
+    failCopy = true;
+    await act(async () => receive({ kind: "data", sessionId: "session", sequence: 9, data: osc }));
+    expect(container.textContent).toContain("Could not copy terminal text.");
   } finally {
     delayCreate = false;
     releaseCreate?.();

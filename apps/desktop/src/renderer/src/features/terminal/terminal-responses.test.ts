@@ -110,3 +110,50 @@ test("the pinned WASM needs these replies; its existing status responses remain 
     native.free();
   }
 });
+
+test("OSC 52 writes UTF-8 clipboard text across every chunk boundary, without reading it", () => {
+  const value = "tmux 日本語 🌻";
+  for (const terminator of ["\x07", "\x1b\\"]) {
+    const sequence = `\x1b]52;c;${Buffer.from(value).toString("base64")}${terminator}`;
+    for (let split = 0; split <= sequence.length; split++) {
+      const copied: string[] = [];
+      const parser = new TerminalResponses({}, (text) => copied.push(text));
+      expect(parser.write(sequence.slice(0, split))).toBe("");
+      expect(parser.write(sequence.slice(split))).toBe("");
+      expect(copied).toEqual([value]);
+    }
+  }
+  const copied: string[] = [];
+  const parser = new TerminalResponses({}, (text) => copied.push(text));
+  for (const invalid of [
+    "52;c;?",
+    "52;p;aGk=",
+    "52;c;%%%%",
+    "52;c;/w==",
+    "52;c;A",
+    "52;c;a=Gk",
+    `52;c;${"A".repeat(180_000)}`,
+  ])
+    expect(parser.write(`\x1b]${invalid}\x07`)).toBe("");
+  expect(copied).toEqual([]);
+  parser.write("\x1b]52;;aGk=\x07\x1b]52;c;\x07");
+  expect(copied).toEqual(["hi", ""]);
+});
+
+test("clipboard writes cannot originate in replay, cancelled strings or nested payloads", () => {
+  const copied: string[] = [];
+  const parser = new TerminalResponses({}, (text) => copied.push(text));
+  const sequence = "\x1b]52;c;aGk=\x07";
+  parser.write(sequence, false);
+  parser.write(sequence.slice(0, 4), false);
+  parser.write(sequence.slice(4));
+  parser.reset();
+  parser.write(sequence.slice(0, 4));
+  parser.write(sequence.slice(4), false);
+  for (const prefix of ["\x1bPtmux;", "\x1b]0;", "\x1b_", "\x1b^", "\x1bX"])
+    parser.write(`${prefix}${sequence}\x1b\\`);
+  parser.write("\x1b]52;c;aGk=\x18\x07");
+  expect(copied).toEqual([]);
+  parser.write(sequence);
+  expect(copied).toEqual(["hi"]);
+});

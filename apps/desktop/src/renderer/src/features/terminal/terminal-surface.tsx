@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import type { ITheme } from "ghostty-web";
+import { TerminalResponses } from "./terminal-responses";
 import { TerminalReplay } from "./terminal-replay";
 import {
   terminalSizeLimits,
@@ -89,6 +90,32 @@ export function TerminalSurface({
     let renderedTheme: ITheme;
     let buildingTheme: ITheme | undefined;
     const replay = new TerminalReplay();
+    // Parse the stream once, outside renderers: theme replay must never copy again.
+    let pendingCopy: string | undefined;
+    let copying = false;
+    const flushCopy = async () => {
+      if (copying) return;
+      copying = true;
+      try {
+        while (!disposed && pendingCopy !== undefined) {
+          const text = pendingCopy;
+          pendingCopy = undefined;
+          try {
+            await (copy ? copy(text) : navigator.clipboard.writeText(text));
+          } catch {
+            if (!disposed) setStatus("Could not copy terminal text.");
+          }
+        }
+      } finally {
+        copying = false;
+      }
+    };
+    const clipboard = new TerminalResponses({}, (text) => {
+      const scheduled = pendingCopy !== undefined;
+      pendingCopy = text;
+      // Coalesce a burst of OSC writes and serialize asynchronous desktop copies.
+      if (!scheduled) queueMicrotask(() => void flushCopy());
+    });
     const staged = new Set<Instance>();
     void import("./terminal-runtime")
       .then((module) => {
@@ -228,6 +255,8 @@ export function TerminalSurface({
                 return;
               }
               if (output.kind === "snapshot") {
+                clipboard.reset();
+                clipboard.write(output.data, false);
                 setNeedsBackendUpdate(false);
                 session.current = output.sessionId;
                 sequence = output.sequence;
@@ -281,6 +310,7 @@ export function TerminalSurface({
                 sequence = output.sequence;
                 replay.write(output.data);
                 terminal.write(output.data);
+                clipboard.write(output.data);
                 parsed = true;
                 watch.current?.input({
                   kind: "ack",
