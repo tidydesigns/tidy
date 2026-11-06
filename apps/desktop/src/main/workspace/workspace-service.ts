@@ -533,9 +533,7 @@ export class WorkspaceService {
       if (this.closing) return;
       void this.serialize(threadId, async () => {
         if (this.closing || this.jobs.has(threadId)) return;
-        const entry = (await this.store.updateResumes.list()).find(
-          (entry) => entry.projectId === projectId && entry.threadId === threadId,
-        );
+        const entry = await this.store.updateResumes.get(projectId, threadId);
         if (!entry?.background || this.tasks.isManagedExecution(projectId, threadId)) return;
         const thread = await this.store.readThread(projectId, threadId);
         const signature = await this.store.updateResumeSignature(
@@ -558,7 +556,7 @@ export class WorkspaceService {
           retryAt,
           previousSignature: signature,
         });
-        this.scheduleRecovery(threadId, retryAt);
+        this.scheduleRecovery(projectId, threadId, retryAt);
         this.emit({ type: "thread", thread });
       }).catch(() => {});
     };
@@ -2715,7 +2713,7 @@ export class WorkspaceService {
           retryAt,
           submission: { messageId: messageId!, state: "not-submitted", skillId },
         });
-        this.scheduleRecovery(saved.id, retryAt);
+        this.scheduleRecovery(saved.projectId, saved.id, retryAt);
         this.emit({ type: "thread", thread: saved });
       }
       throw error;
@@ -3189,7 +3187,8 @@ export class WorkspaceService {
     this.jobs.delete(job.thread.id);
     this.checkoutRuns.delete(job.thread.id);
     this.store.untrackRun(job.thread.id);
-    if (!writeFailure && retry) this.scheduleRecovery(job.thread.id, job.thread.recovery!.retryAt!);
+    if (!writeFailure && retry)
+      this.scheduleRecovery(job.thread.projectId, job.thread.id, job.thread.recovery!.retryAt!);
     else if (!this.closing && !writeFailure && request.kind !== "handover") {
       const background = this.sessions.backgroundContexts.some(
         (item) => item.threadId === job.thread.id,
@@ -3315,9 +3314,7 @@ export class WorkspaceService {
   async stopTaskTurn(projectId: string, threadId: string, taskId: string) {
     const job = this.jobs.get(threadId);
     if (!job) {
-      const entry = (await this.store.updateResumes.list()).find(
-        (item) => item.projectId === projectId && item.threadId === threadId,
-      );
+      const entry = await this.store.updateResumes.get(projectId, threadId);
       if (entry?.submission?.messageId !== taskId) return false;
       await this.stopThread(projectId, threadId);
       return true;
@@ -3407,25 +3404,42 @@ export class WorkspaceService {
     }
   }
 
-  private scheduleRecovery(threadId: string, retryAt: string) {
+  private scheduleRecovery(projectId: string, threadId: string, retryAt: string) {
     clearTimeout(this.recoveryTimers.get(threadId));
     if (this.closing) return;
     const timer = setTimeout(
       () => {
         this.recoveryTimers.delete(threadId);
-        void (async () => {
-          const entry = (await this.store.updateResumes.list()).find(
-            (item) => item.threadId === threadId,
-          );
-          if (entry && this.tasks.isManagedExecution(entry.projectId, threadId))
-            await this.tasks.retryThread(entry.projectId, threadId);
-          else await this.resumeUpdatedThreads();
-        })().catch(() => {});
+        const retry = this.recoverThread(projectId, threadId);
+        this.requests.add(retry);
+        void retry.finally(() => this.requests.delete(retry)).catch(() => {});
       },
       Math.max(1, Date.parse(retryAt) - Date.now()),
     );
     timer.unref();
     this.recoveryTimers.set(threadId, timer);
+  }
+
+  /** Share recovery coordination while delegated work retains scheduler admission. */
+  private async recoverThread(projectId: string, threadId: string) {
+    if (this.closing) return;
+    const generation = this.store.updateResumes.generation(threadId);
+    try {
+      if (!(await this.store.updateResumes.get(projectId, threadId)) || this.closing) return;
+      if (this.tasks.isManagedExecution(projectId, threadId))
+        await this.tasks.retryThread(projectId, threadId);
+      else await this.resumeThread(projectId, threadId);
+      this.recoveryReadAttempts.delete(threadId);
+    } catch {
+      if (this.closing || generation !== this.store.updateResumes.generation(threadId)) return;
+      const attempt = (this.recoveryReadAttempts.get(threadId) ?? 0) + 1;
+      this.recoveryReadAttempts.set(threadId, attempt);
+      this.scheduleRecovery(
+        projectId,
+        threadId,
+        new Date(Date.now() + this.retryDelay(attempt)).toISOString(),
+      );
+    }
   }
 
   private async recoverUpdateThreads() {
@@ -3434,18 +3448,7 @@ export class WorkspaceService {
       await Promise.all(
         entries.slice(index, index + 4).map(async (entry) => {
           if (this.tasks.isManagedExecution(entry.projectId, entry.threadId)) return;
-          try {
-            await this.resumeThread(entry.projectId, entry.threadId);
-            this.recoveryReadAttempts.delete(entry.threadId);
-          } catch {
-            // Missing or unreadable work must not strand the other batches or delegated tasks.
-            const attempt = (this.recoveryReadAttempts.get(entry.threadId) ?? 0) + 1;
-            this.recoveryReadAttempts.set(entry.threadId, attempt);
-            this.scheduleRecovery(
-              entry.threadId,
-              new Date(Date.now() + this.retryDelay(attempt)).toISOString(),
-            );
-          }
+          await this.recoverThread(entry.projectId, entry.threadId);
         }),
       );
     }
@@ -3462,9 +3465,7 @@ export class WorkspaceService {
     return this.serialize(threadId, async () => {
       const active = this.jobs.get(threadId)?.thread;
       if (active) return structuredClone(active);
-      const entry = (await this.store.updateResumes.list()).find(
-        (item) => item.projectId === projectId && item.threadId === threadId,
-      );
+      const entry = await this.store.updateResumes.get(projectId, threadId);
       let thread = await this.store.readThread(projectId, threadId);
       if (!entry || this.closing) return thread;
       if (
@@ -3488,7 +3489,7 @@ export class WorkspaceService {
         return thread;
       }
       if (entry.retryAt && Date.parse(entry.retryAt) > Date.now()) {
-        this.scheduleRecovery(threadId, entry.retryAt);
+        this.scheduleRecovery(projectId, threadId, entry.retryAt);
         return thread;
       }
       clearTimeout(this.recoveryTimers.get(threadId));
@@ -3570,7 +3571,7 @@ export class WorkspaceService {
           retryAt,
           previousSignature: signature,
         });
-        this.scheduleRecovery(threadId, retryAt);
+        this.scheduleRecovery(projectId, threadId, retryAt);
         this.emit({ type: "thread", thread });
         return thread;
       } finally {

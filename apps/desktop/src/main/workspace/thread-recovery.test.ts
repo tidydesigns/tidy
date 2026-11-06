@@ -70,6 +70,52 @@ async function fixture() {
   return { ...initial, directory, root, boot, project, start, runs };
 }
 
+test("a provider retry visits only its thread, leaving unrelated checkpoints alone", async () => {
+  const f = await fixture();
+  spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(10);
+  const first = await f.start();
+  const other = await f.start();
+  const resumes = spyOn(f.service, "resumeThread");
+  const scheduler = spyOn(f.service.tasks, "recover");
+  f.runs[0].fail(new HarnessFailureError("Capacity unavailable", "unavailable"));
+  await until(() => f.runs.length === 3);
+  expect(resumes.mock.calls.map(([projectId, threadId]) => [projectId, threadId])).toEqual([
+    [f.project.id, first.id],
+  ]);
+  expect(scheduler).not.toHaveBeenCalled();
+  expect((await f.service.readThread(f.project.id, other.id)).status).toBe("running");
+  expect(f.runs[1].stopped).toBe(false);
+});
+
+test("update preparation drains an in-flight targeted retry before closing providers", async () => {
+  const f = await fixture();
+  spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(5);
+  await f.start();
+  const entered = Promise.withResolvers<void>(),
+    gate = Promise.withResolvers<void>();
+  const resume = f.service.resumeThread.bind(f.service);
+  const blocked = spyOn(f.service, "resumeThread").mockImplementation(async (...args) => {
+    entered.resolve();
+    await gate.promise;
+    return resume(...args);
+  });
+  f.runs[0].fail(new HarnessFailureError("Provider unavailable", "unavailable"));
+  await entered.promise;
+  let prepared = false;
+  const update = f.service.prepareUpdate().then(() => {
+    prepared = true;
+  });
+  try {
+    await Bun.sleep(15);
+    expect(prepared).toBe(false);
+  } finally {
+    gate.resolve();
+    await update;
+    blocked.mockRestore();
+  }
+  expect(f.runs).toHaveLength(1);
+});
+
 test("unknown provider failures stop after three automatic continuations and retain the request", async () => {
   const f = await fixture();
   spyOn(f.service as unknown as { retryDelay(): number }, "retryDelay").mockReturnValue(5);

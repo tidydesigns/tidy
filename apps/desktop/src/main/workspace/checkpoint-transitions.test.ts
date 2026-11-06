@@ -102,3 +102,51 @@ test("an imported running thread cannot retain a recovery notice without private
   expect(saved.recovery).toBeUndefined();
   expect(await f.store.updateResumes.list()).toEqual([]);
 });
+
+test("active checkpoints reuse only the previous native snapshot hash", async () => {
+  const f = await fixture();
+  f.store.trackRun(f.thread.id, () => ({ automaticQueue: false }));
+  await f.store.writeThread(f.thread);
+  const saved = await f.store.readThread(f.project.id, f.thread.id);
+  const hashes = spyOn(f.store, "updateResumeSignature");
+  cleanup.push(() => hashes.mockRestore());
+  const next = { ...saved, revision: 1 };
+  await f.store.writeThread(next);
+  expect(hashes).toHaveBeenCalledTimes(1);
+  const [entry] = await f.store.updateResumes.list();
+  expect(entry.previousSignature).toBe(await f.store.updateResumeSignature(saved, f.project.path));
+  expect(entry.signature).toBe(await f.store.updateResumeSignature(next, f.project.path));
+  hashes.mockClear();
+  await f.store.writeThread({ ...next, revision: 2, settings: { permissionMode: "auto" } });
+  // New authority needs the current hash and the old snapshot under that new authority.
+  expect(hashes).toHaveBeenCalledTimes(2);
+});
+
+test("a completed old write cannot populate a newly tracked run's snapshot cache", async () => {
+  const f = await fixture();
+  const gate = Promise.withResolvers<void>(),
+    entered = Promise.withResolvers<void>();
+  f.store.trackRun(f.thread.id, () => ({ automaticQueue: false }));
+  const checkpoint = f.store.updateResumes.checkpoint.bind(f.store.updateResumes);
+  const blocked = spyOn(f.store.updateResumes, "checkpoint").mockImplementation(async (...args) => {
+    entered.resolve();
+    await gate.promise;
+    await checkpoint(...args);
+  });
+  cleanup.push(() => blocked.mockRestore());
+  const writing = f.store.writeThread(f.thread);
+  await entered.promise;
+  f.store.untrackRun(f.thread.id);
+  f.store.trackRun(f.thread.id, () => ({ automaticQueue: false }));
+  gate.resolve();
+  await writing;
+  blocked.mockRestore();
+  expect((Reflect.get(f.store, "runSnapshots") as Map<string, unknown>).has(f.thread.id)).toBe(
+    false,
+  );
+  const hashes = spyOn(f.store, "updateResumeSignature");
+  cleanup.push(() => hashes.mockRestore());
+  const next = { ...f.thread, revision: 1 };
+  await f.store.writeThread(next);
+  expect(hashes).toHaveBeenCalledTimes(1);
+});

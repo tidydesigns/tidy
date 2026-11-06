@@ -98,6 +98,13 @@ export class DesignVersionConflictError extends Error {
 }
 
 /** Project directories are explicitly selected on the host, then addressed by IDs. */
+type RunSnapshot = {
+  thread: Thread;
+  signature: string;
+  executionPath: string;
+  projectPath: string;
+};
+
 export class ProjectStore {
   readonly processState: PrivateState;
   readonly orchestrationDirectory: string;
@@ -122,16 +129,16 @@ export class ProjectStore {
   readonly updateResumes: UpdateResumes;
   private runningCheckpoints = new Map<
     string,
-    () => Omit<UpdateResume, "signature" | "projectId" | "threadId">
+    { plan: () => Omit<UpdateResume, "signature" | "projectId" | "threadId"> }
   >();
-  private runSnapshots = new Map<string, Thread>();
+  private runSnapshots = new Map<string, RunSnapshot>();
 
   /** Only a native run can authorize automatic execution after a crash. */
   trackRun(
     threadId: string,
     checkpoint: () => Omit<UpdateResume, "signature" | "projectId" | "threadId">,
   ) {
-    this.runningCheckpoints.set(threadId, checkpoint);
+    this.runningCheckpoints.set(threadId, { plan: checkpoint });
   }
 
   untrackRun(threadId: string) {
@@ -685,15 +692,16 @@ export class ProjectStore {
       textLength >= 256 * 1024
         ? () => projectCompute.encodeThread(portable)
         : JSON.stringify(portable, null, 2);
+    const trackedRun = this.runningCheckpoints.get(value.id);
+    let writtenSnapshot: RunSnapshot | undefined;
     const written = this.writeEncoded(async () => {
       const path = await this.storagePath(value.projectId, "threads", value.id);
-      const checkpoint = this.runningCheckpoints.get(value.id);
+      const checkpoint =
+        this.runningCheckpoints.get(value.id) === trackedRun ? trackedRun?.plan : undefined;
       let pending: UpdateResume | undefined;
       let authorizedSnapshot: Thread | undefined;
       if (!checkpoint && value.recovery && !value.doneAt) {
-        const entry = (await this.updateResumes.list()).find(
-          (entry) => entry.projectId === value.projectId && entry.threadId === value.id,
-        );
+        const entry = await this.updateResumes.get(value.projectId, value.id);
         if (entry) {
           const previous = await this.readThread(value.projectId, value.id);
           const signature = await this.updateResumeSignature(
@@ -746,7 +754,17 @@ export class ProjectStore {
         const plan = checkpoint ? checkpoint() : pending!;
         const executionPath =
           value.worktree?.path ?? this.project(value.executionProjectId ?? value.projectId).path;
-        const snapshot = this.runSnapshots.get(value.id) ?? authorizedSnapshot;
+        const projectPath = this.project(value.projectId).path;
+        const cached = this.runSnapshots.get(value.id);
+        const snapshot = cached?.thread ?? authorizedSnapshot;
+        const snapshotSignature = (previous: Thread) =>
+          cached &&
+          cached.executionPath === executionPath &&
+          cached.projectPath === projectPath &&
+          cached.thread.sessionId === previous.sessionId &&
+          cached.thread.settings?.permissionMode === previous.settings?.permissionMode
+            ? Promise.resolve(cached.signature)
+            : this.updateResumeSignature(previous, executionPath);
         // Only native snapshots or snapshots matching private intent authorize the old side of a rename.
         const previous = snapshot
           ? {
@@ -757,7 +775,7 @@ export class ProjectStore {
           : undefined;
         const signature = await this.updateResumeSignature(value, executionPath);
         const previousSignature = previous
-          ? await this.updateResumeSignature(previous, executionPath)
+          ? await snapshotSignature(previous)
           : plan.previousSignature;
         if (snapshot) {
           const authority = await this.authority.read(this.project(value.projectId).path, value);
@@ -777,7 +795,7 @@ export class ProjectStore {
                 projectId: value.projectId,
                 threadId: value.id,
                 signature: previousSignature!,
-                previousSignature: await this.updateResumeSignature(beforeAuthority, executionPath),
+                previousSignature: await snapshotSignature(beforeAuthority),
               },
               recoveryGeneration,
             );
@@ -790,6 +808,12 @@ export class ProjectStore {
           signature,
           previousSignature,
         };
+        writtenSnapshot = {
+          thread: value,
+          signature,
+          executionPath,
+          projectPath,
+        };
       }
       await this.authority.write(
         this.project(value.projectId).path,
@@ -801,7 +825,12 @@ export class ProjectStore {
       return path;
     }, encoded);
     return written.then(() => {
-      if (this.runningCheckpoints.has(value.id)) this.runSnapshots.set(value.id, value);
+      if (
+        writtenSnapshot &&
+        this.runningCheckpoints.get(value.id) === trackedRun &&
+        recoveryGeneration === this.updateResumes.generation(value.id)
+      )
+        this.runSnapshots.set(value.id, writtenSnapshot);
     });
   }
 
