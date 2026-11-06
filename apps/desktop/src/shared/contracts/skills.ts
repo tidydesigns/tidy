@@ -122,13 +122,13 @@ export function promptSkill(
   skills: readonly Skill[],
   remembered?: Pick<Skill, "id" | "name">,
 ) {
+  const commands = skillCommands(text);
+  const names = new Set(skills.map((skill) => skill.name));
   const command =
-    skillCommand(
-      text,
-      skills.map((skill) => skill.name),
-    ) ??
-    (remembered ? skillCommand(text, [remembered.name]) : null) ??
-    skillCommand(text);
+    commands.find((command) => names.has(command.name)) ??
+    commands.find((command) => command.name === remembered?.name) ??
+    commands[0] ??
+    null;
   const skill =
     (remembered?.name === command?.name ? remembered : undefined) ??
     skills.find((skill) => skill.name === command?.name);

@@ -165,6 +165,7 @@ describe("prompt skill selection", () => {
   test("uses prompt order and rejects a different remembered name", () => {
     const audit = { id: "audit", name: "audit", description: "" };
     expect(promptSkill("Use $audit then $review", [review, audit], remembered).skill).toBe(audit);
+    expect(promptSkill("Use $review then $audit", [audit], remembered).skill).toBe(audit);
     expect(promptSkill("Use $audit", [], remembered).skill).toBeUndefined();
   });
   test("honors the maximum skill name and does not match longer names partially", () => {

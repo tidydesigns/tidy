@@ -57,6 +57,46 @@ export async function runSkillSelectionTests(root: Root) {
   flushSync(() => document.execCommand("undo"));
   check(edited === "Plain draft", "Plain typing broke native undo");
 
+  let descriptionReads = 0;
+  const measured = [
+    {
+      ...demo[0],
+      get description() {
+        descriptionReads++;
+        return "Review changes";
+      },
+    },
+  ];
+  flushSync(() => root.render(<Editable key="dismissed" initial="/rev /r" skills={measured} />));
+  const dismissedEditor = host.querySelector<HTMLElement>('[role="textbox"]');
+  if (!dismissedEditor) throw new Error("Missing dismissed-picker editor");
+  flushSync(() => {
+    input.current?.focus();
+    input.current?.setSelectionRange(4, 4);
+    dismissedEditor.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await settle();
+  check(host.querySelector('[role="listbox"]'), "Picker did not open before dismissal");
+  flushSync(() =>
+    dismissedEditor.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    ),
+  );
+  descriptionReads = 0;
+  flushSync(() => {
+    input.current?.setSelectionRange(7, 7);
+    dismissedEditor.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  check(
+    !host.querySelector('[role="listbox"]') && !descriptionReads,
+    "Dismissed picker still filters the catalog",
+  );
+  flushSync(() => document.execCommand("insertText", false, "e"));
+  check(
+    host.querySelector('[role="listbox"]') && descriptionReads > 0,
+    "Typing did not reopen the picker",
+  );
+
   for (const initial of ["/rev", "Before /review", ""]) {
     flushSync(() => root.render(<Editable key={`undo-${initial}`} initial={initial} />));
     input.current?.focus();

@@ -75,6 +75,7 @@ export function SkillPrompt({
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const query = skillQuery(value, cursor);
+  const visible = focused && !props.disabled && !dismissed && query !== null;
   const catalog = useMemo(() => new Map(skills.map((skill) => [skill.name, skill])), [skills]);
   const invokedSkills = useMemo(() => {
     const names = new Set(skillCommands(value).map((command) => command.name));
@@ -85,8 +86,8 @@ export function SkillPrompt({
     });
   }, [value, catalog, rememberedSkill]);
   const matches = useMemo(
-    () => (query === null ? [] : matchingSkills(skills, query)),
-    [skills, query],
+    () => (visible ? matchingSkills(skills, query) : []),
+    [skills, query, visible],
   );
   const [rowHeight, setRowHeight] = useState(34);
   const virtualized = matches.length > 100;
@@ -98,7 +99,6 @@ export function SkillPrompt({
     },
     [virtual.attach],
   );
-  const visible = focused && !props.disabled && !dismissed && query !== null;
   const selected = matches[active] ?? matches[0];
   const selectedIndex = selected ? matches.indexOf(selected) : -1;
   const renderedIndices = virtualized
