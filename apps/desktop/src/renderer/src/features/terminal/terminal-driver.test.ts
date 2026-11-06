@@ -413,3 +413,26 @@ test("native reset cancels partial escapes and restores screen, modes, colors an
     }
   });
 });
+
+test("fractional scroll positions paint whole rows from the correct Unicode buffers", async () => {
+  await fixture(({ terminal, flush, glyphs }) => {
+    terminal.resize(20, 3);
+    terminal.write("older\r\ne\u0301 old\r\n👩‍💻 coder\r\nZ live\r\nQ live");
+    flush();
+    for (const [offset, expected] of [
+      [1.5, "e\u0301old👩‍💻coderZlive"],
+      [0.5, "👩‍💻coderZliveQlive"],
+    ] as const) {
+      glyphs.length = 0;
+      terminal.scrollToLine(offset);
+      flush();
+      expect(glyphs.length).toBeGreaterThan(0);
+      expect(
+        glyphs
+          .join("")
+          .split(expected)
+          .every((part) => part === ""),
+      ).toBe(true);
+    }
+  });
+});
