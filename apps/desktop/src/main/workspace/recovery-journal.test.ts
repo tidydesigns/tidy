@@ -106,3 +106,90 @@ test("a failed directory sync cannot make an identical retry skip durability", a
   expect((await fs.stat(f.path, { bigint: true })).ino).not.toBe(failed.ino);
   expect((await f.journal.get(entry.projectId, entry.threadId))?.signature).toBe(entry.signature);
 });
+
+for (const change of ["overwrite", "replace", "remove", "invalid", "symlink"] as const)
+  test(`a journal ${change} before a native write returns cannot inherit its cached authority`, async () => {
+    const f = await fixture();
+    const rename = fs.rename;
+    let changed = false;
+    const racing = spyOn(fs, "rename").mockImplementation(
+      async (...args: Parameters<typeof fs.rename>) => {
+        await rename(...args);
+        if (args[1] === f.path && !changed) {
+          changed = true;
+          const data = JSON.stringify([{ ...f.entry, signature: "c".repeat(64) }]);
+          if (change === "overwrite") await fs.writeFile(f.path, data);
+          if (change === "replace") {
+            await fs.writeFile(f.path + ".replacement", data);
+            await rename(f.path + ".replacement", f.path);
+          }
+          if (change === "remove" || change === "symlink") await fs.rm(f.path);
+          if (change === "invalid") await fs.writeFile(f.path, "[{}]");
+          if (change === "symlink") {
+            await fs.writeFile(f.path + ".other", data);
+            await fs.symlink(f.path + ".other", f.path);
+          }
+        }
+      },
+    );
+    try {
+      await f.journal.checkpoint({ ...f.entry, signature: "b".repeat(64) });
+    } finally {
+      racing.mockRestore();
+    }
+    expect(changed).toBe(true);
+    if (change === "invalid" || change === "symlink") {
+      let rejected = false;
+      try {
+        await f.journal.get(f.entry.projectId, f.entry.threadId);
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
+    } else {
+      expect((await f.journal.get(f.entry.projectId, f.entry.threadId))?.signature).toBe(
+        change === "remove" ? undefined : "c".repeat(64),
+      );
+    }
+  });
+
+test("restaging a captured checkpoint does not rewrite omitted optional fields", async () => {
+  const root = await fs.mkdtemp(join(tmpdir(), "tidy-journal-optional-"));
+  roots.push(root);
+  const journal = new UpdateResumes(root);
+  const path = join(root, "update-resumes.json");
+  await journal.checkpoint({
+    projectId: randomUUID(),
+    threadId: randomUUID(),
+    signature: "a".repeat(64),
+    automaticQueue: false,
+    submission: { messageId: randomUUID(), state: "accepted", skillId: undefined },
+  });
+  const before = await fs.stat(path, { bigint: true });
+  await journal.stage(JSON.parse(await fs.readFile(path, "utf8")));
+  const after = await fs.stat(path, { bigint: true });
+  expect(after.ino).toBe(before.ino);
+  expect(after.mtimeNs).toBe(before.mtimeNs);
+});
+
+test("an oversized journal is rejected before replacing recoverable work", async () => {
+  const f = await fixture();
+  const before = await fs.readFile(f.path, "utf8");
+  const info = await fs.stat(f.path, { bigint: true });
+  const entries = Array.from({ length: 1000 }, (_, index) => ({
+    ...f.entry,
+    threadId: index ? randomUUID() : f.entry.threadId,
+    reason: "provider" as const,
+    attempt: 1,
+    unknownAttempts: 1,
+    background: true,
+    retryAt: new Date().toISOString(),
+    submission: { ...f.entry.submission, skillId: "\0".repeat(128) },
+  }));
+  expect(Buffer.byteLength(JSON.stringify(entries))).toBeGreaterThan(1024 * 1024);
+  await expect(f.journal.stage(entries)).rejects.toThrow("size limit");
+  expect(await fs.readFile(f.path, "utf8")).toBe(before);
+  await f.journal.checkpoint(f.entry);
+  expect((await fs.stat(f.path, { bigint: true })).ino).toBe(info.ino);
+  expect(await f.journal.list()).toEqual([f.entry]);
+});

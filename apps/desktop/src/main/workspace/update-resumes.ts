@@ -37,6 +37,7 @@ const journalSchema = z
     (entries) => new Set(entries.map((entry) => entry.threadId)).size === entries.length,
     "Recovery entries must have unique thread IDs.",
   );
+const MAX_JOURNAL_BYTES = 1024 * 1024;
 
 /** Native execution writes this private journal. Portable thread JSON cannot request execution. */
 export class UpdateResumes {
@@ -45,6 +46,7 @@ export class UpdateResumes {
   private generations = new Map<string, number>();
   private writeFailed = false;
   private cached?: { version: string; entries: ReadonlyMap<string, UpdateResume> };
+  private written?: string;
   constructor(directory: string) {
     this.path = join(directory, "update-resumes.json");
   }
@@ -67,26 +69,36 @@ export class UpdateResumes {
       const version = await this.version();
       if (this.cached?.version === version) return this.cached.entries;
       this.cached = undefined;
-      const entries =
+      const encoded =
         version === "missing"
-          ? []
-          : journalSchema.parse(
-              JSON.parse((await readLocalFile(this.path, 1024 * 1024)).toString("utf8")),
-            );
+          ? "[]"
+          : (await readLocalFile(this.path, MAX_JOURNAL_BYTES)).toString("utf8");
+      // Matching JSON text already passed native validation before the durable write.
+      const entries =
+        this.written === encoded
+          ? (JSON.parse(encoded) as UpdateResume[])
+          : journalSchema.parse(JSON.parse(encoded));
       if (version !== (await this.version())) continue;
       const indexed = new Map(entries.map((entry) => [entry.threadId, entry]));
       this.cached = { version, entries: indexed };
+      this.written = undefined;
       return indexed;
     }
     throw new Error("Recovery intent changed while it was being read. Retry shortly.");
   }
 
-  /** A changed journal must be reread once; never bind cached values to an external replacement. */
+  /** Reuse native validation only after reading back exactly the JSON that was written. */
   private async write(entries: ReadonlyMap<string, UpdateResume>) {
     if (entries.size > 1000) throw new Error("Recovery intent reached its entry limit.");
+    const values = [...entries.values()];
+    const encoded = JSON.stringify(values);
+    if (Buffer.byteLength(encoded) > MAX_JOURNAL_BYTES)
+      throw new Error("Recovery intent reached its size limit.");
     this.cached = undefined;
+    this.written = undefined;
     this.writeFailed = true;
-    await writePrivateJSON(this.path, [...entries.values()], { durable: true });
+    await writePrivateJSON(this.path, values, { durable: true });
+    this.written = encoded;
     this.writeFailed = false;
   }
 
