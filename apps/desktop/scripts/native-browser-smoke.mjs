@@ -388,6 +388,82 @@ const deadline = setTimeout(() => {
     ).output,
     '""',
   );
+  const automation = await runtime.get();
+  const automationPage = (await automation.pages()).find(
+    (p) => p.url() === page.webContents.getURL(),
+  );
+  assert.ok(automationPage);
+  const pageSession = await automationPage.createCDPSession();
+  window.webContents.debugger.attach("1.3");
+  const { targetInfo: trustedTarget } =
+    await window.webContents.debugger.sendCommand("Target.getTargetInfo");
+  window.webContents.debugger.detach();
+  const forbiddenTargets = [trustedTarget.targetId, isolated.state.tabs[0].nativeTargetId];
+  const browserSession = await automation.target().createCDPSession();
+  const { browserContextIds } = await browserSession.send("Target.getBrowserContexts");
+  for (const method of ["Target.attachToBrowserTarget", "Browser.crash"])
+    await assert.rejects(
+      browserSession.send(method, { browserContextId: browserContextIds[0] }),
+      /Unsupported native browser command/,
+    );
+  const rootTargets = await browserSession.send("Target.getTargets");
+  assert.ok(!rootTargets.targetInfos.some((target) => target.targetId === trustedTarget.targetId));
+  await browserSession.detach();
+  const discovered = await pageSession.send("Target.getTargets");
+  for (const targetId of forbiddenTargets) {
+    assert.ok(!discovered.targetInfos.some((target) => target.targetId === targetId));
+    await assert.rejects(
+      pageSession.send("Target.getTargetInfo", { targetId }),
+      /Unknown native browser target/,
+    );
+    await assert.rejects(
+      pageSession.send("Target.attachToTarget", { targetId, flatten: true }),
+      /Unknown native browser target/,
+    );
+  }
+  for (const method of [
+    "Target.attachToBrowserTarget",
+    "Target.autoAttachRelated",
+    "Target.sendMessageToTarget",
+    "Browser.crash",
+  ])
+    await assert.rejects(pageSession.send(method, {}), /Unsupported native browser command/);
+  await automationPage.evaluate(() => {
+    window.previewWorker = new Worker(
+      URL.createObjectURL(
+        new Blob(["self.onmessage = event => postMessage(event.data + 1)"], {
+          type: "text/javascript",
+        }),
+      ),
+    );
+    const iframe = document.createElement("iframe");
+    iframe.src = new URL("/frame", location.href).href;
+    document.body.append(iframe);
+  });
+  await until(
+    () =>
+      automationPage.workers().length &&
+      automationPage.frames().some((frame) => frame.url().endsWith("/frame")),
+  );
+  const workerSession = automationPage.workers()[0].client;
+  assert.ok(workerSession);
+  assert.equal(
+    (await workerSession.send("Runtime.evaluate", { expression: "6 * 7", returnByValue: true }))
+      .result.value,
+    42,
+  );
+  for (const targetId of forbiddenTargets)
+    await assert.rejects(
+      workerSession.send("Target.attachToTarget", { targetId, flatten: true }),
+      /Unknown native browser target/,
+    );
+  const iframe = automationPage.frames().find((frame) => frame.url().endsWith("/frame"));
+  assert.equal(await iframe.evaluate(() => document.title), "Native service");
+  await automationPage.evaluate(() => {
+    window.previewWorker.terminate();
+    document.querySelector("iframe").remove();
+  });
+  await pageSession.detach();
   await browser.command(scope, {
     kind: "evaluate",
     tabId,

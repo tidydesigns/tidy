@@ -135,6 +135,7 @@ export class RemoteClient {
       },
     });
   }
+  /** Reconnect a scoped viewer, restoring visibility and its negotiated presentation choice. */
   watchBrowser(
     scope: BrowserScope,
     viewerId: string,
@@ -146,6 +147,8 @@ export class RemoteClient {
     let connection: RemoteConnection | undefined;
     let generation = 0;
     let visible = false;
+    let nativeEnabled: boolean | undefined;
+    let nativeControl = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let opening: AbortController | undefined;
     const connect = () => {
@@ -204,13 +207,12 @@ export class RemoteClient {
           .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
           .parse(await response.json());
         if (closed || version !== generation) return;
+        nativeControl = native && capabilities.includes("browser-native-presentation");
         const params = new URLSearchParams({
           ...scope,
           viewerId,
           ticket,
-          ...(native && capabilities.includes("browser-native-presentation")
-            ? { native: "1" }
-            : {}),
+          ...(nativeControl ? { native: "1" } : {}),
         });
         const next = new WebSocket(
           `${active.origin.replace("http:", "ws:")}/browser-stream?${params}`,
@@ -241,6 +243,14 @@ export class RemoteClient {
                 tabId: null,
                 viewId: null,
                 input: { kind: "visibility", visible },
+              }),
+            );
+          if (!closed && version === generation && nativeControl && nativeEnabled !== undefined)
+            next.send(
+              JSON.stringify({
+                tabId: null,
+                viewId: null,
+                input: { kind: "native-presentation", enabled: nativeEnabled },
               }),
             );
         });
@@ -291,6 +301,10 @@ export class RemoteClient {
     return {
       input: (input) => {
         if (input.input.kind === "visibility") visible = input.input.visible;
+        if (input.input.kind === "native-presentation") {
+          nativeEnabled = input.input.enabled;
+          if (!nativeControl) return;
+        }
         if (socket?.readyState !== WebSocket.OPEN) return;
         const bufferLimit = input.input.kind === "text" ? 4 * 1024 * 1024 : 128 * 1024;
         if (socket.bufferedAmount > bufferLimit) {

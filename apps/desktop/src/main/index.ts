@@ -262,8 +262,13 @@ app
     };
     const initial = await acquire();
     const ownsInitialService = Boolean(initial.service);
-    if (!ownsInitialService)
-      closeNativeBrowser = await serveNativeBrowser(nativeBrowser, directory);
+    if (!ownsInitialService) {
+      try {
+        closeNativeBrowser = await serveNativeBrowser(nativeBrowser, directory);
+      } catch (error) {
+        console.warn("Native browser broker unavailable; using browser streaming:", error);
+      }
+    }
     service =
       initial.service ?? new WorkspaceService(new ProjectStore(join(directory, "unused-local")));
     // An owned service is already ready and is reached through direct IPC. A loopback

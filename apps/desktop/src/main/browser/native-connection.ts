@@ -40,13 +40,22 @@ export async function connectNativeBrowser(directory?: string) {
     maxPayload: 32 * 1024 * 1024,
     perMessageDeflate: false,
   });
-  const opened = await new Promise<boolean>((resolve) => {
-    socket.once("open", () => resolve(true));
-    socket.once("error", () => resolve(false));
-  });
-  if (!opened) {
+  const result = await new Promise<{ opened: true } | { opened: false; error: Error }>(
+    (resolve) => {
+      socket.once("open", () => resolve({ opened: true }));
+      socket.once("error", (error) => resolve({ opened: false, error }));
+    },
+  );
+  if (!result.opened) {
     socket.terminate();
-    throw new Error("The local native browser is reconnecting. Retry shortly.");
+    // Cleanup may be unable to unlink or invalidate a live-PID descriptor.
+    // A missing/refused socket has no broker; rejection and handshake timeouts
+    // can be temporary while the native runtime resets and must remain retryable.
+    const code = "code" in result.error ? result.error.code : undefined;
+    if (code === "ENOENT" || code === "ECONNREFUSED") return undefined;
+    throw new Error("The local native browser is reconnecting. Retry shortly.", {
+      cause: result.error,
+    });
   }
   const transport: ConnectionTransport = {
     send: (message) => socket.send(message),

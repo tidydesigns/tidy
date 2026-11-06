@@ -48,7 +48,7 @@ export class NativeBrowserRuntime implements ConnectionTransport {
   private readonly opening = new Set<WebContentsView>();
   private readonly contexts = new Map<string, NativeContext>();
   private readonly pages = new Map<string, NativePage>();
-  private readonly sessions = new Map<string, NativePage>();
+  private readonly sessions = new Map<string, { page: NativePage; info: TargetInfo }>();
   private readonly presenters = new Map<number, () => void>();
   private readonly browserSessions = new Set<string>();
   private discovering = false;
@@ -212,12 +212,39 @@ export class NativeBrowserRuntime implements ConnectionTransport {
       contents.debugger.on(
         "message",
         (_event, method, params: Record<string, unknown>, sessionId) => {
+          if (sessionId && this.sessions.get(sessionId)?.page !== page) return;
           if (method === "Page.frameNavigated" && !(params.frame as { parentId?: string }).parentId)
             page.frameId = (params.frame as { id: string }).id;
-          if (method === "Target.attachedToTarget")
-            this.sessions.set(params.sessionId as string, page);
+          if (method === "Target.attachedToTarget") {
+            const info = params.targetInfo as TargetInfo;
+            // Only Chromium's children of this debugger may extend its session tree.
+            // Manual attachment is checked below before Chromium receives the request.
+            if (
+              info.targetId !== page.info.targetId &&
+              (!sessionId ||
+                !["iframe", "worker", "shared_worker", "service_worker"].includes(info.type) ||
+                (info.browserContextId && info.browserContextId !== page.info.browserContextId))
+            ) {
+              void contents.debugger
+                .sendCommand("Target.detachFromTarget", { sessionId: params.sessionId })
+                .catch(() => {});
+              return;
+            }
+            this.sessions.set(params.sessionId as string, { page, info });
+          }
           if (method === "Target.detachedFromTarget")
             this.sessions.delete(params.sessionId as string);
+          if (method === "Target.targetInfoChanged") {
+            const info = params.targetInfo as TargetInfo;
+            let known = info.targetId === page.info.targetId;
+            for (const target of this.sessions.values())
+              if (target.page === page && target.info.targetId === info.targetId) {
+                target.info = info;
+                known = true;
+              }
+            if (known) this.emit({ method, params });
+            return;
+          }
           // Root discovery must never reveal the trusted app or another browser runtime.
           if (
             !sessionId &&
@@ -249,7 +276,7 @@ export class NativeBrowserRuntime implements ConnectionTransport {
         this.hide(page);
         this.pages.delete(page.info.targetId);
         for (const [id, owner] of this.sessions)
-          if (owner === page) {
+          if (owner.page === page) {
             this.sessions.delete(id);
             this.emit({
               method: "Target.detachedFromTarget",
@@ -283,6 +310,7 @@ export class NativeBrowserRuntime implements ConnectionTransport {
       });
   }
 
+  /** Keep global target operations in the shim and page sessions within their preview tree. */
   private async command({ method, params = {}, sessionId }: Message): Promise<unknown> {
     if (this.closed) throw new Error("The browser is closing.");
     const browserLevel = !sessionId || this.browserSessions.has(sessionId);
@@ -298,6 +326,12 @@ export class NativeBrowserRuntime implements ConnectionTransport {
           };
         case "Target.getBrowserContexts":
           return { browserContextIds: [...this.contexts.keys()] };
+        case "Target.getTargets":
+          return {
+            targetInfos: [...this.pages.values()]
+              .filter((page) => page.exposed)
+              .map((page) => page.info),
+          };
         case "Target.setDiscoverTargets":
           this.discovering = params.discover === true;
           if (this.discovering) {
@@ -422,9 +456,9 @@ export class NativeBrowserRuntime implements ConnectionTransport {
             this.emit({ method: "Target.detachedFromTarget", params: { sessionId: id } });
             return {};
           }
-          const page = this.sessions.get(id);
-          if (!page) throw new Error("Unknown native browser session.");
-          return page.view.webContents.debugger.sendCommand(method, params);
+          const session = this.sessions.get(id);
+          if (!session) throw new Error("Unknown native browser session.");
+          return session.page.view.webContents.debugger.sendCommand(method, params);
         }
         case "Target.closeTarget": {
           const page = this.pages.get(params.targetId as string);
@@ -436,6 +470,8 @@ export class NativeBrowserRuntime implements ConnectionTransport {
           this.close();
           return {};
       }
+      if (method.startsWith("Target.") || method.startsWith("Browser."))
+        throw new Error(`Unsupported native browser command: ${method}`);
       const context = this.contexts.get(params.browserContextId as string);
       if (!context) throw new Error(`Unsupported native browser command: ${method}`);
       const anchor = [...this.pages.values()].find(
@@ -444,9 +480,38 @@ export class NativeBrowserRuntime implements ConnectionTransport {
       if (!anchor) throw new Error("The native browser context closed.");
       return anchor.view.webContents.debugger.sendCommand(method, params);
     }
-    const page = this.sessions.get(sessionId!);
+    const attached = this.sessions.get(sessionId!);
+    if (!attached) throw new Error("Unknown native browser session.");
+    const { page } = attached;
+    if (method.startsWith("Target.")) {
+      const infos = new Map([[page.info.targetId, page.info]]);
+      for (const target of this.sessions.values())
+        if (target.page === page) infos.set(target.info.targetId, target.info);
+      switch (method) {
+        case "Target.getTargets":
+          return { targetInfos: [...infos.values()] };
+        case "Target.getTargetInfo": {
+          const info = infos.get((params.targetId as string | undefined) ?? attached.info.targetId);
+          if (!info) throw new Error("Unknown native browser target.");
+          break;
+        }
+        case "Target.attachToTarget":
+          if (!infos.has(params.targetId as string))
+            throw new Error("Unknown native browser target.");
+          break;
+        case "Target.detachFromTarget":
+          if (this.sessions.get(params.sessionId as string)?.page !== page)
+            throw new Error("Unknown native browser session.");
+          break;
+        case "Target.setAutoAttach":
+          break;
+        default:
+          throw new Error(`Unsupported native browser command: ${method}`);
+      }
+    }
+    if (method.startsWith("Browser."))
+      throw new Error(`Unsupported native browser command: ${method}`);
     if (method === "Page.bringToFront") return {};
-    if (!page) throw new Error("Unknown native browser session.");
     return page.view.webContents.debugger.sendCommand(method, params, sessionId);
   }
 
