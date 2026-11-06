@@ -24,6 +24,10 @@ and assets retain their original licenses and copyright notices.
   and affiliates. Their shared upstream license is retained at
   `licenses/bundled/React.txt`.
 
+- **TanStack Virtual** (`@tanstack/react-virtual` and `@tanstack/virtual-core`):
+  MIT, copyright Tanner Linsley. The upstream license is retained at
+  `licenses/bundled/TanStack-Virtual.txt`.
+
 - **fflate**, **fzstd** and **kiwi-schema**: MIT. Their upstream notices are
   retained in `licenses/bundled/fflate.txt`, `fzstd.txt` and `Kiwi.txt`.
 - **openfig-core 0.4.1**: its package metadata declares MIT and names rcoenen

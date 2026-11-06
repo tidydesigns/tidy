@@ -114,18 +114,22 @@ const { createInterface } = require('node:readline');
 const { spawn } = require('node:child_process');
 const { writeFileSync } = require('node:fs');
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+let environment = process.env;
 createInterface({ input: process.stdin }).on('line', line => {
  const value = JSON.parse(line);
  if (value.method === 'initialize') send({ id: value.id, result: {} });
- if (value.method === 'thread/start') send({ id: value.id, result: { thread: { id: '${randomUUID()}' } } });
+ if (value.method === 'thread/start') {
+  environment = { ...process.env, ...value.params.config?.['shell_environment_policy.set'] };
+  send({ id: value.id, result: { thread: { id: '${randomUUID()}' } } });
+ }
  if (value.method === 'turn/start') {
   send({ id: value.id, result: { turn: { id: 'turn' } } });
   const server = spawn(process.execPath, ['-e', "require('node:net').createServer().listen(0, '127.0.0.1', function () { process.send({ pid: process.pid, port: this.address().port }); });"],
-   { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+   { detached: true, env: environment, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
   server.on('message', info => {
    writeFileSync('server.json', JSON.stringify(info));
    server.disconnect(); server.unref();
-   send({ method: 'turn/completed', params: { turn: { id: 'turn', status: 'completed' } } });
+   send({ method: 'turn/completed', params: { threadId: value.params.threadId, turn: { id: 'turn', status: 'completed' } } });
   });
  }
 });

@@ -17,6 +17,14 @@
     "versions": ["0.21.4"],
     "upstream": "https://github.com/wxt-dev/wxt/blob/main/LICENSE"
   },
+  "@tanstack/react-virtual": {
+    "source": "LICENSE",
+    "notice": "TanStack-Virtual.txt"
+  },
+  "@tanstack/virtual-core": {
+    "source": "LICENSE",
+    "notice": "TanStack-Virtual.txt"
+  },
   "react": {
     "source": "LICENSE",
     "notice": "React.txt"

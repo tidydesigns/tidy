@@ -19,6 +19,7 @@ import {
   startHarness,
   type HarnessUpdate,
 } from "./harnesses";
+import { HarnessSessions } from "./harness-sessions";
 import { delimiter, dirname, isAbsolute } from "node:path";
 import { harnessSettingsSchema } from "../../shared/contracts/harness-settings";
 
@@ -758,4 +759,39 @@ test("Claude warnings and retries do not fail turns, rejected limits can recover
   expect(updates.at(-1)).toMatchObject({ type: "error", kind: "rate-limit" });
   parse({ type: "result", subtype: "success", is_error: false });
   expect(updates.at(-1)).toMatchObject({ type: "error-cleared" });
+});
+
+test("native permission fixture routes approvals after multiple conversations prepare on one server", async () => {
+  const { directory, executable } = await fixture();
+  const sessions = new HarnessSessions({ idleLimit: 4, idleMs: 60_000 });
+  const context = {
+    projectId: "fixture-project",
+    harness: "codex" as const,
+    executable,
+    cwd: directory,
+    settings: { permissionMode: "default" as const },
+  };
+  try {
+    await sessions.prepare({ kind: "composer", id: "project", context });
+    await sessions.prepare({ kind: "thread", id: "other", context });
+    await sessions.clear({ threadId: "composer:project" });
+    const approval =
+      Promise.withResolvers<Extract<HarnessUpdate, { type: "approval" }>["request"]>();
+    const messages: string[] = [];
+    const run = sessions.start("other", {
+      ...context,
+      prompt: "permission-fixture",
+      onUpdate(update) {
+        if (update.type === "approval") approval.resolve(update.request);
+        if (update.type === "message") messages.push(update.text);
+      },
+    });
+    const request = await approval.promise;
+    expect(run.respondToApproval?.(request.id, "deny")).toBe(true);
+    await run.done;
+    expect(messages.join("")).toBe("Action declined.");
+    await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+  } finally {
+    await sessions.clear();
+  }
 });

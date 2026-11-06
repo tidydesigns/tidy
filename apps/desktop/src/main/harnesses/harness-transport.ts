@@ -24,6 +24,19 @@ const envelope = z
   })
   .passthrough();
 export type ProtocolMessage = z.infer<typeof envelope>;
+export type HarnessChannel = Pick<
+  HarnessTransport,
+  | "available"
+  | "done"
+  | "onMessage"
+  | "onClose"
+  | "request"
+  | "write"
+  | "notify"
+  | "respond"
+  | "reject"
+> & { close(force?: boolean): void };
+
 export type TransportInput = {
   executable: string;
   args: string[];

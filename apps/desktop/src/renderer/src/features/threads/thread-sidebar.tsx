@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState, type ReactNode, type PointerEvent } from "react";
 import { z } from "zod";
+import { ThreadList } from "./thread-list";
 import { DraftThreadCard } from "./draft-thread-card";
 import { useThreadDrag } from "./use-thread-drag";
 import { useDraftSidebarMotion } from "./use-draft-sidebar-motion";
@@ -31,24 +32,20 @@ const ThreadRow = memo(function ThreadRow({
   move: ReturnType<typeof useThreadDrag>["move"];
   renderThread: RenderThread;
 }) {
-  return (
-    <div className="thread-order-row" data-thread-id={thread.id}>
-      {renderThread(
-        thread,
-        filtered
-          ? undefined
-          : {
-              dragging,
-              onPointerDown(event) {
-                onPointerDown({ event, id: thread.id });
-              },
-              onMove(direction) {
-                const neighbor = direction < 0 ? previousId : nextId;
-                if (neighbor) move({ id: thread.id, to: neighbor, after: direction > 0 });
-              },
-            },
-      )}
-    </div>
+  return renderThread(
+    thread,
+    filtered
+      ? undefined
+      : {
+          dragging,
+          onPointerDown(event) {
+            onPointerDown({ event, id: thread.id });
+          },
+          onMove(direction) {
+            const neighbor = direction < 0 ? previousId : nextId;
+            if (neighbor) move({ id: thread.id, to: neighbor, after: direction > 0 });
+          },
+        },
   );
 });
 
@@ -90,6 +87,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   draft?: { text: string; selected: boolean; onSelect(): void };
   complete?: boolean;
 }) {
+  const [doneOpen, setDoneOpen] = useState(false);
   const roots = useMemo(() => threads.filter((thread) => !thread.parentThreadId), [threads]);
   const [order, setOrder] = useState(() => readOrder(projectId));
   const orderedIds = useMemo(() => {
@@ -143,7 +141,27 @@ export const ThreadSidebar = memo(function ThreadSidebar({
       role="region"
       aria-label="Threads"
     >
-      <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]">
+      <ThreadList
+        threads={active}
+        className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        listClassName="sidebar-list relative min-h-0 flex-1 overflow-visible pt-2"
+        listRef={drag.list}
+        draggingId={drag.draggingId}
+        onClickCapture={drag.onClickCapture}
+        leading={visibleDraft && draft ? <DraftThreadCard {...draft} /> : undefined}
+        renderRow={(item, index) => (
+          <ThreadRow
+            thread={item}
+            previousId={active[index - 1]?.id}
+            nextId={active[index + 1]?.id}
+            dragging={drag.draggingId === item.id}
+            filtered={Boolean(query)}
+            onPointerDown={drag.onPointerDown}
+            move={drag.move}
+            renderThread={renderThread}
+          />
+        )}
+      >
         {query && !visibleDraft && active.length === 0 && done.length === 0 && (
           <p
             className="thread-search-empty mx-2.5 my-2 text-xs leading-[18px] text-muted-ink"
@@ -152,31 +170,12 @@ export const ThreadSidebar = memo(function ThreadSidebar({
             No matching threads
           </p>
         )}
-        <div
-          className="sidebar-list relative min-h-0 flex-1 overflow-visible pt-2"
-          ref={drag.list}
-          onClickCapture={drag.onClickCapture}
-        >
-          {visibleDraft && draft && <DraftThreadCard {...draft} />}
-          {active.map((item, index) => (
-            <ThreadRow
-              key={item.id}
-              thread={item}
-              previousId={active[index - 1]?.id}
-              nextId={active[index + 1]?.id}
-              dragging={drag.draggingId === item.id}
-              filtered={Boolean(query)}
-              onPointerDown={drag.onPointerDown}
-              move={drag.move}
-              renderThread={renderThread}
-            />
-          ))}
-        </div>
-      </div>
+      </ThreadList>
       {done.length > 0 && (
         <details
           className="done-threads group/done mt-2 flex max-h-[45%] min-h-0 shrink-0 flex-col border-t border-border [&::details-content]:flex [&::details-content]:min-h-0 [&::details-content]:flex-col"
-          open={query ? true : undefined}
+          open={Boolean(query) || doneOpen}
+          onToggle={(event) => setDoneOpen(event.currentTarget.open)}
         >
           <summary className="flex cursor-pointer list-none items-center gap-1.5 px-[9px] py-2.5 text-xs leading-[1.5] text-muted-ink [&::-webkit-details-marker]:hidden">
             <span
@@ -187,11 +186,14 @@ export const ThreadSidebar = memo(function ThreadSidebar({
             </span>
             Done <span className="text-[11px] tabular-nums">{done.length}</span>
           </summary>
-          <div className="done-thread-list min-h-0 max-h-[min(30vh,240px)] overflow-y-auto overscroll-contain pt-1">
-            {done.map((item) => (
-              <DoneThreadRow key={item.id} thread={item} renderThread={renderThread} />
-            ))}
-          </div>
+          {(doneOpen || query) && (
+            <ThreadList
+              threads={done}
+              className="done-thread-list min-h-0 max-h-[min(30vh,240px)] overflow-y-auto overscroll-contain"
+              listClassName="relative pt-1"
+              renderRow={(item) => <DoneThreadRow thread={item} renderThread={renderThread} />}
+            />
+          )}
         </details>
       )}
     </div>

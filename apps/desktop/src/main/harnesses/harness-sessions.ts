@@ -2,6 +2,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { effectivePermissionMode } from "../../shared/contracts/permissions";
 import type { HarnessId } from "../../shared/contracts/desktop";
 import type { RunningHarness } from "./harnesses";
+import { CodexAppServers } from "./codex-app-servers";
 import { HarnessSession } from "./interactive-harness";
 import { HarnessNotSubmittedError } from "./harness-transport";
 import type { ProcessRegistration, SessionContext, TurnInput } from "./session-types";
@@ -53,8 +54,10 @@ const contextKey = (input: ManagedContext) =>
   ]);
 
 export class HarnessSessions {
+  private codex: CodexAppServers;
   private entries = new Map<string, Entry>();
   private retiring = new Set<Promise<void>>();
+  private retiringById = new Map<string, Promise<void>>();
   private acquiring = new Set<{ id: string; context: ManagedContext; invalidated: boolean }>();
   private changes: Promise<unknown> = Promise.resolve();
   constructor(
@@ -66,7 +69,9 @@ export class HarnessSessions {
       idleLimit: 2,
       idleMs: 30 * 60_000,
     },
-  ) {}
+  ) {
+    this.codex = new CodexAppServers();
+  }
 
   private disposable() {
     return [...this.entries].filter(
@@ -146,13 +151,18 @@ export class HarnessSessions {
       throw new HarnessNotSubmittedError(sessionConflictMessages.context);
   }
 
-  private retire(id: string, entry: Entry) {
+  private retire(id: string, entry: Entry, interrupt = false) {
     if (this.entries.get(id) !== entry) return;
     this.entries.delete(id);
     clearTimeout(entry.timer);
-    entry.session.close();
-    this.retiring.add(entry.session.done);
-    void entry.session.done.finally(() => this.retiring.delete(entry.session.done));
+    if (!interrupt) entry.session.close();
+    const done = interrupt ? entry.session.stopAndClose() : entry.session.done;
+    this.retiring.add(done);
+    this.retiringById.set(id, done);
+    void done.finally(() => {
+      this.retiring.delete(done);
+      if (this.retiringById.get(id) === done) this.retiringById.delete(id);
+    });
   }
   private scheduleExpiry(entry: Entry) {
     entry.timer = setTimeout(
@@ -211,11 +221,13 @@ export class HarnessSessions {
       .catch(() => {})
       .then(async () => {
         if (pending.invalidated) throw new Error("The harness context changed. Try again.");
+        await this.retiringById.get(id);
         const key = contextKey(context);
         let entry = this.entries.get(id);
         this.assertCompatible(id, context);
         if (entry && !this.compatible(entry, context)) {
           this.retire(id, entry);
+          await this.retiringById.get(id);
           entry = undefined;
         }
         if (!entry && !composer && !context.sessionId) {
@@ -244,7 +256,7 @@ export class HarnessSessions {
             Math.max(0, idle.length - this.options.idleLimit + 1),
           ))
             this.retire(key, item);
-          await Promise.all(this.retiring);
+          if (context.harness !== "codex") await Promise.all(this.retiring);
           if (pending.invalidated) throw new Error("The harness context changed. Try again.");
           const {
             projectId,
@@ -285,7 +297,10 @@ export class HarnessSessions {
           try {
             binding.mcp ??= await binding.agentTools?.open();
             if (pending.invalidated) throw new Error("The harness context changed. Try again.");
-            session = new HarnessSession(binding);
+            session = new HarnessSession(
+              binding,
+              harness === "codex" ? this.codex.acquire(binding) : undefined,
+            );
           } catch (error) {
             binding.mcp?.close();
             processOwner?.onExit();
@@ -346,6 +361,10 @@ export class HarnessSessions {
         this.release(id, entry);
         return;
       }
+      if (!entry.session.available) {
+        await entry.session.ready;
+        throw new HarnessNotSubmittedError("The harness connection closed.");
+      }
       if (!entry.session.idle)
         throw new HarnessNotSubmittedError("This conversation already has a running turn.");
       try {
@@ -393,8 +412,15 @@ export class HarnessSessions {
       }
       entry.invalidated = true;
       if (!idleOnly || (entry.session.idle && !entry.session.hasBackgroundWork))
-        this.retire(id, entry);
+        this.retire(id, entry, Boolean(filter.threadId) && entry.context.harness === "codex");
     }
-    return Promise.all([...this.retiring]).then(() => {});
+    return Promise.all([
+      ...this.retiring,
+      ...(!filter.threadId
+        ? [this.codex.clear((context) => matches(context, filter), idleOnly || preserveActive)]
+        : []),
+    ]).then(async () => {
+      if (filter.threadId) await this.codex.clearEmpty((context) => matches(context, filter));
+    });
   }
 }
