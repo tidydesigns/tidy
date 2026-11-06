@@ -108,7 +108,8 @@
     "@better-auth/core@1.7.7": "patches/@better-auth%2Fcore@1.7.7.patch",
     "pg@8.23.0": "patches/pg@8.23.0.patch",
     "zod@4.6.7": "patches/zod@4.6.7.patch",
-    "minimatch@11.0.3": "patches/minimatch@11.0.3.patch"
+    "minimatch@11.0.3": "patches/minimatch@11.0.3.patch",
+    "ghostty-web@0.4.0": "patches/ghostty-web@0.4.0.patch"
   },
   "version": "0.1.0"
 }

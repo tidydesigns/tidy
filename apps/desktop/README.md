@@ -212,6 +212,28 @@ synced or added to transcripts. Hiding a terminal keeps it running. Ending its
 session, removing its project, or shutting down its owning backend terminates it.
 Sessions do not survive a backend restart.
 
+The renderer paints on changes, coalesces bursts into one animation frame, and
+suspends painting for hidden tabs/windows while continuing to parse and acknowledge
+output. `terminal-driver.ts` isolates the compatibility hooks for the pinned
+`ghostty-web` 0.4.0 (fixed cursor, immediate scrolling). It preserves the history
+viewport during output/resizing. Reset uses a native full reset after cancelling
+incomplete escape sequences; this avoids recycling WASM allocations, stale selection
+references, and uninitialized cells exposed by a subsequent resize.
+The dependency patch targets the ESM entry used by the desktop renderer: it fixes
+listener cleanup, resizes the HiDPI canvas once, rounds backing-store dimensions
+consistently at fractional display scales, and skips glyph draws for undecorated
+blank cells. The driver resolves complex graphemes from their visible live/history
+row and ignores unchanged hover positions. Keep the real-package driver tests when
+upgrading Ghostty.
+Production builds replace Ghostty's embedded base64 WASM with the same external
+asset used by the runtime loader, avoiding a second copy in the JavaScript bundle.
+
+Host replay is limited to 1 MiB and 8,192 chunks; viewer backpressure limits both
+unacknowledged bytes and chunk metadata. Expired history requires a bounded replay
+instead of incremental resume. This is a byte-stream replay, not a full terminal
+state checkpoint, so reattachment after history eviction cannot reconstruct every
+earlier screen state.
+
 `bun run --cwd apps/desktop test:terminal` checks the actual sandboxed Electron
 renderer, project shell, true-colour pixels, input and session cleanup. Set
 `TIDY_TEST_NVIM=1` to include Neovim full-screen, split, resize and return-to-shell
