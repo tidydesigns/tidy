@@ -45,6 +45,9 @@ export async function runHarnessUsageTests(root: Root) {
   const native = required(window.tidy, "Native API missing");
   const api: DesktopAPI = {
     ...native,
+    // Exercise compatibility with hosts that expose usage but not reset redemption.
+    codexUsage: undefined,
+    consumeCodexReset: undefined,
     harnessUsage: (_project, harness) =>
       new Promise((resolve, reject) => reads.push({ harness, resolve, reject })),
     openHarnessUsage: async (harness, page) => {
@@ -360,4 +363,98 @@ export async function runHarnessUsageTests(root: Root) {
     !panel().querySelector(".account-usage-notice") && panel().textContent?.includes("API billing"),
     "Another model's exhausted budget or Go subscription changed Console billing",
   );
+}
+
+export async function runCodexResetTests(root: Root) {
+  const host = required(document.getElementById("root"), "Root missing");
+  const expiry = Math.floor(Date.now() / 1000) + 3600;
+  const credit = (id: string, expiresAt: number) => ({
+    id,
+    expiresAt,
+    resetType: "codexRateLimits",
+    status: "available",
+    grantedAt: expiry - 7200,
+    title: null,
+    description: null,
+  });
+  const resets = {
+    accountKey: "a".repeat(64),
+    checkedAt: new Date().toISOString(),
+    windows: [],
+    resets: {
+      availableCount: 2,
+      credits: [credit("later", expiry + 86400), credit("tonight", expiry)],
+    },
+    redemptionUnavailable: null,
+    pendingReset: null,
+  };
+  let allowance = 100;
+  let reads = 0;
+  const calls: import("../../../../shared/contracts/codex-usage").ResetSelection[] = [];
+  const api: DesktopAPI = {
+    ...required(window.tidy, "Native API missing"),
+    harnessUsage: async () => ({
+      windows: [{ id: "primary", name: "5 hour", usedPercent: allowance }],
+      state: "available",
+      updatedAt: new Date().toISOString(),
+      usagePage: "subscription",
+    }),
+    codexUsage: async () => {
+      reads++;
+      return structuredClone(resets);
+    },
+    consumeCodexReset: async (_project, selection) => {
+      calls.push(selection);
+      allowance = 3;
+      resets.resets = { availableCount: 1, credits: [credit("later", expiry + 86400)] };
+      return { outcome: "reset", usage: structuredClone(resets) };
+    },
+  };
+  flushSync(() =>
+    root.render(
+      <div style={{ padding: 24, marginTop: 400 }}>
+        <HarnessUsage api={api} projectId={crypto.randomUUID()} harness="codex" ready />
+      </div>,
+    ),
+  );
+  const trigger = required(
+    host.querySelector<HTMLButtonElement>('[aria-label="Account & usage"]'),
+    "Usage trigger",
+  );
+  flushSync(() => trigger.click());
+  await until(
+    () => Boolean(host.querySelector('[aria-label^="Reset to use:"]')),
+    "Reset details did not preload",
+  );
+  const disclosure = required(
+    host.querySelector<HTMLDetailsElement>(".codex-reset-panel"),
+    "Reset disclosure",
+  );
+  check(!disclosure.open, "Reset details were not collapsed");
+  flushSync(() => required(disclosure.querySelector("summary"), "Reset summary").click());
+  const picker = required(
+    disclosure.querySelector('[aria-label^="Reset to use:"]'),
+    "Reset picker",
+  );
+  check(picker.getClientRects().length > 0, "Expanding reset details waited for a load");
+  check(reads === 1, "Expanding reset details refetched them");
+  const button = (text: string) =>
+    required(
+      [...disclosure.querySelectorAll("button")].find((item) => item.textContent?.trim() === text),
+      `Missing ${text}`,
+    );
+  flushSync(() => button("Use reset…").click());
+  check(disclosure.textContent?.includes("Use this banked reset?"), "Reset confirmation missing");
+  flushSync(() => button("Use this reset").click());
+  await until(
+    () => Boolean(disclosure.textContent?.includes("Reset applied.")),
+    "Redemption did not finish",
+  );
+  check(calls.length === 1 && calls[0].creditId === "tonight", "Redemption used the wrong credit");
+  check(calls[0].expiresAt === expiry, "Confirmation lost the selected expiry");
+  await until(
+    () => Boolean(host.textContent?.includes("97% left")),
+    "Parent usage was not refreshed",
+  );
+  check(!disclosure.textContent?.includes("2 available"), "Reset count stayed stale");
 }

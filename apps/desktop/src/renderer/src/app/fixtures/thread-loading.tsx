@@ -9,7 +9,7 @@ import { FileNavigationContext } from "../../features/repository/file-navigation
 import { runFileNavigationTests } from "./file-navigation";
 import { runBrowserInputTests } from "./browser-input";
 import type { Draft } from "../../features/composer/machine-context";
-import { runHarnessUsageTests } from "./harness-usage";
+import { runHarnessUsageTests, runCodexResetTests } from "./harness-usage";
 import { runAppUpdateTests } from "./app-update";
 import { runDraftNavigationTests } from "./draft-navigation";
 import { ThreadVideo } from "../../features/threads/video/thread-video";
@@ -1119,6 +1119,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   await run(
     "account usage opens immediately, retains refresh state and isolates providers",
     runHarnessUsageTests,
+  );
+  await run(
+    "banked reset selection preloads, confirms the exact credit and refreshes usage",
+    runCodexResetTests,
   );
 
   await run(

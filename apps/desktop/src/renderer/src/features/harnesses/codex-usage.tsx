@@ -170,138 +170,150 @@ export function CodexResetControls({
     }
   }
 
+  if (
+    usage &&
+    (!usage.resets || usage.resets.availableCount === 0) &&
+    !pending &&
+    !notice &&
+    !error
+  )
+    return null;
+
   return (
-    <div className="account-usage-section codex-reset-panel">
-      <header>
-        <strong>Banked resets</strong>
+    <details className="account-usage-section account-usage-disclosure codex-reset-panel">
+      <summary>
+        Banked resets
+        <span>{usage?.resets ? `${usage.resets.availableCount} available` : "Checking…"}</span>
+      </summary>
+      <div className="account-usage-reset-list">
         {loading && <small>Refreshing…</small>}
-      </header>
-      {usage && (
-        <small>
-          Checked{" "}
-          {new Date(usage.checkedAt).toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-            second: "2-digit",
-            timeZoneName: "short",
-          })}
-          {stale ? " · refresh needed" : ""}
-        </small>
-      )}
-      {error && (
-        <p role="alert" className="codex-usage-error">
-          {error}
-        </p>
-      )}
-      {notice && <p role="status">{notice}</p>}
-      {!usage && !error && !notice && <p role="status">Loading usage…</p>}
-      {usage && (
-        <>
-          <section className="codex-reset-section" aria-label="Banked resets">
-            {usage.resets && <p>{usage.resets.availableCount} available</p>}
-            {usage.redemptionUnavailable && <p>{usage.redemptionUnavailable}</p>}
-            {!usage.resets ? (
-              <p>Codex hasn’t reported banked resets for this account.</p>
-            ) : usage.resets.availableCount === 0 && !pending ? (
-              <p>No banked resets available.</p>
-            ) : (
-              !selection && (
-                <>
-                  {credits.length > 0 ? (
-                    <>
-                      {!complete && (
-                        <p>
-                          Showing {credits.length} of {usage.resets.availableCount} resets. Choose
-                          the specific reset to use; other expiry dates are unavailable.
-                        </p>
-                      )}
-                      <SelectMenu
-                        label="Reset to use"
-                        value={selected?.id ?? ""}
-                        options={[
-                          ...(!selected
-                            ? [{ value: "", label: "Choose a reset", disabled: true }]
-                            : []),
-                          ...credits.map((credit) => ({
-                            value: credit.id,
-                            label: resetExpiry(credit.expiresAt),
-                            description: `Granted ${new Date(credit.grantedAt * 1000).toLocaleDateString()}`,
-                          })),
-                        ]}
-                        onChange={setChoice}
-                      />
-                      {complete && selected?.id === credits[0]?.id && credits.length > 1 && (
-                        <small>Earliest expiry selected first.</small>
-                      )}
-                      <Button
-                        className="codex-reset-button"
-                        disabled={unavailable || !selected || busy}
-                        onClick={() => {
-                          if (!selected || !usage.accountKey) return;
-                          setNotice("");
-                          setReview({
-                            accountKey: usage.accountKey,
-                            creditId: selected.id,
-                            expiresAt: selected.expiresAt,
-                            idempotencyKey: crypto.randomUUID(),
-                          });
-                        }}
-                      >
-                        Use reset…
-                      </Button>
-                    </>
-                  ) : (
-                    <p>
-                      {usage.resets.credits === null
-                        ? "Reset details are unavailable. Refresh to check which reset expires first."
-                        : "No unexpired, available reset details were returned. Refresh to check again."}
-                    </p>
-                  )}
-                </>
-              )
-            )}
-          </section>
-        </>
-      )}
-      {selection && (
-        <section
-          className="codex-reset-review"
-          aria-label={pending ? "Unconfirmed reset" : "Confirm reset"}
-        >
-          <strong>{pending ? "Finish this reset" : "Use this banked reset?"}</strong>
-          <p>{resetExpiry(selection.expiresAt)}</p>
-          <p>
-            {pending
-              ? "Retrying checks the same redemption. It won’t spend a different reset."
-              : "Uses one banked reset if Codex has an eligible usage window to reset."}
+        {usage && (
+          <small>
+            Checked{" "}
+            {new Date(usage.checkedAt).toLocaleTimeString(undefined, {
+              hour: "numeric",
+              minute: "2-digit",
+              second: "2-digit",
+              timeZoneName: "short",
+            })}
+            {stale ? " · refresh needed" : ""}
+          </small>
+        )}
+        {error && (
+          <p role="alert" className="codex-usage-error">
+            {error}
           </p>
-          {!pending && expired && (
-            <p role="alert">This reset has expired. Refresh and choose another.</p>
-          )}
-          {changedAccount && (
-            <p role="alert">Your Codex account changed. Switch back to finish this reset.</p>
-          )}
-          <div className="codex-reset-actions">
-            {!pending && (
-              <Button className="quiet-button" disabled={busy} onClick={() => setReview(null)}>
-                Cancel
-              </Button>
+        )}
+        {notice && <p role="status">{notice}</p>}
+        {!usage && !error && !notice && <p role="status">Loading usage…</p>}
+        {usage && (
+          <>
+            <section className="codex-reset-section" aria-label="Banked resets">
+              {usage.resets && <p>{usage.resets.availableCount} available</p>}
+              {usage.redemptionUnavailable && <p>{usage.redemptionUnavailable}</p>}
+              {!usage.resets ? (
+                <p>Codex hasn’t reported banked resets for this account.</p>
+              ) : usage.resets.availableCount === 0 && !pending ? (
+                <p>No banked resets available.</p>
+              ) : (
+                !selection && (
+                  <>
+                    {credits.length > 0 ? (
+                      <>
+                        {!complete && (
+                          <p>
+                            Showing {credits.length} of {usage.resets.availableCount} resets. Choose
+                            the specific reset to use; other expiry dates are unavailable.
+                          </p>
+                        )}
+                        <SelectMenu
+                          label="Reset to use"
+                          value={selected?.id ?? ""}
+                          options={[
+                            ...(!selected
+                              ? [{ value: "", label: "Choose a reset", disabled: true }]
+                              : []),
+                            ...credits.map((credit) => ({
+                              value: credit.id,
+                              label: resetExpiry(credit.expiresAt),
+                              description: `Granted ${new Date(credit.grantedAt * 1000).toLocaleDateString()}`,
+                            })),
+                          ]}
+                          onChange={setChoice}
+                        />
+                        {complete && selected?.id === credits[0]?.id && credits.length > 1 && (
+                          <small>Earliest expiry selected first.</small>
+                        )}
+                        <Button
+                          className="codex-reset-button"
+                          disabled={unavailable || !selected || busy}
+                          onClick={() => {
+                            if (!selected || !usage.accountKey) return;
+                            setNotice("");
+                            setReview({
+                              accountKey: usage.accountKey,
+                              creditId: selected.id,
+                              expiresAt: selected.expiresAt,
+                              idempotencyKey: crypto.randomUUID(),
+                            });
+                          }}
+                        >
+                          Use reset…
+                        </Button>
+                      </>
+                    ) : (
+                      <p>
+                        {usage.resets.credits === null
+                          ? "Reset details are unavailable. Refresh to check which reset expires first."
+                          : "No unexpired, available reset details were returned. Refresh to check again."}
+                      </p>
+                    )}
+                  </>
+                )
+              )}
+            </section>
+          </>
+        )}
+        {selection && (
+          <section
+            className="codex-reset-review"
+            aria-label={pending ? "Unconfirmed reset" : "Confirm reset"}
+          >
+            <strong>{pending ? "Finish this reset" : "Use this banked reset?"}</strong>
+            <p>{resetExpiry(selection.expiresAt)}</p>
+            <p>
+              {pending
+                ? "Retrying checks the same redemption. It won’t spend a different reset."
+                : "Uses one banked reset if Codex has an eligible usage window to reset."}
+            </p>
+            {!pending && expired && (
+              <p role="alert">This reset has expired. Refresh and choose another.</p>
             )}
-            <Button
-              className="codex-reset-button"
-              disabled={
-                busy ||
-                !!changedAccount ||
-                (!pending && (expired || unavailable)) ||
-                !!usage?.redemptionUnavailable
-              }
-              onClick={() => void redeem(selection)}
-            >
-              {busy ? "Applying reset…" : pending ? "Retry same reset" : "Use this reset"}
-            </Button>
-          </div>
-        </section>
-      )}
-    </div>
+            {changedAccount && (
+              <p role="alert">Your Codex account changed. Switch back to finish this reset.</p>
+            )}
+            <div className="codex-reset-actions">
+              {!pending && (
+                <Button className="quiet-button" disabled={busy} onClick={() => setReview(null)}>
+                  Cancel
+                </Button>
+              )}
+              <Button
+                className="codex-reset-button"
+                disabled={
+                  busy ||
+                  !!changedAccount ||
+                  (!pending && (expired || unavailable)) ||
+                  !!usage?.redemptionUnavailable
+                }
+                onClick={() => void redeem(selection)}
+              >
+                {busy ? "Applying reset…" : pending ? "Retry same reset" : "Use this reset"}
+              </Button>
+            </div>
+          </section>
+        )}
+      </div>
+    </details>
   );
 }
