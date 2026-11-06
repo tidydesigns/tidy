@@ -55,6 +55,8 @@ and assets retain their original licenses and copyright notices.
 - **lowlight**: MIT; its upstream notice is retained at
   `licenses/bundled/lowlight.txt`. **Highlight.js**: BSD-3-Clause; its upstream
   notice is retained at `licenses/bundled/highlight.js.txt`.
+- **Pele**: MIT, with the bundled Lucide icon notice; upstream notices are
+  retained at `licenses/bundled/pele.txt` and included with bundled code.
 - **JavaScript logo**: MIT, copyright 2011 Christopher Williams. The full notice
   is retained at `licenses/bundled/javascript-logo.txt`.
 - The desktop OpenAI mark in `apps/desktop/src/renderer/src/openai.svg` is sourced

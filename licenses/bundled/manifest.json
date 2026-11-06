@@ -554,5 +554,9 @@
   "@grpc/proto-loader": {
     "source": "LICENSE",
     "notice": "grpc-proto-loader.txt"
+  },
+  "pele": {
+    "source": "LICENSE",
+    "notice": "pele.txt"
   }
 }

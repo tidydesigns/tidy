@@ -2,6 +2,7 @@ import { useState, type ComponentProps } from "react";
 import type { ExtraProps } from "react-markdown";
 import { Button } from "@tidy/ui/button";
 import { ClipboardCopyButton } from "./message-copy-button";
+import { MermaidBlock } from "./mermaid-block";
 
 export function MarkdownCodeBlock({ children, node }: ComponentProps<"pre"> & ExtraProps) {
   const [wrapped, setWrapped] = useState(true);
@@ -15,6 +16,9 @@ export function MarkdownCodeBlock({ children, node }: ComponentProps<"pre"> & Ex
     .slice(9);
   const label = language === "md" ? "markdown" : language || "text";
   const wrapLabel = wrapped ? "Disable line wrap" : "Wrap lines";
+
+  if (language?.toLowerCase() === "mermaid")
+    return <MermaidBlock text={text}>{children}</MermaidBlock>;
 
   return (
     <div className="markdown-code-block" data-wrap={wrapped} dir="ltr">
