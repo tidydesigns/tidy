@@ -110,3 +110,16 @@ test("scroll coalescing never clamps travel beyond the protocol bound", async ()
   await idle.promise;
   expect(sent.slice(1, 3).map(({ input }) => input)).toEqual([wheel(9000), wheel(2000)]);
 });
+
+test("wheel input retains each scroll target while dispatch is blocked", async () => {
+  const { queue, sent, blocked, idle } = fixture();
+  const otherX = { ...wheel(2), x: 200 };
+  const otherY = { ...wheel(3), x: 200, y: 300 };
+  queue.push(envelope(wheel(1)));
+  queue.push(envelope(otherX));
+  queue.push(envelope(otherY));
+  queue.push(envelope({ kind: "release-keys" }));
+  blocked.resolve();
+  await idle.promise;
+  expect(sent.slice(1, 4).map(({ input }) => input)).toEqual([wheel(1), otherX, otherY]);
+});

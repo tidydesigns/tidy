@@ -18,7 +18,13 @@ export function coalesceBrowserInput(
     a.modifiers === b.modifiers
   )
     return next;
-  if (a.kind === "wheel" && b.kind === "wheel" && a.modifiers === b.modifiers) {
+  if (
+    a.kind === "wheel" &&
+    b.kind === "wheel" &&
+    a.modifiers === b.modifiers &&
+    a.x === b.x &&
+    a.y === b.y
+  ) {
     const deltaX = a.deltaX + b.deltaX;
     const deltaY = a.deltaY + b.deltaY;
     // Preserve travel and direction changes rather than clamping away scrolling.

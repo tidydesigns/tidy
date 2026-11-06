@@ -612,6 +612,55 @@ browserTest(
   30000,
 );
 
+browserTest("repeated takeover preserves a key pair waiting on authorization", async () => {
+  const permission = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  let delayed = false;
+  const { browser, scope, url } = await fixture(async () => {
+    if (delayed) {
+      started.resolve();
+      await permission.promise;
+    }
+  });
+  const opened = await browser.command(scope, { kind: "open", url });
+  const tabId = opened.state.activeTabId;
+  if (!tabId) throw new Error("No tab.");
+  await browser.command(scope, {
+    kind: "evaluate",
+    tabId,
+    expression: `document.querySelector('#name').focus(); window.keyEvents=[]; for (const type of ['keydown','keyup']) document.addEventListener(type, event=>keyEvents.push(event.type+':'+event.code));`,
+  });
+  const viewerId = randomUUID();
+  const viewer = await watchBrowser({ browser, scope, id: viewerId, receive: () => {} });
+  viewer.input({ tabId, input: { kind: "take-control" } });
+  const key = {
+    kind: "key",
+    key: "Shift",
+    code: "ShiftLeft",
+    keyCode: 16,
+    text: "",
+    modifiers: 0,
+  } as const;
+  delayed = true;
+  viewer.input({ tabId, input: { ...key, action: "down" } });
+  await started.promise;
+  viewer.input({ tabId, input: { ...key, action: "up" } });
+  viewer.input({ tabId, input: { kind: "take-control" } });
+  delayed = false;
+  permission.resolve();
+  await until(async () => {
+    const result = await browser.command(
+      scope,
+      { kind: "evaluate", tabId, expression: "JSON.stringify(window.keyEvents)" },
+      { actor: viewerId },
+    );
+    return (
+      result.output === JSON.stringify(JSON.stringify(["keydown:ShiftLeft", "keyup:ShiftLeft"]))
+    );
+  });
+  viewer.close();
+});
+
 browserTest(
   "input waiting on authorization expires when control is released and retaken",
   async () => {
@@ -703,12 +752,12 @@ browserTest(
         );
       },
     });
-    await until(() => firstFrames === 1 && secondFrames >= 5).catch((error) => {
+    await until(() => firstFrames === 3 && secondFrames >= 5).catch((error) => {
       throw new Error(JSON.stringify({ firstFrames, secondFrames, streamErrors }), {
         cause: error,
       });
     });
-    assert.equal(firstFrames, 1);
+    assert.equal(firstFrames, 3);
     first.input({ tabId, input: { kind: "visibility", visible: false } });
     const beforeHide = secondFrames;
     await until(() => secondFrames >= beforeHide + 5);
@@ -727,9 +776,13 @@ browserTest(
     second.input({ tabId, input: { kind: "take-control" } });
     const concurrentScreenshot = browser.command(scope, { kind: "screenshot", tabId });
     second.input({ tabId, input: { kind: "resize", width: 640, height: 480 } });
-    second.input({ tabId, input: { kind: "resize", width: 800, height: 600 } });
+    second.input({
+      tabId,
+      input: { kind: "resize", width: 800, height: 600, deviceScaleFactor: 2 },
+    });
     await concurrentScreenshot;
     await until(async () => (await browser.state(scope)).tabs[0]?.width === 800);
+    assert.equal((await browser.state(scope)).tabs[0]?.deviceScaleFactor, 1);
     const beforeResize = secondFrames;
     await until(() => secondFrames >= beforeResize + 3);
     assert.ok(lastFrame);

@@ -921,6 +921,7 @@ export class BrowserService {
           return;
         }
         if (input.kind === "take-control") {
+          if (workspace.controller === id) return;
           queue.clear();
           for (const action of workspace.agentActions)
             action.abort(new Error("A viewer took control of this browser."));

@@ -47,3 +47,15 @@ test("buffer cancels motion on control or view cleanup and keeps direction chang
   expect(sent).toEqual([wheel(5), wheel(-2)]);
   expect(callbacks.size).toBe(0);
 });
+
+test("wheel input crossing scroll regions is flushed at its original position", () => {
+  const { buffer, sent, callbacks } = fixture();
+  const other = wheel(5);
+  if (other.input.kind !== "wheel") throw new Error("Expected wheel input.");
+  other.input.x = 200;
+  buffer.send(wheel(3));
+  buffer.send(other);
+  expect(sent).toEqual([wheel(3)]);
+  for (const callback of callbacks.values()) callback();
+  expect(sent).toEqual([wheel(3), other]);
+});
