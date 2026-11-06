@@ -171,7 +171,12 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
     setQueue([]);
     const seen = new Map<string, { revision: number; status: ThreadSummary["status"] }>();
     return api?.onEvent((event) => {
-      if (event.type === "designs" || event.type === "repository-change") return;
+      if (
+        event.type === "designs" ||
+        event.type === "repository-change" ||
+        event.type === "pull-request-state"
+      )
+        return;
       const thread = event.type === "thread-patch" ? event.summary : event.thread;
       const previous = seen.get(thread.id);
       if (previous && previous.revision > thread.revision) return;

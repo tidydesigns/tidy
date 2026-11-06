@@ -40,6 +40,7 @@ import { ProjectStore } from ${moduleURL("./project-store.ts")};
 import { WorkspaceService } from ${moduleURL("./workspace-service.ts")};
 import { createWorkspaceRequests } from ${moduleURL("../ipc/workspace-requests.ts")};
 import { defaultThreadCompletion } from ${moduleURL("../../shared/contracts/thread-completion.ts")};
+import { PullRequestStatus } from ${moduleURL("../../renderer/src/components/pull-request-status.ts")};
 let now = Date.now(); Date.now = () => now;
 const root = join(process.env.HOME, "project"); await mkdir(root);
 const store = new ProjectStore(join(process.env.HOME, "private")); await store.initialize();
@@ -54,6 +55,12 @@ const invoke = (name,input) => ipc.invoke(name,input,undefined);
 try {
   const thread = await invoke("start-thread",{projectId:project.id,harness:"codex",prompt:"Ship",designIds:[],threadMode:"local"});
   const url = "https://github.com/owner/repo/pull/42";
+  const status = new PullRequestStatus({projectId:project.id,url,api:{
+    pullRequestState:(projectId,href,force)=>invoke("pull-request-state",{projectId,href,force}),
+    onEvent:listener=>service.subscribeRenderer(listener),
+  }});
+  const stopStatus = status.subscribe(()=>{});
+  await status.refresh();
   run.input.onUpdate({type:"tool",tool:{id:"create",kind:"command",toolName:"Shell",title:"Create pull request",input:'BODY_FILE=/tmp/body.md\\ngh pr create --body-file "$BODY_FILE" && git status --short',status:"completed",exitCode:0,output:url}});
   if ((await service.readThread(project.id,thread.id)).pullRequests?.[0] !== url) throw Error("Live creation receipt was not linked");
   run.input.onUpdate({type:"message",id:"receipt",text:"Created pull request: "+url});
@@ -73,13 +80,28 @@ try {
   await writeFile(process.env.TIDY_GH_PHASE,"merged\\n");
   await invoke("auto-complete-threads",{projectId:project.id,preferences:defaultThreadCompletion,force:true});
   const done = JSON.parse(await readFile(await store.storagePath(project.id,"threads",thread.id),"utf8"));
+  if (status.read().state !== "merged") throw Error("Completion did not update the sidebar's cached PR status");
+  stopStatus();
   if (done.doneReason !== "merged" || !done.doneAt || doneEvents !== 1) throw Error("Merged PR did not persist and publish Done");
   await invoke("set-thread-done",{projectId:project.id,threadId:thread.id,done:false});
   await check();
   const reopened = await store.readThread(project.id,thread.id);
   if (reopened.doneAt || !reopened.autoDoneAfter) throw Error("Old merge undid a manual reopen");
   unsubscribe();
-  console.log(JSON.stringify({links:done.pullRequests,reason:done.doneReason,doneEvents,offlineReported:failed,reopened:!reopened.doneAt}));
+  const second = await invoke("start-thread",{projectId:project.id,harness:"codex",prompt:"Ship another",designIds:[],threadMode:"local"});
+  const secondURL = "https://github.com/owner/repo/pull/43";
+  run.input.onUpdate({type:"message",id:"second-receipt",text:"Created pull request: "+secondURL});
+  await store.writeThread(await service.readThread(project.id,second.id));
+  await invoke("pull-request-state",{projectId:project.id,href:secondURL,force:true});
+  if ((await store.readThread(project.id,second.id)).doneAt) throw Error("Merge stopped running work");
+  const autoDone = Promise.withResolvers();
+  const stopDone = service.subscribe(event => {
+    if (event.type === "thread" && event.thread.id === second.id && event.thread.doneReason === "merged") autoDone.resolve();
+  });
+  const timeout = setTimeout(() => autoDone.reject(Error("Host never completed the idle thread")),2000);
+  try { run.complete(); await autoDone.promise; } finally { clearTimeout(timeout); stopDone(); }
+  if (!(await store.readThread(project.id,second.id)).doneAt) throw Error("Host did not persist Done");
+  console.log(JSON.stringify({links:done.pullRequests,reason:done.doneReason,doneEvents,offlineReported:failed,reopened:!reopened.doneAt,hostCompletedWithoutRenderer:true}));
 } finally {await service.close();}
 `;
       const child = Bun.spawn([process.execPath, "-e", script], {
@@ -105,6 +127,7 @@ try {
         doneEvents: 1,
         offlineReported: true,
         reopened: true,
+        hostCompletedWithoutRenderer: true,
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

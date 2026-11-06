@@ -262,7 +262,7 @@ export class RecoveryCache {
     }
   }
   receive(event: DesktopEvent) {
-    if (event.type === "repository-change") return;
+    if (event.type === "repository-change" || event.type === "pull-request-state") return;
     if (!this.path || this.closed) return;
     this.epoch++;
     if (event.type === "designs") {

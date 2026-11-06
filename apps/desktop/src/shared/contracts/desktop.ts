@@ -1,5 +1,10 @@
 import { threadDoneReasonSchema, type ThreadCompletion } from "./thread-completion";
-import { threadPullRequestsSchema, type PullRequestState } from "./pull-request";
+import {
+  threadPullRequestsSchema,
+  pullRequestStateSchema,
+  pullRequestURL,
+  type PullRequestState,
+} from "./pull-request";
 import { threadModeSchema, threadWorktreeSchema, type ThreadMode } from "./thread-workspace";
 import type { ThreadNaming } from "./thread-naming";
 import { harnessFailureKindSchema } from "./harness-failure";
@@ -136,6 +141,15 @@ export const threadSummarySchema = liveThreadSchema
     queuedMessageCount: z.number().int().nonnegative().optional(),
   });
 export const desktopEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("pull-request-state"),
+    projectId: id,
+    url: z
+      .string()
+      .max(4096)
+      .refine((url) => pullRequestURL(url) === url),
+    state: pullRequestStateSchema,
+  }),
   z.object({ type: z.literal("repository-change"), projectId: id, path: z.string().max(4096) }),
   z.object({ type: z.literal("thread-summary"), thread: threadSummarySchema }),
   z.object({ type: z.literal("thread"), thread: liveThreadSchema }),
@@ -269,7 +283,11 @@ export type DesktopAPI = {
     href: string,
     chunk?: Pick<import("./chat-images").ChatImageRequest, "offset" | "revision">,
   ): Promise<import("./chat-images").ChatImage>;
-  pullRequestState?(projectId: string, href: string): Promise<PullRequestState | null>;
+  pullRequestState?(
+    projectId: string,
+    href: string,
+    force?: boolean,
+  ): Promise<PullRequestState | null>;
   setThreadSettings(
     projectId: string,
     threadId: string,

@@ -19,15 +19,24 @@ export class CompletionPullRequests extends CachedPullRequests<CompletionPullReq
   private readonly clearRepositories: () => void;
   constructor() {
     const repositories = new Map<string, { expires: number; result: Promise<string | null> }>();
+    const merged = new Map<string, z.infer<typeof responseSchema>>();
     super(async (url) => {
-      const { stdout } = await readGitHub([
-        "pr",
-        "view",
-        url,
-        "--json",
-        "state,isDraft,baseRefName,mergedAt,closedAt",
-      ]);
-      const value = responseSchema.parse(JSON.parse(stdout));
+      let value = merged.get(url);
+      if (!value) {
+        const { stdout } = await readGitHub([
+          "pr",
+          "view",
+          url,
+          "--json",
+          "state,isDraft,baseRefName,mergedAt,closedAt",
+        ]);
+        value = responseSchema.parse(JSON.parse(stdout));
+        // Merge state is immutable. Repository defaults remain separately refreshable.
+        if (value.state === "MERGED") {
+          if (merged.size >= 256) merged.delete(merged.keys().next().value!);
+          merged.set(url, value);
+        }
+      }
       if (value.state !== "MERGED")
         return {
           state: parsePullRequestState(value),
@@ -37,7 +46,7 @@ export class CompletionPullRequests extends CachedPullRequests<CompletionPullReq
         };
       const repository = new URL(url).pathname.split("/").slice(1, 3).join("/");
       let entry = repositories.get(repository);
-      if (!entry || entry.expires < Date.now()) {
+      if (!entry || entry.expires <= Date.now()) {
         const result = readGitHub([
           "repo",
           "view",
@@ -54,13 +63,15 @@ export class CompletionPullRequests extends CachedPullRequests<CompletionPullReq
         if (repositories.size >= 256) repositories.delete(repositories.keys().next().value!);
         repositories.set(repository, entry);
       }
+      const defaultBranch = await entry.result;
+      if (defaultBranch === null) entry.expires = 0;
       return {
         state: parsePullRequestState(value),
         baseBranch: value.baseRefName,
-        defaultBranch: await entry.result,
-        endedAt: value.state === "MERGED" ? value.mergedAt : value.closedAt,
+        defaultBranch,
+        endedAt: value.mergedAt,
       };
-    });
+    }, Date.now);
     this.clearRepositories = () => repositories.clear();
   }
 

@@ -1,3 +1,4 @@
+import { pullRequestURL } from "../../shared/contracts/pull-request";
 import {
   type WorktreePreferences,
   type WorktreeStorage as WorktreeStorageResult,
@@ -58,6 +59,7 @@ import {
 import { HarnessSkills } from "../harnesses/harness-skills";
 import {
   createdPullRequests,
+  changesPullRequestState,
   confirmedPullRequests,
   pullRequestDetectionVersion,
 } from "../../shared/models/thread-pull-requests";
@@ -318,7 +320,9 @@ export class WorkspaceService {
 
   canDeliverEvent(event: DesktopEvent) {
     const id =
-      event.type === "designs" || event.type === "repository-change"
+      event.type === "designs" ||
+      event.type === "repository-change" ||
+      event.type === "pull-request-state"
         ? event.projectId
         : event.thread.projectId;
     return this.canAccessProject(id);
@@ -659,6 +663,7 @@ export class WorkspaceService {
       if (job.projectId === projectId) job.controller.abort();
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
+    this.completionPreferences.delete(projectId);
     this.terminal.removeProject(projectId);
     this.mobile.removeProject(projectId);
     await this.browser.removeProject(projectId);
@@ -1140,10 +1145,53 @@ export class WorkspaceService {
   }
 
   private readonly completionPullRequests = new CompletionPullRequests();
-  private readonly completionChecks = new Map<string, { key: string; pending: Promise<void> }>();
+  private readonly completionPreferences = new Map<string, ThreadCompletion>();
+  private readonly completionChecks = new Map<
+    string,
+    { key: string; pending: Promise<void>; repeat: boolean; force: boolean }
+  >();
+  private readonly publishedPullRequests = new Map<string, string>();
 
-  async pullRequestState(href: string) {
-    return (await this.completionPullRequests.read(href))?.state ?? null;
+  private async readPullRequest(
+    projectId: string,
+    href: string,
+    force = false,
+    notifyCompletion = true,
+  ) {
+    const value = await this.completionPullRequests.read(href, force);
+    const url = pullRequestURL(href);
+    if (value && url && this.canAccessProject(projectId)) {
+      const key = JSON.stringify([projectId, url]);
+      const previous = this.publishedPullRequests.get(key);
+      if (previous !== value.state && previous !== "merged") {
+        this.publishedPullRequests.delete(key);
+        this.publishedPullRequests.set(key, value.state);
+        if (this.publishedPullRequests.size > 256)
+          this.publishedPullRequests.delete(this.publishedPullRequests.keys().next().value!);
+        this.emit({ type: "pull-request-state", projectId, url, state: value.state });
+        if (notifyCompletion && (value.state === "merged" || value.state === "closed"))
+          this.requestThreadCompletion(projectId);
+      }
+    }
+    return value;
+  }
+
+  /** The host already knows about merge and idle transitions; no renderer round trip is needed. */
+  private requestThreadCompletion(projectId: string, force = false) {
+    void this.dispatch(() => {
+      // Read rules at execution time: disabling completion must win over queued triggers.
+      const preferences = this.completionPreferences.get(projectId);
+      if (!preferences || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
+        return Promise.resolve();
+      // A host event can affect a thread already visited by the current sweep.
+      const pending = this.completionChecks.get(projectId);
+      if (pending) pending.repeat = true;
+      return this.autoCompleteThreads(projectId, preferences, undefined, force);
+    }).catch(() => {});
+  }
+
+  async pullRequestState(projectId: string, href: string, force = false) {
+    return (await this.readPullRequest(projectId, href, force))?.state ?? null;
   }
 
   async setWorktreePreferences(input: WorktreePreferences) {
@@ -1378,90 +1426,139 @@ export class WorkspaceService {
   autoCompleteThreads(
     projectId: string,
     input: ThreadCompletion,
-    load: (url: string) => Promise<CompletionPullRequest | null> = (url) =>
-      this.completionPullRequests.read(url),
+    load?: (url: string) => Promise<CompletionPullRequest | null>,
     force = false,
   ): Promise<void> {
     const preferences = threadCompletionSchema.parse(input);
+    if (!load && this.canAccessProject(projectId))
+      this.completionPreferences.set(projectId, preferences);
     const key = JSON.stringify(preferences);
     const previous = this.completionChecks.get(projectId);
-    if (previous?.key === key) return previous.pending;
-    if (force) this.completionPullRequests.invalidate();
-    const check = { key, pending: Promise.resolve() };
+    if (previous?.key === key) {
+      previous.repeat ||= force;
+      previous.force ||= force;
+      return previous.pending;
+    }
+    const check = { key, pending: Promise.resolve(), repeat: false, force };
     this.completionChecks.set(projectId, check);
     check.pending = (async () => {
-      if (this.closing || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
-        return;
-      await this.assertProjectAccess(projectId);
-      const summaries = await this.store.threadSummaries(projectId);
-      let unavailable = false;
-      for (const summary of summaries) {
-        if (this.completionChecks.get(projectId) !== check || this.closing) return;
+      try {
+        let failure: unknown;
+        do {
+          const refresh = check.force;
+          check.repeat = false;
+          check.force = false;
+          failure = undefined;
+          try {
+            await this.checkThreadCompletion(
+              projectId,
+              preferences,
+              load ?? ((url) => this.readPullRequest(projectId, url, refresh, false)),
+              check,
+            );
+          } catch (error) {
+            failure = error;
+          }
+        } while (check.repeat && this.completionChecks.get(projectId) === check && !this.closing);
+        if (failure) throw failure;
+      } finally {
+        // Remove the owner before resolving, so a refresh in the next microtask starts fresh work.
+        if (this.completionChecks.get(projectId) === check) this.completionChecks.delete(projectId);
+      }
+    })();
+    return check.pending;
+  }
+
+  private async checkThreadCompletion(
+    projectId: string,
+    preferences: ThreadCompletion,
+    load: (url: string) => Promise<CompletionPullRequest | null>,
+    check: object,
+  ) {
+    if (this.closing || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
+      return;
+    await this.assertProjectAccess(projectId);
+    const summaries = (await this.store.threadSummaries(projectId)).filter(
+      (summary) => !summary.doneAt && (preferences.inactiveDays || summary.pullRequests?.length),
+    );
+    let unavailable = false;
+    const lookups = new Map<string, Promise<CompletionPullRequest | null>>();
+    const read = (url: string) => {
+      let result = lookups.get(url);
+      if (!result) {
+        result = load(url);
+        lookups.set(url, result);
+      }
+      return result;
+    };
+    const checkThread = async (summary: ThreadSummary) => {
+      if (this.completionChecks.get(projectId) !== check || this.closing) return;
+      try {
+        const requests =
+          preferences.merged || preferences.closed
+            ? await Promise.all(threadPullRequests(summary).map(read))
+            : [];
         if (
-          summary.doneAt ||
+          requests.some(
+            (pr) =>
+              !pr ||
+              (preferences.merged &&
+                preferences.target === "default" &&
+                pr.state === "merged" &&
+                pr.defaultBranch === null),
+          )
+        )
+          unavailable = true;
+        if (
           !["completed", "idle", "stopped"].includes(summary.status) ||
           summary.queuedMessageCount ||
           summary.pendingApprovalCount ||
-          (!preferences.inactiveDays && !summary.pullRequests?.length)
+          !threadCompletionReason(summary, preferences, requests)
         )
-          continue;
-        try {
-          const requests =
-            preferences.merged || preferences.closed
-              ? await Promise.all(threadPullRequests(summary).map(load))
-              : [];
+          return;
+        await this.serialize(summary.id, async () => {
           if (
-            requests.some(
-              (pr) =>
-                !pr ||
-                (preferences.merged &&
-                  preferences.target === "default" &&
-                  pr.state === "merged" &&
-                  pr.defaultBranch === null),
-            )
+            this.completionChecks.get(projectId) !== check ||
+            this.closing ||
+            this.jobs.has(summary.id) ||
+            this.starting.has(summary.id) ||
+            this.sessions.backgroundContexts.some((context) => context.threadId === summary.id)
           )
-            unavailable = true;
-          if (!threadCompletionReason(summary, preferences, requests)) continue;
-          await this.serialize(summary.id, async () => {
-            if (
-              this.completionChecks.get(projectId) !== check ||
-              this.closing ||
-              this.jobs.has(summary.id) ||
-              this.starting.has(summary.id) ||
-              this.sessions.backgroundContexts.some((context) => context.threadId === summary.id)
-            )
-              return;
-            await this.assertProjectAccess(projectId);
-            const current = await this.store.readThread(projectId, summary.id);
-            if (
-              this.completionChecks.get(projectId) !== check ||
-              this.closing ||
-              this.jobs.has(summary.id) ||
-              this.starting.has(summary.id) ||
-              current.revision !== summary.revision ||
-              !threadCanAutoComplete(current)
-            )
-              return;
-            const reason = threadCompletionReason(current, preferences, requests);
-            if (!reason) return;
-            current.doneAt = new Date().toISOString();
-            current.doneReason = reason;
-            current.revision++;
-            await this.store.writeThread(current);
-            this.emit({ type: "thread", thread: current });
-          });
-        } catch {
-          unavailable = true;
-        }
+            return;
+          await this.assertProjectAccess(projectId);
+          const current = await this.store.readThread(projectId, summary.id);
+          if (
+            this.completionChecks.get(projectId) !== check ||
+            this.closing ||
+            !this.canAccessProject(projectId) ||
+            this.jobs.has(summary.id) ||
+            this.starting.has(summary.id) ||
+            current.revision !== summary.revision ||
+            !threadCanAutoComplete(current)
+          )
+            return;
+          const reason = threadCompletionReason(current, preferences, requests);
+          if (!reason) return;
+          current.doneAt = new Date().toISOString();
+          current.doneReason = reason;
+          current.revision++;
+          await this.store.writeThread(current);
+          this.emit({ type: "thread", thread: current });
+        });
+      } catch {
+        unavailable = true;
       }
-      if (unavailable)
-        throw new Error(
-          "Automatic completion could not check or update some threads. Tidy will retry automatically.",
-        );
-    })().finally(() => {
-      if (this.completionChecks.get(projectId) === check) this.completionChecks.delete(projectId);
-    });
-    return check.pending;
+    };
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, summaries.length) }, async () => {
+        while (next < summaries.length) await checkThread(summaries[next++]);
+      }),
+    );
+    if (unavailable)
+      throw new Error(
+        "Automatic completion could not check or update some threads. Tidy will retry automatically.",
+      );
   }
 
   setThreadDone(projectId: string, threadId: string, done: boolean) {
@@ -2342,7 +2439,7 @@ export class WorkspaceService {
       if (lastUser < 0)
         throw new Error("The original request is unavailable. Send a message to continue.");
       thread.messages[lastUser] = { ...thread.messages[lastUser], turn };
-    } else
+    } else {
       thread.messages.push({
         id: messageId ?? randomUUID(),
         role: "user",
@@ -2353,6 +2450,7 @@ export class WorkspaceService {
           ? { attachments: attachments.map((file) => attachmentSchema.parse(file)) }
           : {}),
       });
+    }
     if (authorize) thread.messageSources = (await this.withThreadSources(thread)).messageSources;
     thread.status = "running";
     thread.revision++;
@@ -2523,6 +2621,7 @@ export class WorkspaceService {
         startedAt: existing?.startedAt ?? now,
         endedAt: update.tool.status === "running" ? undefined : (existing?.endedAt ?? now),
       });
+      const completed = existing?.status === "completed";
       if (existing) Object.assign(existing, value);
       else {
         activities.push(value);
@@ -2531,6 +2630,9 @@ export class WorkspaceService {
       for (const pullRequest of createdPullRequests(value))
         if (!thread.pullRequests?.includes(pullRequest))
           thread.pullRequests = [...(thread.pullRequests ?? []), pullRequest].slice(-20);
+      if (!completed && changesPullRequestState(value))
+        for (const url of thread.pullRequests ?? [])
+          void this.readPullRequest(thread.projectId, url, true).catch(() => {});
       job.changedTools.add(value.id);
       let size = activities.reduce((total, tool) => total + toolLogSize(tool), 0);
       while (activities.length > MAX_TOOL_ACTIVITIES || size > MAX_TOOL_LOG_CHARACTERS) {
@@ -2686,6 +2788,8 @@ export class WorkspaceService {
     job.toolsController.abort();
     await this.tasks.finished(job.thread).catch(() => {});
     this.emit({ type: "thread", thread: job.thread });
+    if (!job.thread.doneAt && ["completed", "idle", "stopped"].includes(job.thread.status))
+      this.requestThreadCompletion(job.thread.projectId, true);
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
     if (request.kind === "done" && writeFailure) throw writeFailure.cause;
     const next = job.thread.queuedMessages?.[0];
@@ -3091,6 +3195,7 @@ export class WorkspaceService {
 
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
+    this.completionPreferences.clear();
     clearInterval(this.worktreeCleanupTimer);
     await this.worktreeCleanup?.catch(() => {});
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));

@@ -3388,3 +3388,370 @@ test("inactivity completes threads without PRs, while queued work stays open", a
     ),
   ).toBe(true);
 });
+
+test("a forced completion request racing a pending check runs one fresh follow-up", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const started = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  let calls = 0;
+  const load = async () => {
+    const call = ++calls;
+    if (call === 1) {
+      started.resolve();
+      await gate.promise;
+    }
+    return {
+      state: call === 1 ? ("open" as const) : ("merged" as const),
+      baseBranch: "main",
+      defaultBranch: "main",
+      endedAt: call === 1 ? null : "2026-01-01T00:00:00Z",
+    };
+  };
+  const pending = service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  await started.promise;
+  const forced = Array.from({ length: 100 }, () =>
+    service.autoCompleteThreads(project.id, defaultThreadCompletion, load, true),
+  );
+  gate.resolve();
+  await pending;
+  await Promise.all(forced);
+  expect(calls).toBe(2);
+  expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
+});
+
+test("running linked threads refresh PR evidence without stopping work", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  let calls = 0;
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => {
+    calls++;
+    return {
+      state: "merged",
+      baseBranch: "main",
+      defaultBranch: "main",
+      endedAt: "2026-01-01T00:00:00Z",
+    };
+  });
+  expect(calls).toBe(1);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  expect(runs[0].stopped).toBe(false);
+});
+
+test("a status follow-up does not suppress automatic Done for an already merged PR", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  let completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Has this PR merged?",
+  });
+  completed = finished(service, thread.id);
+  runs[1].complete();
+  await completed;
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  }));
+  expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
+});
+
+test("completion sweeps use at most four workers and continue after one unavailable PR", async () => {
+  const { service, store, project } = await fixture();
+  const ids: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const id = randomUUID();
+    ids.push(id);
+    await store.writeThread({
+      id,
+      projectId: project.id,
+      revision: 1,
+      title: "Ship",
+      harness: "codex",
+      status: "completed",
+      designIds: [],
+      messages: [{ id: randomUUID(), role: "user", text: "Work" }],
+      updatedAt: "2026-01-01T00:00:00Z",
+      pullRequests: [`https://github.com/owner/repo/pull/${i + 1}`],
+    });
+  }
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  let active = 0,
+    peak = 0,
+    calls = 0;
+  const check = service.autoCompleteThreads(project.id, defaultThreadCompletion, async (url) => {
+    calls++;
+    peak = Math.max(peak, ++active);
+    if (active === 4) started.resolve();
+    await gate.promise;
+    active--;
+    return url.endsWith("/1")
+      ? null
+      : {
+          state: "merged",
+          baseBranch: "main",
+          defaultBranch: "main",
+          endedAt: "2026-11-01T00:00:00Z",
+        };
+  });
+  await started.promise;
+  expect(peak).toBe(4);
+  gate.resolve();
+  await expect(check).rejects.toThrow("retry automatically");
+  expect(calls).toBe(12);
+  expect(peak).toBe(4);
+  const summaries = await store.threadSummaries(project.id);
+  expect(summaries.filter((thread) => thread.doneReason === "merged")).toHaveLength(11);
+  expect((await store.readThread(project.id, ids[0])).doneAt).toBeUndefined();
+});
+
+test("disabled rules win over a merge trigger queued in the host", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  const url = "https://github.com/owner/repo/pull/42";
+  stored.pullRequests = [url];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const requests = (
+    service as unknown as {
+      completionPullRequests: import("./completion-pull-requests").CompletionPullRequests;
+    }
+  ).completionPullRequests;
+  const read = spyOn(requests, "read").mockResolvedValue({
+    state: "open",
+    baseBranch: "main",
+    defaultBranch: null,
+    endedAt: null,
+  });
+  const gate = Promise.withResolvers<void>();
+  let queued: Promise<unknown> | undefined;
+  const dispatch = spyOn(service, "dispatch").mockImplementation(<T>(action: () => Promise<T>) => {
+    const pending = gate.promise.then(action);
+    queued = pending;
+    return pending;
+  });
+  try {
+    await service.autoCompleteThreads(project.id, defaultThreadCompletion);
+    read.mockResolvedValue({
+      state: "merged",
+      baseBranch: "main",
+      defaultBranch: "main",
+      endedAt: "2026-11-01T00:00:00Z",
+    });
+    await service.pullRequestState(project.id, url, true);
+    expect(queued).toBeDefined();
+    await service.autoCompleteThreads(project.id, { ...defaultThreadCompletion, merged: false });
+    gate.resolve();
+    await queued;
+    expect(read).toHaveBeenCalledTimes(2);
+    expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  } finally {
+    gate.resolve();
+    dispatch.mockRestore();
+    read.mockRestore();
+  }
+});
+
+test("revoking project access during the final read prevents automatic Done", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const read = store.readThread.bind(store);
+  let permitted = true;
+  const access = spyOn(service, "canAccessProject").mockImplementation(() => permitted);
+  const paused = spyOn(store, "readThread").mockImplementation(async (...args) => {
+    const value = await read(...args);
+    permitted = false;
+    return value;
+  });
+  try {
+    await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+      state: "merged",
+      baseBranch: "main",
+      defaultBranch: "main",
+      endedAt: "2026-11-01T00:00:00Z",
+    }));
+    expect((await read(project.id, thread.id)).doneAt).toBeUndefined();
+  } finally {
+    paused.mockRestore();
+    access.mockRestore();
+  }
+});
+
+test("overlapping routine completion checks share one sweep", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const started = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  let reads = 0;
+  const load = async () => {
+    reads++;
+    started.resolve();
+    await gate.promise;
+    return { state: "open" as const, baseBranch: "main", defaultBranch: null, endedAt: null };
+  };
+  const first = service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  await started.promise;
+  const overlapping = Array.from({ length: 1000 }, () =>
+    service.autoCompleteThreads(project.id, defaultThreadCompletion, load),
+  );
+  expect(overlapping.every((pending) => pending === first)).toBe(true);
+  gate.resolve();
+  await Promise.all(overlapping);
+  expect(reads).toBe(1);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+});
+
+test("a merge observed during a sweep still queues a follow-up for a previously checked thread", async () => {
+  const { service, store, project } = await fixture();
+  const ids = [randomUUID(), randomUUID()];
+  const urls = ["https://github.com/owner/repo/pull/42", "https://github.com/owner/repo/pull/43"];
+  for (let i = 0; i < ids.length; i++)
+    await store.writeThread({
+      id: ids[i],
+      projectId: project.id,
+      revision: 1,
+      title: "Ship",
+      harness: "codex",
+      status: "completed",
+      designIds: [],
+      messages: [{ id: randomUUID(), role: "user", text: "Work" }],
+      updatedAt: "2026-01-01T00:00:00Z",
+      pullRequests: [urls[i]],
+    });
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const requests = (
+    service as unknown as {
+      completionPullRequests: import("./completion-pull-requests").CompletionPullRequests;
+    }
+  ).completionPullRequests;
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  let hold = false,
+    merged = false;
+  const read = spyOn(requests, "read").mockImplementation(async (url) => {
+    const value =
+      url === urls[0] && merged
+        ? {
+            state: "merged" as const,
+            baseBranch: "main",
+            defaultBranch: "main",
+            endedAt: "2026-11-01T00:00:00Z",
+          }
+        : { state: "open" as const, baseBranch: "main", defaultBranch: null, endedAt: null };
+    if (url === urls[1] && hold) {
+      started.resolve();
+      await gate.promise;
+    }
+    return value;
+  });
+  try {
+    await service.autoCompleteThreads(project.id, defaultThreadCompletion);
+    hold = true;
+    const pending = service.autoCompleteThreads(project.id, defaultThreadCompletion);
+    await started.promise;
+    merged = true;
+    await service.pullRequestState(project.id, urls[0], true);
+    hold = false;
+    gate.resolve();
+    await pending;
+    expect((await store.readThread(project.id, ids[0])).doneReason).toBe("merged");
+    expect((await store.readThread(project.id, ids[1])).doneAt).toBeUndefined();
+  } finally {
+    gate.resolve();
+    read.mockRestore();
+  }
+});
+
+test("a forced refresh arriving as a sweep settles still starts a fresh sweep", async () => {
+  const { service, project } = await fixture();
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const gate = Promise.withResolvers<void>();
+  let calls = 0;
+  const checks = service as unknown as { checkThreadCompletion: () => Promise<void> };
+  const check = spyOn(checks, "checkThreadCompletion").mockImplementation(() =>
+    ++calls === 1 ? gate.promise : Promise.resolve(),
+  );
+  try {
+    const first = service.autoCompleteThreads(project.id, defaultThreadCompletion);
+    let fresh: Promise<void> | undefined;
+    gate.resolve();
+    queueMicrotask(() => {
+      fresh = service.autoCompleteThreads(project.id, defaultThreadCompletion, undefined, true);
+    });
+    await first;
+    await fresh;
+    expect(calls).toBe(2);
+  } finally {
+    check.mockRestore();
+  }
+});

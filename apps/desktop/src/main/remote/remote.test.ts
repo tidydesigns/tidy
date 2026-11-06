@@ -1958,3 +1958,27 @@ test("file reference reads use the thread worktree on its host", async () => {
   ).rejects.toThrow("This file or folder is missing. It may have moved or been deleted.");
   expect(client.status.kind).toBe("connected");
 });
+
+test("PR status notifications require per-connection opt-in and keep legacy clients connected", async () => {
+  const f = await fixture();
+  const legacy = f.client();
+  const modern = f.client();
+  await until(() => [legacy, modern].every(({ client }) => client.status.kind === "connected"));
+  await modern.client.operation("auto-complete-threads", {
+    projectId: f.project.id,
+    preferences: { merged: false, closed: false, inactiveDays: 0 },
+    prEvents: true,
+  });
+  const event: DesktopEvent = {
+    type: "pull-request-state",
+    projectId: f.project.id,
+    url: "https://github.com/owner/repo/pull/42",
+    state: "merged",
+  };
+  // This exercises the real authenticated websocket and its event gate, without GitHub traffic.
+  (f.service as unknown as { emit: (event: DesktopEvent) => void }).emit(event);
+  await until(() => modern.events.some((value) => value.type === "pull-request-state"));
+  await legacy.client.operation("project-snapshot", f.project.id);
+  expect(legacy.events.some((value) => value.type === "pull-request-state")).toBe(false);
+  expect(legacy.client.status.kind).toBe("connected");
+});

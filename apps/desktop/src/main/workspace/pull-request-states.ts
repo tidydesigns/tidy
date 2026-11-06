@@ -22,7 +22,7 @@ export function parsePullRequestState(response: unknown): PullRequestState {
 export class CachedPullRequests<T> {
   private readonly cache = new Map<
     string,
-    { expires: number; pending: boolean; result: Promise<T | null> }
+    { expires: number; pending: boolean; result: Promise<T | null>; refresh?: Promise<T | null> }
   >();
   private active = 0;
   private readonly waiting: Array<() => void> = [];
@@ -33,28 +33,40 @@ export class CachedPullRequests<T> {
   ) {}
 
   invalidate() {
-    for (const [url, entry] of this.cache) if (!entry.pending) this.cache.delete(url);
+    for (const [url, entry] of this.cache)
+      if (!entry.pending) this.cache.delete(url);
+      else entry.expires = 0;
   }
 
-  read(href: string): Promise<T | null> {
+  read(href: string, force = false): Promise<T | null> {
     const url = pullRequestURL(href);
     if (!url) return Promise.resolve(null);
     const cached = this.cache.get(url);
-    if (cached && (cached.pending || cached.expires > this.now())) return cached.result;
+    if (cached?.pending) {
+      // A refresh requested after this lookup started must observe a subsequent lookup.
+      if (force) cached.refresh ??= cached.result.then(() => this.read(url, true));
+      return cached.refresh ?? cached.result;
+    }
+    if (cached && !force && cached.expires > this.now()) return cached.result;
     this.cache.delete(url);
     if (this.cache.size >= 256) {
       const oldest = [...this.cache].find(([, entry]) => !entry.pending);
       if (!oldest) return Promise.resolve(null);
       this.cache.delete(oldest[0]);
     }
-    const entry: { expires: number; pending: boolean; result: Promise<T | null> } = {
+    const entry: {
+      expires: number;
+      pending: boolean;
+      result: Promise<T | null>;
+      refresh?: Promise<T | null>;
+    } = {
       expires: Infinity,
       pending: true,
       result: Promise.resolve<T | null>(null),
     };
     entry.result = this.lookup(url).then((state) => {
       entry.pending = false;
-      entry.expires = this.now() + (state === null ? 15_000 : 60_000);
+      entry.expires = entry.expires === 0 ? 0 : this.now() + (state === null ? 15_000 : 10_000);
       return state;
     });
     this.cache.set(url, entry);

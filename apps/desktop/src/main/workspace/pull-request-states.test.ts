@@ -131,3 +131,37 @@ test("queued requests release their slots after failures and the pending cache s
   expect(await states.read("https://github.com/owner/repo/pull/2")).toBe("open");
   expect(calls).toBe(257);
 });
+
+test("a forced refresh during a lookup coalesces a burst into one fresh trailing read", async () => {
+  const gate = Promise.withResolvers<void>();
+  let calls = 0;
+  const states = new PullRequestStates(async () => {
+    const call = ++calls;
+    if (call === 1) await gate.promise;
+    return call === 1 ? "open" : "merged";
+  });
+  const original = states.read(url);
+  const forced = Array.from({ length: 1000 }, () => states.read(url, true));
+  expect(calls).toBe(1);
+  expect(new Set(forced).size).toBe(1);
+  gate.resolve();
+  expect(await original).toBe("open");
+  expect(await Promise.all(forced)).toEqual(Array(1000).fill("merged"));
+  expect(calls).toBe(2);
+});
+
+test("invalidating an in-flight read cannot repopulate a fresh cache with its stale result", async () => {
+  const gate = Promise.withResolvers<void>();
+  let calls = 0;
+  const states = new PullRequestStates(async () => {
+    const call = ++calls;
+    if (call === 1) await gate.promise;
+    return call === 1 ? "open" : "merged";
+  });
+  const original = states.read(url);
+  states.invalidate();
+  gate.resolve();
+  expect(await original).toBe("open");
+  expect(await states.read(url)).toBe("merged");
+  expect(calls).toBe(2);
+});

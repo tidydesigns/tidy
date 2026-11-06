@@ -178,7 +178,7 @@ test("status persistence retries failed writes and skips unchanged successful re
   const clock = spyOn(Date, "now").mockReturnValue(0);
   let saved = "";
   let writes = 0;
-  let state: "merged" | "open" = "merged";
+  let state: "closed" | "open" = "closed";
   const storage = {
     getItem: () => saved || null,
     setItem: (_key: string, value: string) => {
@@ -195,7 +195,7 @@ test("status persistence retries failed writes and skips unchanged successful re
   });
   try {
     await status.refresh();
-    expect(status.read().state).toBe("merged");
+    expect(status.read().state).toBe("closed");
     expect(saved).toBe("");
     clock.mockReturnValue(60_001);
     await status.refresh();
@@ -206,7 +206,7 @@ test("status persistence retries failed writes and skips unchanged successful re
       url,
       storage: { ...storage },
     });
-    expect(reopened.read().state).toBe("merged");
+    expect(reopened.read().state).toBe("closed");
     clock.mockReturnValue(120_002);
     await status.refresh();
     expect(writes).toBe(2);
@@ -218,4 +218,169 @@ test("status persistence retries failed writes and skips unchanged successful re
   } finally {
     clock.mockRestore();
   }
+});
+
+test("host completion events update both icons immediately and defeat stale in-flight responses", async () => {
+  const pending = Promise.withResolvers<"open">();
+  let receive:
+    | ((event: import("../../../shared/contracts/desktop").DesktopEvent) => void)
+    | undefined;
+  let subscriptions = 0;
+  let calls = 0;
+  const status = new PullRequestStatus({
+    projectId: "project",
+    url,
+    initialState: "open",
+    api: {
+      pullRequestState: () => {
+        calls++;
+        return pending.promise;
+      },
+      onEvent: (listener) => {
+        subscriptions++;
+        receive = listener;
+        return () => {
+          subscriptions--;
+        };
+      },
+    },
+  });
+  let notifications = 0;
+  const left = status.subscribe(() => notifications++);
+  const right = status.subscribe(() => notifications++);
+  const refresh = status.refresh();
+  receive?.({ type: "pull-request-state", projectId: "other", url, state: "merged" });
+  expect(status.read().state).toBe("open");
+  receive?.({ type: "pull-request-state", projectId: "project", url, state: "merged" });
+  expect(status.read().state).toBe("merged");
+  expect(notifications).toBe(2);
+  pending.resolve("open");
+  await refresh;
+  expect(status.read().state).toBe("merged");
+  await status.refresh(true);
+  expect(calls).toBe(1);
+  expect(subscriptions).toBe(1);
+  left();
+  right();
+  expect(subscriptions).toBe(0);
+});
+
+test("focus bypasses freshness and a forced refresh burst waits for one trailing request", async () => {
+  let calls = 0;
+  const gate = Promise.withResolvers<"open">();
+  const status = new PullRequestStatus({
+    projectId: "project",
+    url,
+    initialState: "open",
+    now: () => 1,
+    api: {
+      pullRequestState: async (_project, _url, force) => {
+        calls++;
+        if (calls === 1) return gate.promise;
+        expect(force).toBe(true);
+        return "merged";
+      },
+    },
+  });
+  const original = status.refresh();
+  const forced = Array.from({ length: 1000 }, () => status.refresh(true));
+  expect(calls).toBe(1);
+  gate.resolve("open");
+  await original;
+  await Promise.all(forced);
+  expect(status.read().state).toBe("merged");
+  expect(calls).toBe(2);
+});
+
+test("canonical URL variants receive scoped broadcasts and invalid destinations stay unchanged", () => {
+  const listeners = new Set<
+    (event: import("../../../shared/contracts/desktop").DesktopEvent) => void
+  >();
+  const api = {
+    onEvent: (
+      listener: (event: import("../../../shared/contracts/desktop").DesktopEvent) => void,
+    ) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+  const aliases = [
+    `${url}/files?diff=split#diff-123`,
+    "https://www.github.com/OWNER/REPO/pull/42/commits",
+  ];
+  const valid = aliases.map(
+    (href) => new PullRequestStatus({ api, projectId: "project", url: href, initialState: "open" }),
+  );
+  const invalid = new PullRequestStatus({
+    api,
+    projectId: "project",
+    url: "https://github.com.example.com/owner/repo/pull/42",
+  });
+  const stop = [...valid, invalid].map((status) => status.subscribe(() => {}));
+  const emit = (projectId: string) => {
+    for (const listener of listeners)
+      listener({ type: "pull-request-state", projectId, url, state: "closed" });
+  };
+  emit("another-project");
+  expect(valid.map((status) => status.read().state)).toEqual(["open", "open"]);
+  emit("project");
+  expect(valid.map((status) => status.read().state)).toEqual(["closed", "closed"]);
+  expect(invalid.read().state).toBeNull();
+  stop.forEach((unsubscribe) => unsubscribe());
+  expect(listeners.size).toBe(0);
+});
+
+test("distinct PRs share one event stream per API and release it after the last subscriber", () => {
+  const streams = new Set<
+    (event: import("../../../shared/contracts/desktop").DesktopEvent) => void
+  >();
+  let opened = 0;
+  let closed = 0;
+  const api = {
+    onEvent(listener: (event: import("../../../shared/contracts/desktop").DesktopEvent) => void) {
+      opened++;
+      streams.add(listener);
+      return () => {
+        closed++;
+        streams.delete(listener);
+      };
+    },
+  };
+  const statuses = Array.from(
+    { length: 256 },
+    (_, index) =>
+      new PullRequestStatus({
+        api,
+        projectId: "project",
+        url: `https://github.com/owner/repo/pull/${index + 1}`,
+        initialState: "open",
+      }),
+  );
+  const stops = statuses.map((status) => status.subscribe(() => {}));
+  expect(opened).toBe(1);
+  expect(streams.size).toBe(1);
+  for (const receive of streams)
+    receive({ type: "pull-request-state", projectId: "project", url, state: "merged" });
+  expect(statuses[41]!.read().state).toBe("merged");
+  expect(statuses.filter((status) => status.read().state === "open")).toHaveLength(255);
+
+  // A different host must keep its own subscription and state.
+  const other = new PullRequestStatus({ api: { ...api }, projectId: "project", url });
+  const stopOther = other.subscribe(() => {});
+  expect(opened).toBe(2);
+  expect(other.read().state).toBeNull();
+  stops.slice(0, -1).forEach((stop) => stop());
+  expect(closed).toBe(0);
+  stops.at(-1)!();
+  expect(closed).toBe(1);
+  stopOther();
+  expect(closed).toBe(2);
+  expect(streams.size).toBe(0);
+
+  const stopAgain = statuses[0]!.subscribe(() => {});
+  expect(opened).toBe(3);
+  stopAgain();
+  expect(closed).toBe(3);
 });

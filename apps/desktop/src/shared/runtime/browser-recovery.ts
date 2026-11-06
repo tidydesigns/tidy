@@ -51,7 +51,7 @@ export function browserRecovery({
     },
     receive(event: DesktopEvent) {
       if (closed) return;
-      if (event.type === "repository-change") {
+      if (event.type === "repository-change" || event.type === "pull-request-state") {
         listener(event);
         return;
       }
