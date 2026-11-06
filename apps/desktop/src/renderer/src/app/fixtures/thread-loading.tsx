@@ -1141,7 +1141,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           {
             id: crypto.randomUUID(),
             role: "assistant",
-            text: "![Remote screenshot](/tmp/remote-screen.png)",
+            text: "**Before image** ![Remote screenshot](/tmp/remote-screen.png) **After image**",
           },
         ];
         let reads = 0;
@@ -1175,9 +1175,25 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
               </StrictMode>,
             ),
           );
+        const checkImageLine = () => {
+          const paragraph = required(host.querySelector(".message-markdown p"), "Image paragraph");
+          const before = required(paragraph.firstElementChild, "Text before image");
+          const image = required(before.nextElementSibling, "Image wrapper");
+          const after = required(image.nextElementSibling, "Text after image");
+          const bounds = image.getBoundingClientRect();
+          check(
+            bounds.top >= before.getBoundingClientRect().bottom,
+            "Image must start below preceding text",
+          );
+          check(
+            after.getBoundingClientRect().top >= bounds.bottom,
+            "Following text must start below the image",
+          );
+        };
         render(false);
         await settle();
         check(reads === 0, "Inactive thread loaded its image");
+        checkImageLine();
         render(true);
         await until(
           () => Boolean(host.querySelector('[aria-label="Preview Remote screenshot"]')),
@@ -1187,6 +1203,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           host.querySelector<HTMLButtonElement>('[aria-label="Preview Remote screenshot"]'),
           "Remote thumbnail",
         );
+        checkImageLine();
         flushSync(() => {
           thumbnail.focus();
           thumbnail.click();
