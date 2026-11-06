@@ -700,11 +700,14 @@ export class WorkspaceService {
           ...scope,
           authorize: () => this.authorizeAgent(scope),
           resolveDesignIds: () => {
-            const current = this.jobs.get(thread.id)?.thread;
-            if (!current || current.projectId !== scope.projectId) return [];
-            return lineage
-              ? current.designIds.filter((id) => lineage.designIds.includes(id))
-              : [...current.designIds];
+            const job = this.jobs.get(thread.id);
+            if (!job || job.thread.projectId !== scope.projectId) return [];
+            const assignment = this.taskAuthority(job)?.task;
+            return job.thread.designIds.filter(
+              (id) =>
+                (!lineage || lineage.designIds.includes(id)) &&
+                (!assignment || assignment.designIds.includes(id)),
+            );
           },
         }),
     };

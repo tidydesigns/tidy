@@ -804,6 +804,80 @@ test("opening another design mid-turn cannot expand a delegated assignment's can
   );
 });
 
+test.each(["auto", "read-only"] as const)(
+  "incoming work in %s mode cannot gain canvas access by opening an unassigned design",
+  async (permissionMode) => {
+    const f = await fixture();
+    const assigned = await f.store.createDesign(f.project.id);
+    const unassigned = await f.store.createDesign(f.project.id);
+    await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      settings: { permissionMode },
+      prompt: "Coordinate the assigned design",
+      designIds: [assigned.id],
+    });
+    const recipient = await f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      settings: { permissionMode },
+      prompt: "Independent conversation",
+      designIds: [assigned.id],
+    });
+    const senderTools = await f.runs[0].input.agentTools!.open();
+    cleanups.push(async () => senderTools.close());
+    await f.service.setThreadWorkPermission(f.project.id, recipient.id, true);
+    await call(senderTools, "thread_send", {
+      thread_id: recipient.id,
+      request_id: randomUUID(),
+      message: "Inspect the assigned design",
+    });
+    f.runs[1].complete();
+    await until(async () => f.runs.length === 3);
+    expect(await f.service.tasks.store.forChild(f.project.id, recipient.id)).toBeUndefined();
+    const recipientTools = await f.runs[2].input.agentTools!.open();
+    cleanups.push(async () => recipientTools.close());
+    await localDesignAction(f.runs[2].input.prompt, {
+      kind: "design-open",
+      designId: unassigned.id,
+    });
+    expect((await f.service.readThread(f.project.id, recipient.id)).designIds).toContain(
+      unassigned.id,
+    );
+    expect((await call(recipientTools, "tidy_context", {})).design_ids).toEqual([assigned.id]);
+    expect((await call(recipientTools, "canvas_read", { design_id: assigned.id })).version).toBe(
+      assigned.version,
+    );
+    await expect(call(recipientTools, "canvas_read", { design_id: unassigned.id })).rejects.toThrow(
+      "not attached",
+    );
+    const edit = (design: typeof assigned) => ({
+      design_id: design.id,
+      expected_version: design.version,
+      request_id: randomUUID(),
+      operations: [
+        { kind: "update", node_ids: [design.document.nodes[0].id], changes: { name: "Reviewed" } },
+      ],
+    });
+    if (permissionMode === "auto") {
+      await expect(call(recipientTools, "canvas_edit", edit(unassigned))).rejects.toThrow(
+        "not attached",
+      );
+      await call(recipientTools, "canvas_edit", edit(assigned));
+      expect(
+        (await f.store.readDesign(f.project.id, assigned.id, false)).document.nodes[0].name,
+      ).toBe("Reviewed");
+    } else {
+      await expect(call(recipientTools, "canvas_edit", edit(assigned))).rejects.toThrow(
+        "read-only",
+      );
+    }
+    expect((await f.store.readDesign(f.project.id, unassigned.id, false)).version).toBe(
+      unassigned.version,
+    );
+  },
+);
+
 test("a failed design attachment checkpoint grants no canvas access and a retry repairs it", async () => {
   const f = await fixture();
   const thread = await f.service.startThread({
