@@ -43,7 +43,11 @@ const WorkRow = memo(function WorkRow({
   }, [id, rows]);
   return (
     <div className="turn-work-region" ref={region} inert={!open} aria-hidden={!open}>
-      <div className="turn-work-content" ref={content} data-bounded={bounded ? "" : undefined}>
+      <div
+        className="turn-work-content data-[bounded]:overscroll-x-contain"
+        ref={content}
+        data-bounded={bounded ? "" : undefined}
+      >
         {mounted ? children : null}
       </div>
     </div>
