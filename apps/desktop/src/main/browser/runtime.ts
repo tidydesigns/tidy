@@ -1,6 +1,6 @@
 import { downloadBrowserArchive } from "./download-archive";
 import { lockBrowserInstall, BrowserInstallBusyError } from "./install-lock";
-import { mkdir, chmod, access, rm } from "node:fs/promises";
+import { mkdir, chmod, access, rm, mkdtemp } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import {
@@ -14,19 +14,28 @@ import {
 } from "@puppeteer/browsers";
 import { launch, type Browser } from "puppeteer-core";
 import type { ChildProcess } from "node:child_process";
+import { BrowserVideoHost } from "./video-host";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
 export class BrowserRuntime {
   private pending?: Promise<Browser>;
+  videoHost?: BrowserVideoHost;
   private closing = false;
   private readonly lifetime = new AbortController();
   private readonly scratch = new PrivateScratch();
   private readonly processes = new Set<ChildProcess>();
+  private videoEnabled: boolean;
+  get video() {
+    return this.videoEnabled;
+  }
 
   constructor(
     private readonly progress: (fraction: number | null) => void,
     private readonly disconnected: () => void,
-  ) {}
+    video = process.env.TIDY_BROWSER_STREAMING === "voxl",
+  ) {
+    this.videoEnabled = video;
+  }
 
   get() {
     if (this.closing) return Promise.reject(new Error("The browser is closing."));
@@ -64,7 +73,7 @@ export class BrowserRuntime {
       }
       try {
         const options = {
-          browser: BrowserKind.CHROMEHEADLESSSHELL,
+          browser: this.video ? BrowserKind.CHROME : BrowserKind.CHROMEHEADLESSSHELL,
           platform,
           cacheDir,
           buildId: "156.0.8078.47",
@@ -107,24 +116,54 @@ export class BrowserRuntime {
     if (this.closing) throw new Error("The browser is closing.");
     this.progress(null);
     let directory: string | undefined;
+    let socketDirectory: string | undefined;
     try {
       directory = await this.scratch.create("tidy-browser-runtime-");
+      if (this.video) {
+        this.videoHost = new BrowserVideoHost();
+        try {
+          await this.videoHost.start(directory);
+        } catch {
+          await this.videoHost.close();
+          this.videoHost = undefined;
+          this.videoEnabled = false;
+        }
+      }
+      const socketRoot =
+        process.platform === "win32" || Buffer.byteLength(homedir()) <= 48 ? homedir() : "/tmp";
+      socketDirectory = await mkdtemp(join(socketRoot, ".tidy-browser-"));
       const browser = await launch({
         executablePath,
         userDataDir: join(directory, "profile"),
-        env: { ...process.env, TMPDIR: directory, TMP: directory, TEMP: directory },
-        headless: true,
+        env: {
+          ...process.env,
+          ...this.videoHost?.environment,
+          TMPDIR: socketDirectory,
+          TMP: socketDirectory,
+          TEMP: socketDirectory,
+        },
+        headless: !this.video,
+        ignoreDefaultArgs: this.video ? ["--enable-automation"] : undefined,
         pipe: true,
         timeout: 30000,
-        args: process.env.TIDY_BROWSER_SANDBOX === "0" ? ["--no-sandbox"] : [],
+        args: [
+          ...(process.env.TIDY_BROWSER_SANDBOX === "0" ? ["--no-sandbox"] : []),
+          ...(this.video
+            ? ["--ozone-platform=x11", "--kiosk", "--window-position=0,0", "--window-size=1280,800"]
+            : []),
+        ],
         defaultViewport: { width: 1280, height: 800, deviceScaleFactor: 1 },
       });
       const child = browser.process();
       if (child) {
         const profile = directory;
+        const sockets = socketDirectory;
         const cleanup = () => {
           this.processes.delete(child);
-          void rm(profile, { recursive: true, force: true }).catch(() => {});
+          void Promise.all([
+            rm(profile, { recursive: true, force: true }),
+            rm(sockets, { recursive: true, force: true }),
+          ]).catch(() => {});
         };
         this.processes.add(child);
         if (child.exitCode !== null || child.signalCode !== null) cleanup();
@@ -136,10 +175,17 @@ export class BrowserRuntime {
       }
       browser.once("disconnected", () => {
         this.pending = undefined;
+        const host = this.videoHost;
+        this.videoHost = undefined;
+        void host?.close();
         this.disconnected();
       });
       return browser;
     } catch (error) {
+      await this.videoHost?.close();
+      this.videoHost = undefined;
+      if (socketDirectory)
+        await rm(socketDirectory, { recursive: true, force: true }).catch(() => {});
       if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
       const message = scratchStorageError(error, directory ?? "Tidy browser storage").message;
       if (/sandbox|namespace|apparmor/i.test(message))
@@ -173,6 +219,8 @@ export class BrowserRuntime {
       ]);
     } finally {
       clearTimeout(timer);
+      await this.videoHost?.close();
+      this.videoHost = undefined;
       if (closed && this.processes.size === 0) await this.scratch.close();
     }
   }

@@ -110,6 +110,99 @@ bun run --cwd apps/desktop test:browser
 Set `TIDY_BROWSER_EXECUTABLE=/path/to/chromium` to skip managed installation.
 The regular Bun suite skips the Node browser integration cases.
 
+### Experimental video streaming
+
+In **Settings → Labs**, enable **Browser video streaming** for this machine or a connected
+remote machine. The choice is stored on that host and applies to new browser
+sessions. Existing sessions keep their current mode. Open the browser in a new
+thread to test the change without restarting the app. Labs checks required host
+executables before accepting enablement, confirms saved changes, and reports
+unavailable prerequisites. Existing JPEG sessions are not converted to video.
+Older remote backends must be updated to use the Labs control; their existing
+preview sessions remain available.
+
+Set `TIDY_BROWSER_STREAMING=voxl` on the **browser host process** to try H.264
+streaming without a saved setting. A saved Settings choice takes precedence over
+this environment default. The default remains the existing JPEG backend. The
+experimental host requires Linux, full Chrome/Chromium, Xvfb, xrandr, Openbox, and
+Voxl 0.3.2. The viewer
+can run on a different operating system. Voxl is an external executable; it is
+not bundled or installed automatically. Build it using its upstream instructions
+and review its native dependencies and x264 distribution requirements before
+packaging it.
+
+From the repository root, start a local experiment with:
+
+```sh
+TIDY_BROWSER_STREAMING=voxl bun run --cwd apps/desktop dev
+```
+
+The managed browser installer selects full Chrome when video streaming is enabled.
+These optional environment variables select installed executables:
+
+- `TIDY_BROWSER_EXECUTABLE`: full Chrome/Chromium, not Chrome Headless Shell.
+- `TIDY_VOXL_EXECUTABLE`: Voxl executable (default `voxl`).
+- `TIDY_XVFB_EXECUTABLE`: virtual display executable (default `Xvfb`).
+- `TIDY_XRANDR_EXECUTABLE`: display reset executable (default `xrandr`).
+- `TIDY_BROWSER_WINDOW_MANAGER_EXECUTABLE`: Openbox executable (default `openbox`).
+
+Up to four active video workspaces per host each own a private display and browser
+process. Chrome's sandbox stays enabled. X11 TCP listening is disabled and display
+access requires a private Xauthority cookie. Voxl chooses an ephemeral loopback
+port and receives a fresh private password on every start. Before authentication,
+the backend verifies that the accepted socket belongs to its managed child process.
+Tidy forwards only video and viewing acknowledgements; mouse, keyboard, text,
+agent tools, uploads, and downloads continue through the existing browser service.
+The host alone controls display resizing. Clipboard sharing, microphone, audio,
+and Voxl file transfers are disabled.
+
+For a remote experiment, configure these variables and executables on the remote
+backend before it starts, using a separate test backend/state directory. Setting
+them only on the viewing computer does not enable remote video. The existing SSH
+connection carries the authenticated stream without exposing Voxl, Chrome's
+DevTools connection, or the development server publicly. Both host and viewer
+must support the current streaming protocol; older streaming backends show an
+explicit update notice. Older JPEG-only backends remain usable. Remote bootstrap does not install the native video
+dependencies or configure a running service's environment.
+
+The decoder runs in a worker. Unsupported decoders, repeated decode failures, and
+viewers that stop acknowledging frames fall back to JPEG for that viewer. Each
+workspace shares one encoder connection, so a healthy viewer can continue while
+another viewer falls behind. Temporary decoder or congestion failures retry video
+automatically with bounded backoff; unsupported decoders stay on JPEG. A streaming
+process failure is retried against the running browser; browser or host failure
+still loses the live session. Slow connections can still stall because the
+transport uses TCP. Independent video workspaces use more memory than the default
+shared headless browser. Native OS dialogs and browser chrome are not interactive
+through page-scoped CDP input; existing Tidy dialog and file-picker controls remain
+the supported path. If virtual-display dependencies fail to start, the session
+opens in headless Chrome with interactive JPEG instead.
+
+Run the optional native integration checks from the repository root after
+configuring the executable paths:
+
+```sh
+TIDY_TEST_BROWSER_VIDEO=1 node --import ./apps/desktop/node_modules/tsx/dist/loader.mjs \
+  --test apps/desktop/src/main/browser/video-stream.test.ts \
+  apps/desktop/src/main/browser/owned-loopback.test.ts
+```
+
+The test covers live video, repeated streaming-process failure, session reuse,
+workspace isolation, viewport resizing, long-hidden viewers, a slow second viewer,
+mixed JPEG/video capture, missing dependencies, and JPEG fallback.
+It requires a working Linux graphical/browser sandbox environment. It is skipped
+in ordinary unit runs. Real cross-machine and lossy
+network validation remain separate acceptance checks; simulated loopback traffic
+is not evidence that every remote environment is supported.
+
+After building the desktop app, `TIDY_TEST_BROWSER_VIDEO=1 bun scripts/test-browser.ts`
+from `apps/desktop` exercises the production renderer and authenticated remote
+transport, including painted pixels and native interaction. Tests use disposable
+browser profiles and require the same native executable configuration as the host.
+The paint budget defaults to 20 fps;
+`TIDY_TEST_BROWSER_MIN_FPS` can select a different explicit budget for deliberately
+degraded-network checks. Report that budget alongside those results.
+
 ## iOS and Android previews
 
 In **Threads**, open the workspace side panel, choose **+ → Devices**, pick a

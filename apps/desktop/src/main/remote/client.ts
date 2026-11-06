@@ -147,6 +147,7 @@ export class RemoteClient {
     let visible = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let opening: AbortController | undefined;
+    let supportsVideo = false;
     const connect = () => {
       if (closed) return;
       if (this.current.kind !== "connected" || !this.connection) {
@@ -168,6 +169,7 @@ export class RemoteClient {
       opening = attempt;
       socket?.terminate();
       socket = undefined;
+      supportsVideo = false;
       void (async () => {
         const health = await fetch(`${active.origin}/health`, {
           signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(10000)]),
@@ -177,9 +179,12 @@ export class RemoteClient {
           .object({ capabilities: z.array(z.string()).optional() })
           .parse(await health.json()).capabilities;
         if (closed || version !== generation) return;
+        supportsVideo = capabilities?.includes("browser-streaming-v2") ?? false;
         if (
           !capabilities?.includes("browser-v2") ||
-          !capabilities.includes("browser-draft-discard")
+          !capabilities.includes("browser-draft-discard") ||
+          (capabilities.includes("browser-streaming-settings-v1") &&
+            !capabilities.includes("browser-streaming-v2"))
         ) {
           receive({
             kind: "error",
@@ -203,7 +208,7 @@ export class RemoteClient {
           .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
           .parse(await response.json());
         if (closed || version !== generation) return;
-        const params = new URLSearchParams({ ...scope, viewerId, ticket });
+        const params = new URLSearchParams({ ...scope, viewerId, ticket, video: "2" });
         const next = new WebSocket(
           `${active.origin.replace("http:", "ws:")}/browser-stream?${params}`,
           { maxPayload: 8 * 1024 * 1024, perMessageDeflate: false, handshakeTimeout: 15000 },
@@ -283,6 +288,8 @@ export class RemoteClient {
     return {
       input: (input) => {
         if (input.input.kind === "visibility") visible = input.input.visible;
+        if (input.input.kind === "mouse" && input.input.action === "leave" && !supportsVideo)
+          return;
         if (socket?.readyState !== WebSocket.OPEN) return;
         const bufferLimit = input.input.kind === "text" ? 4 * 1024 * 1024 : 128 * 1024;
         if (socket.bufferedAmount > bufferLimit) {
@@ -527,6 +534,20 @@ export class RemoteClient {
           ),
         );
     }
+    if (
+      ["browser-streaming-state", "browser-streaming-choice"].includes(name) &&
+      !this.capabilities.includes("browser-streaming-settings-v1")
+    )
+      return Promise.reject(new Error("Browser streaming settings need a backend update."));
+    if (
+      ["browser-streaming-labs-state", "browser-streaming-labs-choice"].includes(name) &&
+      !this.capabilities.includes("browser-streaming-labs-v1")
+    )
+      return Promise.reject(
+        new Error(
+          "Labs streaming settings need a backend update. Update this host in Settings → Remote machines.",
+        ),
+      );
     if (!this.capabilities.includes("thread-worktrees")) {
       if (name === "project-thread-mode")
         return Promise.reject(new Error("Thread workspaces need a backend update."));

@@ -67,6 +67,7 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
     stateRef,
     visibleRef,
     painted,
+    streamStatus,
     error,
     setError,
     dismissedError,
@@ -589,6 +590,19 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
           setError={setError}
           send={send}
         />
+        {tab && connected && !disconnected && streamStatus?.mode === "jpeg" && (
+          <div
+            className="browser-stream-status pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded border border-border bg-panel px-2 py-1 text-[11px] text-secondary-ink wrap-anywhere"
+            role="status"
+            aria-live="polite"
+          >
+            {streamStatus.reason === "unsupported"
+              ? "JPEG preview · video decoding unavailable"
+              : streamStatus.reason === "unavailable"
+                ? "JPEG preview · video unavailable on this host"
+                : "JPEG preview · retrying video"}
+          </div>
+        )}
         {(!tab || tab.url === "about:blank") && (
           <div className="browser-empty absolute inset-0 flex flex-col items-center justify-center gap-[9px] p-6 text-center text-muted-ink">
             <span className="browser-empty-icon mb-[7px] grid size-[52px] place-items-center rounded-xl border border-border bg-panel">

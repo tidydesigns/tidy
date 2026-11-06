@@ -14,6 +14,11 @@ import {
   type BrowserResult,
 } from "../../shared/contracts/browser";
 import { BrowserScreencast, type BrowserViewer } from "./screencast";
+import { BrowserVideoStream } from "./video-stream";
+import { BrowserStreamingPreferences } from "./streaming-preferences";
+import { browserStreamingUnavailable } from "./streaming-availability";
+import type { PrivateState } from "../platform/private-state";
+import type { BrowserStreamingState } from "../../shared/contracts/browser-streaming";
 import { BrowserRuntime } from "./runtime";
 import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
@@ -46,7 +51,8 @@ type Workspace = {
   controller: string | null;
   controlGeneration: number;
   renderTask: Promise<void>;
-  stream: BrowserScreencast;
+  stream: BrowserScreencast | BrowserVideoStream;
+  runtime: BrowserRuntime;
   opening: Set<string>;
   downloadsDirectory?: string;
   downloadSession?: CDPSession;
@@ -62,6 +68,7 @@ export class BrowserService {
   private closing = false;
   private readonly scratch = new PrivateScratch();
   private cleanupPromises = new Set<Promise<unknown>>();
+  private readonly streaming: BrowserStreamingPreferences;
   private readonly runtime = new BrowserRuntime(
     (progress) => {
       for (const workspace of this.workspaces.values()) {
@@ -73,19 +80,48 @@ export class BrowserService {
       }
     },
     () => this.disconnected(),
+    false,
   );
 
-  constructor(private readonly authorize: (scope: BrowserScope) => Promise<void>) {}
+  constructor(
+    private readonly authorize: (scope: BrowserScope) => Promise<void>,
+    storage?: () => PrivateState,
+  ) {
+    this.streaming = new BrowserStreamingPreferences(storage);
+  }
+
+  async streamingState(): Promise<BrowserStreamingState> {
+    const enabled = await this.streaming.current();
+    const unavailableReason = await browserStreamingUnavailable();
+    return {
+      enabled,
+      supported: process.platform === "linux",
+      ...(unavailableReason ? { unavailableReason } : {}),
+    };
+  }
+
+  async chooseStreaming(enabled: boolean) {
+    await this.streaming.choose(enabled, async () => {
+      const reason = await browserStreamingUnavailable();
+      if (reason) throw new Error(reason);
+    });
+    return this.streamingState();
+  }
+
+  videoForScope(scope: BrowserScope) {
+    const workspace = this.workspaces.get(scopeKey(scope));
+    return workspace ? workspace.stream instanceof BrowserVideoStream : this.streaming.enabled;
+  }
 
   private cleanup(action: Promise<unknown>) {
     this.cleanupPromises.add(action);
     void action.finally(() => this.cleanupPromises.delete(action)).catch(ignored);
   }
 
-  private disconnected() {
+  private disconnected(selected?: Workspace) {
     if (this.closing) return;
     for (const workspace of this.workspaces.values()) {
-      if (!workspace.context) continue;
+      if (!workspace.context || (selected && selected !== workspace)) continue;
       workspace.context = undefined;
       workspace.stream.reset();
       workspace.downloadSession = undefined;
@@ -118,6 +154,17 @@ export class BrowserService {
       if (this.workspaces.size >= 64) throw new Error("Close an unused browser workspace first.");
       const created: Workspace = {
         scope,
+        runtime: this.streaming.enabled
+          ? new BrowserRuntime(
+              (progress) => {
+                created.phase =
+                  progress === null ? { kind: "starting" } : { kind: "installing", progress };
+                this.broadcast(created);
+              },
+              () => this.disconnected(created),
+              true,
+            )
+          : this.runtime,
         lifetime: new AbortController(),
         tabs: new Map(),
         activeTabId: null,
@@ -125,11 +172,18 @@ export class BrowserService {
         controller: null,
         controlGeneration: 0,
         renderTask: Promise.resolve(),
-        stream: new BrowserScreencast({
-          currentTab: () =>
-            created.activeTabId ? created.tabs.get(created.activeTabId) : undefined,
-          closed: () => this.closing || created.lifetime.signal.aborted,
-        }),
+        stream: this.streaming.enabled
+          ? new BrowserVideoStream({
+              currentTab: () =>
+                created.activeTabId ? created.tabs.get(created.activeTabId) : undefined,
+              closed: () => this.closing || created.lifetime.signal.aborted,
+              host: () => created.runtime.videoHost,
+            })
+          : new BrowserScreencast({
+              currentTab: () =>
+                created.activeTabId ? created.tabs.get(created.activeTabId) : undefined,
+              closed: () => this.closing || created.lifetime.signal.aborted,
+            }),
         opening: new Set(),
         agentActions: new Set(),
       };
@@ -141,6 +195,7 @@ export class BrowserService {
 
   async state(scope: BrowserScope, viewerId?: string): Promise<BrowserState> {
     await this.authorize(scope);
+    await this.streaming.initialize();
     const workspace = this.workspace(scope);
     const state = this.snapshot(workspace, viewerId);
     this.discardEmpty(workspace);
@@ -218,6 +273,8 @@ export class BrowserService {
     if (workspace.tabs.size || workspace.opening.size || workspace.stream.viewers.size) return;
     if (this.workspaces.get(scopeKey(workspace.scope)) !== workspace) return;
     this.workspaces.delete(scopeKey(workspace.scope));
+    this.cleanup(workspace.stream.close());
+    if (workspace.runtime !== this.runtime) this.cleanup(workspace.runtime.close());
     if (workspace.context) this.cleanup(workspace.context.then((context) => context.close()));
     if (workspace.downloadSession) this.cleanup(workspace.downloadSession.detach());
     if (workspace.downloadsDirectory)
@@ -225,11 +282,21 @@ export class BrowserService {
   }
 
   private async context(workspace: Workspace) {
+    if (
+      workspace.stream instanceof BrowserVideoStream &&
+      !workspace.context &&
+      [...this.workspaces.values()].filter(
+        (item) => item.stream instanceof BrowserVideoStream && item.context,
+      ).length >= 4
+    )
+      throw new Error(
+        "Close an unused browser workspace first. Video streaming supports four active workspaces per host.",
+      );
     let opened: BrowserContext | undefined;
     workspace.context ??= (async () => {
       workspace.phase = { kind: "starting" };
       this.broadcast(workspace);
-      const browser = await this.runtime.get();
+      const browser = await workspace.runtime.get();
       if (this.closing) throw new Error("The browser is closing.");
       workspace.lifetime.signal.throwIfAborted();
       const context = await browser.createBrowserContext();
@@ -546,6 +613,7 @@ export class BrowserService {
   ): Promise<BrowserResult> {
     requestSignal?.throwIfAborted();
     await this.authorize(scope);
+    await this.streaming.initialize();
     requestSignal?.throwIfAborted();
     const workspace = this.workspace(scope);
     const readOnly = isBrowserQuery(action);
@@ -826,6 +894,7 @@ export class BrowserService {
 
   async watch(scope: BrowserScope, id: string, send: BrowserViewer["send"]): Promise<BrowserWatch> {
     await this.authorize(scope);
+    await this.streaming.initialize();
     const workspace = this.workspace(scope);
     if (workspace.stream.viewers.size >= 8) throw new Error("Too many viewers for this browser.");
     const viewer: BrowserViewer = {
@@ -845,6 +914,20 @@ export class BrowserService {
     return {
       input: ({ input, tabId, viewId }) => {
         if (viewer.closed) return;
+        if (input.kind === "video-disabled") {
+          if (workspace.stream instanceof BrowserVideoStream)
+            workspace.stream.disable(viewer, input.reason);
+          return;
+        }
+        if (input.kind === "video-pong") {
+          if (workspace.stream instanceof BrowserVideoStream)
+            workspace.stream.pong(viewer, input.nonce);
+          return;
+        }
+        if (input.kind === "video-keyframe") {
+          if (workspace.stream instanceof BrowserVideoStream) workspace.stream.resync(viewer);
+          return;
+        }
         if (input.kind === "ack") {
           workspace.stream.acknowledge(viewer, input.frameId);
           return;
@@ -1022,9 +1105,18 @@ export class BrowserService {
               : input.action === "up"
                 ? "mouseReleased"
                 : "mouseMoved",
-          x: input.x,
-          y: input.y,
-          button: input.button,
+          x: input.action === "leave" ? -1 : input.x,
+          y: input.action === "leave" ? -1 : input.y,
+          button:
+            input.action === "move"
+              ? input.buttons & 1
+                ? "left"
+                : input.buttons & 2
+                  ? "right"
+                  : input.buttons & 4
+                    ? "middle"
+                    : "none"
+              : input.button,
           buttons: input.buttons,
           modifiers,
           clickCount: input.clickCount,
@@ -1100,6 +1192,9 @@ export class BrowserService {
           this.broadcast(workspace);
         }
         break;
+      case "video-disabled":
+      case "video-pong":
+      case "video-keyframe":
       case "ack":
       case "take-control":
       case "release-control":
@@ -1147,6 +1242,7 @@ export class BrowserService {
       for (const viewer of workspace.stream.viewers) viewer.closed = true;
       workspace.stream.viewers.clear();
       await workspace.stream.close();
+      if (workspace.runtime !== this.runtime) await workspace.runtime.close();
       await workspace.context?.then((context) => context.close()).catch(ignored);
       await workspace.downloadSession?.detach().catch(ignored);
       await Promise.allSettled(
@@ -1183,7 +1279,12 @@ export class BrowserService {
       workspace.stream.invalidate();
       this.cleanup(workspace.stream.close());
     }
-    await this.runtime.close();
+    await Promise.all([
+      this.runtime.close(),
+      ...[...this.workspaces.values()]
+        .filter((workspace) => workspace.runtime !== this.runtime)
+        .map((workspace) => workspace.runtime.close()),
+    ]);
     for (const workspace of this.workspaces.values()) {
       for (const tab of workspace.tabs.values())
         for (const directory of tab.uploads) await rm(directory, { recursive: true, force: true });

@@ -10,6 +10,7 @@ import { RemoteMachines } from "./remote-machines";
 import { PrivacySettings } from "./privacy-settings";
 import { AppearanceSettings } from "./appearance-settings";
 import { TerminalSettings } from "./terminal-settings";
+import { LabsSettings } from "./labs-settings";
 
 export const settingsPages = [
   "account",
@@ -17,6 +18,7 @@ export const settingsPages = [
   "threads",
   "terminal",
   "storage",
+  "labs",
   "privacy",
   "remote",
 ] as const;
@@ -28,6 +30,7 @@ export const settingsSections = {
   threads: "Threads",
   terminal: "Terminal",
   storage: "Storage",
+  labs: "Labs",
   privacy: "Privacy",
   remote: "Remote machines",
 } satisfies Record<SettingsPage, string>;
@@ -179,6 +182,9 @@ export function Settings({
           </div>
           <div id="settings-terminal-panel" hidden={page !== "terminal"}>
             <TerminalSettings />
+          </div>
+          <div id="settings-labs-panel" hidden={page !== "labs"}>
+            <LabsSettings active={active && page === "labs"} />
           </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
             <PrivacySettings active={active} />

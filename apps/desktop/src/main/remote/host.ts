@@ -20,6 +20,9 @@ import { SessionStore } from "./session-store";
 export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
 const hostCapabilities = [
+  "browser-streaming-settings-v1",
+  "browser-streaming-labs-v1",
+  "browser-streaming-v2",
   "browser-v2",
   "mobile-preview-v1",
   "browser-draft-discard",
@@ -221,11 +224,12 @@ export function createRemoteHost({
     }
     void sessions
       .validate(ticket.clientId, ticket.token)
-      .then((valid) => {
+      .then(async (valid) => {
         if (!valid) {
           socket.destroy();
           return;
         }
+        if (url.pathname === "/browser-stream") await service.browser.streamingState();
         sockets.handleUpgrade(request, socket, head, (client) => {
           if (url.pathname === "/terminal-stream") {
             let scope;
@@ -251,6 +255,20 @@ export function createRemoteHost({
             const viewerId = z.uuid().safeParse(url.searchParams.get("viewerId"));
             if (!scope.success || !viewerId.success) {
               client.close(1008, "Invalid browser scope");
+              return;
+            }
+            if (
+              service.browser.videoForScope(scope.data) &&
+              url.searchParams.get("video") !== "2"
+            ) {
+              client.send(
+                JSON.stringify({
+                  kind: "error",
+                  message:
+                    "Update Tidy on this viewing machine to use browser video, or disable browser video in the host's settings to use JPEG.",
+                }),
+              );
+              client.close(1008, "Update the viewer to use browser video.");
               return;
             }
             void serveBrowserStream({

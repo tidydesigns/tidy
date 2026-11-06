@@ -34,7 +34,8 @@ import {
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
-import type { BrowserOutput } from "../../shared/contracts/browser";
+import { browserEventSchema, type BrowserOutput } from "../../shared/contracts/browser";
+import { browserStreamingStateSchema } from "../../shared/contracts/browser-streaming";
 import { MAX_CHAT_IMAGE_BYTES } from "../../shared/contracts/chat-images";
 import { readChatImageSource } from "../../renderer/src/components/load-chat-image";
 import type { TerminalInput, TerminalOutput } from "../../shared/contracts/terminal";
@@ -1657,7 +1658,110 @@ test("browser queries reject mutations and do not create durable command receipt
   expect(f.service.browser.activeCount).toBe(0);
 });
 
-test("hosts without draft cleanup support disable previews without blocking project work", async () => {
+test.skipIf(process.platform !== "linux")(
+  "legacy browser viewers receive upgrade guidance before video protocol rejection",
+  async () => {
+    const f = await fixture();
+    await f.service.store.processState.write("browser-streaming", { enabled: true });
+    const watch = spyOn(f.service.browser, "watch");
+    const clientId = randomUUID();
+    const token = await f.sessions.issue(clientId);
+    const response = await fetch(`${f.origin()}/auth/ticket`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId },
+    });
+    const { ticket } = z.object({ ticket: z.string() }).parse(await response.json());
+    const url = new URL("/browser-stream", f.origin().replace("http:", "ws:"));
+    url.search = new URLSearchParams({
+      ticket,
+      projectId: f.project.id,
+      threadId: randomUUID(),
+      viewerId: randomUUID(),
+      video: "1",
+    }).toString();
+    const socket = new WebSocket(url);
+    cleanups.push(() => socket.terminate());
+    const events: BrowserOutput[] = [];
+    try {
+      const closed = await new Promise<{ code: number; reason: string }>((resolve, reject) => {
+        socket.on("message", (data, binary) => {
+          try {
+            expect(binary).toBe(false);
+            events.push(browserEventSchema.parse(JSON.parse(data.toString())));
+          } catch (error) {
+            reject(error);
+          }
+        });
+        socket.once("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+        socket.once("error", reject);
+      });
+      expect(events).toEqual([
+        {
+          kind: "error",
+          message:
+            "Update Tidy on this viewing machine to use browser video, or disable browser video in the host's settings to use JPEG.",
+        },
+      ]);
+      expect(closed).toEqual({
+        code: 1008,
+        reason: "Update the viewer to use browser video.",
+      });
+      expect(watch).not.toHaveBeenCalled();
+      expect(f.service.browser.activeCount).toBe(0);
+    } finally {
+      watch.mockRestore();
+    }
+  },
+);
+
+test.each([
+  ["draft cleanup", ["browser-v2"]],
+  [
+    "current video streaming",
+    ["browser-v2", "browser-draft-discard", "browser-streaming-settings-v1"],
+  ],
+])(
+  "hosts without %s support disable previews without blocking project work",
+  async (_feature, capabilities) => {
+    const f = await fixture();
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    const fetch = globalThis.fetch;
+    const health = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        (...args: Parameters<typeof fetch>) => {
+          if (String(args[0]) === `${f.origin()}/health`)
+            return Promise.resolve(Response.json({ capabilities }));
+          return fetch(...args);
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    );
+    const events: BrowserOutput[] = [];
+    const watch = client.watchBrowser(
+      { projectId: f.project.id, threadId: randomUUID() },
+      randomUUID(),
+      (event) => events.push(event),
+    );
+    try {
+      await until(() => events.some((event) => event.kind === "disconnected"));
+      expect(events).toContainEqual({
+        kind: "disconnected",
+        message: "Browser previews need a host update.",
+      });
+      expect(
+        events.some((event) => event.kind === "error" && event.message.includes("backend update")),
+      ).toBe(true);
+      expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
+      expect(f.service.browser.activeCount).toBe(0);
+    } finally {
+      watch.close();
+      health.mockRestore();
+    }
+  },
+);
+
+test("JPEG-only hosts remain compatible without video streaming capabilities", async () => {
   const f = await fixture();
   const { client } = f.client();
   await until(() => client.status.kind === "connected");
@@ -1666,32 +1770,71 @@ test("hosts without draft cleanup support disable previews without blocking proj
     Object.assign(
       (...args: Parameters<typeof fetch>) => {
         if (String(args[0]) === `${f.origin()}/health`)
-          return Promise.resolve(Response.json({ capabilities: ["browser-v2"] }));
+          return Promise.resolve(
+            Response.json({ capabilities: ["browser-v2", "browser-draft-discard"] }),
+          );
         return fetch(...args);
       },
       { preconnect: fetch.preconnect },
     ),
   );
   const events: BrowserOutput[] = [];
+  const inputs: string[] = [];
+  const attach = f.service.browser.watch.bind(f.service.browser);
+  const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+    const watch = await attach(...args);
+    return {
+      ...watch,
+      input(value) {
+        if (value.input.kind === "mouse") inputs.push(value.input.action);
+        watch.input(value);
+      },
+    };
+  });
   const watch = client.watchBrowser(
     { projectId: f.project.id, threadId: randomUUID() },
     randomUUID(),
     (event) => events.push(event),
   );
   try {
-    await until(() => events.some((event) => event.kind === "disconnected"));
-    expect(events).toContainEqual({
-      kind: "disconnected",
-      message: "Browser previews need a host update.",
+    await until(() => events.some((event) => event.kind === "state"));
+    watch.input({
+      tabId: null,
+      viewId: null,
+      input: {
+        kind: "mouse",
+        action: "leave",
+        x: 0,
+        y: 0,
+        button: "none",
+        buttons: 0,
+        clickCount: 0,
+        modifiers: 0,
+      },
     });
-    expect(
-      events.some((event) => event.kind === "error" && event.message.includes("backend update")),
-    ).toBe(true);
-    expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
-    expect(f.service.browser.activeCount).toBe(0);
+    watch.input({
+      tabId: null,
+      viewId: null,
+      input: {
+        kind: "mouse",
+        action: "move",
+        x: 0,
+        y: 0,
+        button: "none",
+        buttons: 0,
+        clickCount: 0,
+        modifiers: 0,
+      },
+    });
+    await until(() => inputs.length > 0);
+    expect(inputs).toEqual(["move"]);
+    expect(events.some((event) => event.kind === "error" || event.kind === "disconnected")).toBe(
+      false,
+    );
   } finally {
     watch.close();
     health.mockRestore();
+    observe.mockRestore();
   }
 });
 
@@ -1957,4 +2100,99 @@ test("file reference reads use the thread worktree on its host", async () => {
     }),
   ).rejects.toThrow("This file or folder is missing. It may have moved or been deleted.");
   expect(client.status.kind).toBe("connected");
+});
+
+test("authenticated browser streams preserve H.264 metadata and binary payloads", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const scope = { projectId: f.project.id, threadId: randomUUID() };
+  const frame = {
+    kind: "frame" as const,
+    codec: "h264" as const,
+    tabId: randomUUID(),
+    viewId: randomUUID(),
+    frameId: 123456789012,
+    data: Buffer.from([1, 1, 0, 0, 0, 1, 0, 0, 0, 10, 0, 1, 1, 0, 0, 0, 0, 0, 1, 103, 100, 0, 52]),
+  };
+  const attach = f.service.browser.watch.bind(f.service.browser);
+  const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+    const watch = await attach(...args);
+    args[2](frame);
+    return watch;
+  });
+  const events: BrowserOutput[] = [];
+  const watch = client.watchBrowser(scope, randomUUID(), (event) => events.push(event));
+  try {
+    await until(() => events.some((event) => event.kind === "frame"));
+    expect(events.find((event) => event.kind === "frame")).toEqual(frame);
+  } finally {
+    watch.close();
+    observe.mockRestore();
+  }
+});
+
+test("browser streaming choices use authenticated host settings and reject invalid input", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const initial = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-state"),
+  );
+  expect(initial.supported).toBe(process.platform === "linux");
+  const chosen = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-choice", { enabled: false }),
+  );
+  expect(chosen.enabled).toBe(false);
+  expect(await f.service.store.processState.read("browser-streaming")).toEqual({ enabled: false });
+  await expect(client.operation("browser-streaming-choice", { enabled: "true" })).rejects.toThrow();
+  expect((await f.service.browser.streamingState()).enabled).toBe(false);
+});
+
+test("Labs reports host readiness without changing legacy strict settings responses", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const old = await client.operation("browser-streaming-state");
+  expect(
+    z.object({ enabled: z.boolean(), supported: z.boolean() }).strict().safeParse(old).success,
+  ).toBe(true);
+  const state = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-labs-state"),
+  );
+  const chosen = browserStreamingStateSchema.parse(
+    await client.operation("browser-streaming-labs-choice", { enabled: false }),
+  );
+  expect(chosen.enabled).toBe(false);
+  expect(chosen.unavailableReason).toBe(state.unavailableReason);
+});
+
+test("Labs refuses unverified settings on older hosts while project work remains available", async () => {
+  const f = await fixture();
+  const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+  const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+    const frame = parse(...args);
+    return frame.type === "hello"
+      ? {
+          ...frame,
+          capabilities: frame.capabilities?.filter(
+            (value) => value !== "browser-streaming-labs-v1",
+          ),
+        }
+      : frame;
+  });
+  try {
+    const { client } = f.client();
+    await until(() => client.status.kind === "connected");
+    await expect(client.operation("browser-streaming-labs-state")).rejects.toThrow(
+      "backend update",
+    );
+    await expect(
+      client.operation("browser-streaming-labs-choice", { enabled: true }),
+    ).rejects.toThrow("backend update");
+    expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
+    expect((await f.service.browser.streamingState()).enabled).toBe(false);
+  } finally {
+    frames.mockRestore();
+  }
 });

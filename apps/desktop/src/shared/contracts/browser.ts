@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { BrowserStreamingAPI } from "./browser-streaming";
+import { browserStreamReasonSchema } from "./browser-streaming";
 export const BROWSER_CLIPBOARD_LIMIT = 512000;
 
 export const browserScopeSchema = z.object({ projectId: z.uuid(), threadId: z.uuid() }).strict();
@@ -140,6 +142,16 @@ const point = { x: z.number().finite().min(0).max(7680), y: z.number().finite().
 export const browserInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("ack"), frameId: z.number().int().positive().safe() }).strict(),
   z.object({ kind: z.literal("take-control") }).strict(),
+  z.object({ kind: z.literal("video-keyframe") }).strict(),
+  z
+    .object({
+      kind: z.literal("video-disabled"),
+      reason: z.enum(["unsupported", "decoder"]).optional(),
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal("video-pong"), nonce: z.number().int().nonnegative().safe() })
+    .strict(),
   z.object({ kind: z.literal("release-control") }).strict(),
   z.object({ kind: z.literal("visibility"), visible: z.boolean() }).strict(),
   z
@@ -152,7 +164,7 @@ export const browserInputSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("mouse"),
-      action: z.enum(["move", "down", "up"]),
+      action: z.enum(["move", "down", "up", "leave"]),
       ...point,
       button: z.enum(["none", "left", "middle", "right"]),
       buttons: z.number().int().min(0).max(7),
@@ -225,6 +237,12 @@ export const browserInputEnvelopeSchema = z
   .strict();
 export type BrowserInputEnvelope = z.infer<typeof browserInputEnvelopeSchema>;
 export const browserEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("video-ping"), nonce: z.number().int().nonnegative().safe() }),
+  z.object({
+    kind: z.literal("stream-status"),
+    mode: z.enum(["video", "jpeg"]),
+    reason: browserStreamReasonSchema,
+  }),
   z.object({ kind: z.literal("state"), state: browserStateSchema }),
   z.object({ kind: z.literal("error"), message: z.string() }),
   z.object({ kind: z.literal("disconnected"), message: z.string() }),
@@ -234,6 +252,7 @@ export const browserOutputSchema = z.discriminatedUnion("kind", [
   ...browserEventSchema.options,
   z.object({
     kind: z.literal("frame"),
+    codec: z.literal("h264").optional(),
     tabId: z.uuid(),
     viewId: z.uuid(),
     frameId: z.number().int().positive().safe(),
@@ -249,6 +268,7 @@ export const browserOutputEnvelopeSchema = z.object({
 export type BrowserOutput = z.infer<typeof browserOutputSchema>;
 export type BrowserWatch = { input(input: BrowserInputEnvelope): void; close(): void };
 export type BrowserAPI = {
+  streaming?: BrowserStreamingAPI;
   discardDraft(input: z.infer<typeof browserDiscardDraftSchema>): Promise<void>;
   copy(text: string): Promise<void>;
   download(name: string, base64: string): Promise<void>;
