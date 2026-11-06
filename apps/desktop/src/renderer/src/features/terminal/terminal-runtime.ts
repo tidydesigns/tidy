@@ -1,3 +1,4 @@
+import { installTerminalResponses } from "./terminal-responses";
 import { terminalDriver } from "./terminal-driver";
 import { terminalFont } from "./terminal-font";
 import { fitTerminal } from "./terminal-fit";
@@ -27,6 +28,7 @@ export async function createTerminal(theme: ITheme, size?: { cols: number; rows:
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   fit.fit = () => fitTerminal({ terminal, fit });
+  installTerminalResponses(terminal);
   const driver = terminalDriver(terminal);
   // Ghostty's default focus schedules another focus later, which can steal it from the composer.
   terminal.focus = () =>
