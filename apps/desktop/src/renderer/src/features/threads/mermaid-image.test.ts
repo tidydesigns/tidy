@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { diagramImage } from "./mermaid-image";
 import { renderMermaid } from "./mermaid-renderer";
-import { MermaidRenderError } from "./mermaid-error";
+import { MERMAID_RESOURCE_MESSAGE, MermaidRenderError } from "./mermaid-error";
 
 async function withSvgDom(check: () => void | Promise<void>) {
   const window = new Window();
@@ -87,5 +87,36 @@ test("concurrent previews isolate cancellation and reuse a completed render", as
     await expect(cancelled).rejects.toThrow();
     const [first, second] = await Promise.all([active(), active()]);
     expect(second).toBe(first);
+  });
+});
+
+test("image metadata uses parsed properties while ordinary labels remain previewable", async () => {
+  await withSvgDom(async () => {
+    for (const source of [
+      'flowchart TD\n A@{ img: "https://example.invalid/a.png" }',
+      'flowchart TD\n A@{ label: "Build", img: "https://example.invalid/a.png" }',
+      'flowchart TD\n A@{\n label: "Ready"\n img: "https://example.invalid/a.png"\n }',
+      'flowchart TD\n A@{ label: "Ready }", img: "https://example.invalid/a.png" }',
+      'flowchart TD\n A@{ "img": "https://example.invalid/a.png" }',
+      "flowchart TD\n A@{ 'img': '../image.png' }",
+      'flowchart TD\n A@{ "\\u0069mg": "../image.png" }',
+      'flowchart TD\n A@{ label: It\'s ready, img: "https://example.invalid/a.png" }',
+    ]) {
+      const result = renderMermaid({ source, dark: false, signal: new AbortController().signal });
+      await expect(result).rejects.toBeInstanceOf(MermaidRenderError);
+      await expect(result).rejects.toThrow(MERMAID_RESOURCE_MESSAGE);
+    }
+    for (const source of [
+      'flowchart LR\n A["Build image: ready"]',
+      'flowchart LR\n A@{ shape: rect, label: "Research & Design" }',
+      'flowchart LR\n A@{ shape: rect, label: "Build, image: ready }" }',
+    ]) {
+      const result = await renderMermaid({
+        source,
+        dark: false,
+        signal: new AbortController().signal,
+      });
+      expect(result.url).toStartWith("data:image/svg+xml");
+    }
   });
 });

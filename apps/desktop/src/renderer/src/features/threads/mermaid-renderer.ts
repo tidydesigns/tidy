@@ -1,7 +1,7 @@
-import { detectType, load, render } from "pele/lazy";
+import { detectType, load, parse, render } from "pele/lazy";
 import { mermaidSourceError } from "./mermaid-source";
 import { diagramImage, type DiagramImage } from "./mermaid-image";
-import { MAX_MERMAID_EDGES, MermaidRenderError } from "./mermaid-error";
+import { MAX_MERMAID_EDGES, MERMAID_RESOURCE_MESSAGE, MermaidRenderError } from "./mermaid-error";
 
 const images = new Map<string, DiagramImage>();
 let cacheBytes = 0;
@@ -55,7 +55,13 @@ export async function renderMermaid({
   const completed = cachedImage(key);
   if (completed) return completed;
   try {
-    const { svg } = render(source, {
+    const model = parse(source, { limit: 20_000, maxEdges: MAX_MERMAID_EDGES });
+    if (
+      model.type === "flowchart" &&
+      [...model.nodes.values()].some((node) => node.img !== undefined)
+    )
+      throw new Error(MERMAID_RESOURCE_MESSAGE);
+    const { svg } = render(model, {
       fontFamily: "Arial, sans-serif",
       fontSize: 14,
       autoDirection: false,

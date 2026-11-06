@@ -25,10 +25,6 @@ describe("Mermaid preview input", () => {
 
   test("blocks resource-loading constructs before the renderer is imported", () => {
     for (const source of [
-      'flowchart TD\n A@{ img: "https://example.invalid/a.png" }',
-      'flowchart TD\n A@{ "img": "https://example.invalid/a.png" }',
-      "flowchart TD\n A@{ 'img': '../image.png' }",
-      'flowchart TD\n A@{ "\\u0069mg": "../image.png" }',
       'flowchart TD\n A["<img src=x>"]',
       'flowchart TD\n A["![label](../image.png)"]',
       "flowchart TD\n A --> B\n classDef default fill:url(https://example.invalid/a.png)",
