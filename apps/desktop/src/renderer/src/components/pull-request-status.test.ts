@@ -331,3 +331,56 @@ test("canonical URL variants receive scoped broadcasts and invalid destinations 
   stop.forEach((unsubscribe) => unsubscribe());
   expect(listeners.size).toBe(0);
 });
+
+test("distinct PRs share one event stream per API and release it after the last subscriber", () => {
+  const streams = new Set<
+    (event: import("../../../shared/contracts/desktop").DesktopEvent) => void
+  >();
+  let opened = 0;
+  let closed = 0;
+  const api = {
+    onEvent(listener: (event: import("../../../shared/contracts/desktop").DesktopEvent) => void) {
+      opened++;
+      streams.add(listener);
+      return () => {
+        closed++;
+        streams.delete(listener);
+      };
+    },
+  };
+  const statuses = Array.from(
+    { length: 256 },
+    (_, index) =>
+      new PullRequestStatus({
+        api,
+        projectId: "project",
+        url: `https://github.com/owner/repo/pull/${index + 1}`,
+        initialState: "open",
+      }),
+  );
+  const stops = statuses.map((status) => status.subscribe(() => {}));
+  expect(opened).toBe(1);
+  expect(streams.size).toBe(1);
+  for (const receive of streams)
+    receive({ type: "pull-request-state", projectId: "project", url, state: "merged" });
+  expect(statuses[41]!.read().state).toBe("merged");
+  expect(statuses.filter((status) => status.read().state === "open")).toHaveLength(255);
+
+  // A different host must keep its own subscription and state.
+  const other = new PullRequestStatus({ api: { ...api }, projectId: "project", url });
+  const stopOther = other.subscribe(() => {});
+  expect(opened).toBe(2);
+  expect(other.read().state).toBeNull();
+  stops.slice(0, -1).forEach((stop) => stop());
+  expect(closed).toBe(0);
+  stops.at(-1)!();
+  expect(closed).toBe(1);
+  stopOther();
+  expect(closed).toBe(2);
+  expect(streams.size).toBe(0);
+
+  const stopAgain = statuses[0]!.subscribe(() => {});
+  expect(opened).toBe(3);
+  stopAgain();
+  expect(closed).toBe(3);
+});
