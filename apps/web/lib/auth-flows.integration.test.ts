@@ -665,3 +665,151 @@ integration(
     );
   },
 );
+
+integration(
+  "overlapping email changes condition the PostgreSQL update on the original address",
+  async () => {
+    const created = await signUp("overlap@example.test");
+    const initial = await verify();
+    const headers = new Headers({ cookie: cookie(initial.headers) });
+    async function proof(newEmail: string) {
+      await auth.api.changeEmail({ headers, body: { newEmail } });
+      await auth.handler(new Request(mailUrl()));
+      return mailUrl();
+    }
+    const older = await proof("older@example.test");
+    const newer = await proof("newer@example.test");
+    const userId = created.response.user.id;
+    const initialSessions = (
+      await db.query<{ count: number }>(
+        'select count(*)::int as count from "session" where "userId"=$1',
+        [userId],
+      )
+    ).rows[0].count;
+    const { adapter } = await auth.$context;
+    const update = adapter.update.bind(adapter);
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    let intercepted = false;
+    const writing = spyOn(adapter, "update").mockImplementation(async (input) => {
+      if (!intercepted && input.model === "user" && input.update.email === "older@example.test") {
+        intercepted = true;
+        entered.resolve();
+        await release.promise;
+      }
+      return update(input);
+    });
+    const stale = auth.handler(new Request(older));
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        entered.promise,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("The older verification did not reach its update.")),
+            5000,
+          );
+        }),
+      ]);
+      const completed = await auth.handler(new Request(newer));
+      expect(completed.headers.get("location")).not.toContain("error=");
+      expect(
+        (await auth.api.getSession({ headers: new Headers({ cookie: cookie(completed.headers) }) }))
+          ?.user.email,
+      ).toBe("newer@example.test");
+    } finally {
+      clearTimeout(timeout);
+      release.resolve();
+      await stale.catch(() => {});
+      writing.mockRestore();
+    }
+    const rejected = await stale;
+    expect(rejected.headers.get("location")).toContain("error=INVALID_TOKEN");
+    expect(rejected.headers.getSetCookie()).toHaveLength(0);
+    expect(
+      (await db.query('select email,"emailVerified" from "user" where id=$1', [userId])).rows,
+    ).toEqual([{ email: "newer@example.test", emailVerified: true }]);
+    expect(
+      (await db.query('select count(*)::int as count from "session" where "userId"=$1', [userId]))
+        .rows[0].count,
+    ).toBe(initialSessions + 1);
+  },
+  20_000,
+);
+
+integration(
+  "account deletion retries memberships committed after enumeration before any effects",
+  async () => {
+    const { deleteAccount } = await import("./privacy/delete");
+    await db.query(`insert into "user" (id,name,email,"emailVerified") values
+    ('deletion-alice','Alice','deletion-alice@example.test',true),
+    ('deletion-bob','Bob','deletion-bob@example.test',true)`);
+    await db.query(`insert into session (id,token,"userId","expiresAt","createdAt","updatedAt")
+    values ('deletion-session','dummy-deletion-session','deletion-alice',now()+interval '1 day',now(),now())`);
+    await db.query(`insert into organization (id,name,slug,"createdAt")
+    values ('deletion-org','Existing workspace','deletion-existing',now())`);
+    await db.query(`insert into member (id,"userId","organizationId",role,"createdAt") values
+    ('deletion-member','deletion-alice','deletion-org','editor',now()),
+    ('deletion-owner','deletion-bob','deletion-org','owner',now())`);
+    await db.query(`insert into verification (id,identifier,value,"expiresAt")
+    values ('deletion-proof','deletion-proof','deletion-alice',now()+interval '1 hour')`);
+    const blocker = await db.connect();
+    const {
+      rows: [{ pid }],
+    } = await blocker.query<{ pid: number }>("select pg_backend_pid() as pid");
+    await blocker.query("begin");
+    await blocker.query("select pg_advisory_xact_lock(hashtextextended($1,0))", ["deletion-org"]);
+    const pending = deleteAccount(
+      "deletion-alice",
+      "deletion-session",
+      "deletion-alice@example.test",
+    );
+    void pending.catch(() => {});
+    try {
+      let waiting = false;
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        await blocker.query("select pg_stat_clear_snapshot()");
+        const blocked = await blocker.query(
+          `select 1 from pg_stat_activity where datname=current_database()
+        and wait_event_type='Lock' and $1=any(pg_blocking_pids(pid))
+        and query like 'select pg_advisory_xact_lock%'`,
+          [pid],
+        );
+        if (blocked.rowCount) {
+          waiting = true;
+          break;
+        }
+        await Bun.sleep(10);
+      }
+      expect(waiting).toBe(true);
+      await blocker.query(`insert into organization (id,name,slug,"createdAt")
+      values ('deletion-added-org','Added workspace','deletion-added',now())`);
+      await blocker.query(`insert into member (id,"userId","organizationId",role,"createdAt") values
+      ('deletion-added-owner','deletion-bob','deletion-added-org','owner',now()),
+      ('deletion-added-member','deletion-alice','deletion-added-org','editor',now())`);
+      await blocker.query("commit");
+      await expect(pending).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringContaining("memberships changed"),
+      });
+      expect(
+        (await db.query('select id from "user" where id=$1', ["deletion-alice"])).rows,
+      ).toEqual([{ id: "deletion-alice" }]);
+      expect(
+        (await db.query("select id from session where id=$1", ["deletion-session"])).rowCount,
+      ).toBe(1);
+      expect(
+        (await db.query("select id from member where id=$1", ["deletion-added-member"])).rowCount,
+      ).toBe(1);
+      expect(
+        (await db.query("select id from verification where id=$1", ["deletion-proof"])).rowCount,
+      ).toBe(1);
+    } finally {
+      await blocker.query("rollback");
+      await pending.catch(() => {});
+      blocker.release();
+    }
+  },
+  15000,
+);

@@ -228,20 +228,30 @@ export class CloudService implements CloudAPI {
     this.action = work.catch(() => {});
     return work;
   }
+  /** Fence account-bound reads during teardown; failed teardown reopens admission only for the same transition. */
   async signOut() {
     this.accountChanging = true;
     this.latestAccount = undefined;
     this.workspaces.clear();
     this.workspaceWork.clear();
-    this.generation++;
+    const generation = ++this.generation;
+    const accountId = this.auth.accountId;
     // Cancel an outstanding browser login immediately, then stop account-bound work.
     this.auth.cancelSignIn();
-    await this.initialize();
-    await this.service.stopCloudThreads();
-    await this.sync.stop();
-    await this.auth.signOut();
-    this.emit();
-    await this.action;
+    try {
+      await this.initialize();
+      await this.service.stopCloudThreads();
+      await this.sync.stop();
+      await this.auth.signOut();
+      this.emit();
+      await this.action;
+    } catch (error) {
+      if (generation === this.generation && !this.closed && accountId === this.auth.accountId) {
+        this.accountChanging = false;
+        this.emit();
+      }
+      throw error;
+    }
   }
   private cacheKey(kind: string, organizationId = "") {
     if (!this.auth.accountId) throw new Error("Sign in to Tidy to open your workspace.");
@@ -296,18 +306,28 @@ export class CloudService implements CloudAPI {
     this.updateAccountRequest = request;
     return request;
   }
+  /** Reject cached and network results when their account generation or transition state changes. */
   async catalog(organizationId: string, cachedOnly = false) {
+    const generation = this.generation;
     await this.initialize();
-    const key = this.cacheKey("catalog", organizationId),
-      generation = this.generation;
+    const accountId = this.auth.accountId,
+      key = this.cacheKey("catalog", organizationId);
+    const current = () =>
+      generation === this.generation &&
+      accountId === this.auth.accountId &&
+      Boolean(accountId) &&
+      !this.accountChanging &&
+      !this.closed;
+    if (!current()) throw new Error("The account changed.");
     if (cachedOnly) {
       const catalog = cloudCatalogSchema.parse(await this.privateState.read(key));
-      if (generation !== this.generation || this.closed) throw new Error("The account changed.");
+      if (!current()) throw new Error("The account changed.");
       return catalog;
     }
     const catalog = await this.remote.catalog(organizationId);
-    if (generation !== this.generation) throw new Error("The account changed.");
+    if (!current()) throw new Error("The account changed.");
     const cached = cloudCatalogSchema.safeParse(await this.privateState.read(key));
+    if (!current()) throw new Error("The account changed.");
     if (cached.success) {
       const pending = new Set(this.sync.pendingFileIds);
       catalog.files.push(
@@ -316,9 +336,9 @@ export class CloudService implements CloudAPI {
         ),
       );
     }
-    if (generation !== this.generation || this.closed) throw new Error("The account changed.");
+    if (!current()) throw new Error("The account changed.");
     await this.privateState.write(key, catalog);
-    if (generation !== this.generation || this.closed) throw new Error("The account changed.");
+    if (!current()) throw new Error("The account changed.");
     return catalog;
   }
   private assertWorkspaceAvailable() {

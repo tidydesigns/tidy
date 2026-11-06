@@ -9,6 +9,7 @@ import { checkDeletionOwnership } from "./deletion-eligibility";
 import { mcpAnalyticsId } from "./mcp-consent";
 
 export const DELETED_USER = "tidy-deleted-user";
+/** Lock organizations before the account; abort with 409 if membership expands before applying any deletion effects. */
 export async function deleteAccount(userId: string, sessionId: string, confirmation: string) {
   if (userId === DELETED_USER) throw new PrivacyError("Account unavailable.", 403);
   const client = await db.connect();
@@ -32,6 +33,15 @@ export async function deleteAccount(userId: string, sessionId: string, confirmat
     const user = await lockPrivacyAccount(client, userId, sessionId);
     if (confirmation !== user.email)
       throw new PrivacyError("Enter your email address exactly to confirm deletion.");
+    const addedMembership = await client.query<{ organizationId: string }>(
+      'select "organizationId" from member where "userId"=$1 and not ("organizationId"=any($2::text[])) limit 1',
+      [userId, organizations.map(({ organizationId }) => organizationId)],
+    );
+    if (addedMembership.rows.length)
+      throw new PrivacyError(
+        "Your workspace memberships changed. Please try deleting your account again.",
+        409,
+      );
     // Recheck under the transaction's organization locks: the preflight is only guidance.
     await checkDeletionOwnership(userId, client);
     const enqueue = async (kind: string, subject: string) =>

@@ -28,3 +28,14 @@ index c74f6a88c8fee3581e243fe4045c2b1d848109da..c349b10f225abe49903423fc57d9634d
  }
  //#endregion
  export { getAsyncLocalStorage };
+diff --git a/dist/types/context.d.mts b/dist/types/context.d.mts
+--- a/dist/types/context.d.mts
++++ b/dist/types/context.d.mts
+@@ -133,6 +133,7 @@
+   findUserById(userId: string): Promise<User | null>;
+   linkAccount(account: Omit<Account, "id" | "createdAt" | "updatedAt"> & Partial<Account>): Promise<Account>;
+   updateUser<T extends Record<string, any>>(userId: string, data: Partial<User> & Record<string, any>): Promise<User & T>;
++  updateUser<T extends Record<string, any>>(userId: string, data: Partial<User> & Record<string, any>, expectedEmail: string): Promise<(User & T) | null>;
+   updateUserByEmail<T extends Record<string, any>>(email: string, data: Partial<User & Record<string, any>>): Promise<User & T>;
+   updatePassword(userId: string, password: string): Promise<void>;
+   findAccounts(userId: string): Promise<Account[]>;

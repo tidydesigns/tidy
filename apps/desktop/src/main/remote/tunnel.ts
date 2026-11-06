@@ -1,8 +1,10 @@
 import { createServer } from "node:net";
+import { randomBytes } from "node:crypto";
 import { hostDescriptorSchema, type PreparedHost } from "../../shared/remote";
 import { RemoteFailure } from "./errors";
-import type { SshSession } from "./ssh";
+import { shellQuote, type SshSession } from "./ssh";
 
+/** Wait for authenticated SSH forwarding readiness before probing health; cancellation and SSH closure take precedence. */
 export async function openTunnel({
   ssh,
   host,
@@ -22,15 +24,17 @@ export async function openTunnel({
   const port = address.port;
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
   signal.throwIfAborted();
+  const readyMarker = `TIDY_FORWARD_${randomBytes(16).toString("hex")}`;
   const child = ssh.launch({
-    args: [
-      "-o",
-      "ExitOnForwardFailure=yes",
-      "-n",
-      "-N",
-      "-L",
-      `127.0.0.1:${port}:127.0.0.1:${host.port}`,
-    ],
+    args: ["-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${port}:127.0.0.1:${host.port}`],
+    command: [`/bin/sh -c ${shellQuote(`printf '%s\\n' '${readyMarker}'; cat >/dev/null`)}`],
+  });
+  let ready = false;
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    const text = output + chunk.toString();
+    if (text.includes(`${readyMarker}\n`)) ready = true;
+    output = text.slice(-readyMarker.length);
   });
   let failure: string | undefined;
   let diagnostics = "";
@@ -53,12 +57,18 @@ export async function openTunnel({
       if (!ssh.awaitingVerification) attempts++;
       signal.throwIfAborted();
       if (failure) throw ssh.failure(failure);
+      if (!ready) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        continue;
+      }
       try {
         const response = await fetch(`http://127.0.0.1:${port}/health`, {
           signal: AbortSignal.any([signal, AbortSignal.timeout(1000)]),
           redirect: "error",
         });
         const descriptor = hostDescriptorSchema.parse(await response.json());
+        signal.throwIfAborted();
+        if (failure) throw ssh.failure(failure);
         if (descriptor.hostId !== host.hostId || descriptor.instanceId !== host.instanceId)
           throw new RemoteFailure("identity", "Remote backend identity mismatch.");
         return {
@@ -72,6 +82,8 @@ export async function openTunnel({
           },
         };
       } catch (error) {
+        signal.throwIfAborted();
+        if (failure) throw ssh.failure(failure);
         if (error instanceof RemoteFailure) throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, 200));

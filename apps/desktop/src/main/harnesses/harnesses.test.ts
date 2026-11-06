@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { afterEach, expect, test } from "bun:test";
-import { chmod, copyFile, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -33,16 +42,65 @@ const cleanups: string[] = [];
 afterEach(async () => {
   for (const directory of cleanups.splice(0)) await rm(directory, { recursive: true, force: true });
 });
-async function fixture() {
+async function fixture(approvalCommand?: string) {
   const directory = await mkdtemp(join(tmpdir(), "tidy harness "));
   cleanups.push(directory);
   const executable = join(directory, "fixture-cli");
   await copyFile(new URL("../fixtures/harness.mjs", import.meta.url), executable);
+  if (approvalCommand !== undefined) {
+    const source = await readFile(executable, "utf8");
+    const changed = source.replace(
+      /const command = prompt.includes\("oversized-approval"\)[\s\S]*?: "touch approved.txt";/,
+      () => `const command = ${JSON.stringify(approvalCommand)};`,
+    );
+    if (changed === source) throw new Error("The approval fixture command was not found.");
+    await writeFile(executable, changed);
+  }
   await chmod(executable, 0o700);
   return { directory: await realpath(directory), executable };
 }
 
 for (const harness of ["codex", "claude"] as const) {
+  for (const oversized of [false, true]) {
+    test(`${harness} preserves terminal-control payloads in approval details${oversized ? " and enforces their review limit" : ""}`, async () => {
+      const command = oversized
+        ? `\u001b]0;${"x".repeat(17_000)}\u0007`
+        : "echo before #\u001b]0;\necho review-marker\n#\u0007";
+      const { directory, executable } = await fixture(command);
+      const approval =
+        Promise.withResolvers<Extract<HarnessUpdate, { type: "approval" }>["request"]>();
+      const run = startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        prompt: "permission-fixture",
+        onUpdate(update) {
+          if (update.type === "approval") approval.resolve(update.request);
+        },
+      });
+      try {
+        const request = await approval.promise;
+        if (!run.respondToApproval) throw new Error("The harness did not expose approval replies.");
+        expect(request.details).toContain("\\u001b]0;");
+        expect(request.details).not.toContain("\u001b");
+        if (oversized) {
+          expect(request.shortened).toBe(true);
+          expect(request.choices).toEqual(["deny"]);
+          expect(run.respondToApproval(request.id, "allow")).toBe(false);
+        } else {
+          expect(request.details).toContain("review-marker");
+          expect(request.details).toContain("\\u0007");
+          expect(request.shortened).toBe(false);
+        }
+        expect(run.respondToApproval(request.id, "deny")).toBe(true);
+        await run.done;
+        await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+      } finally {
+        run.stop();
+        await run.done.catch(() => {});
+      }
+    });
+  }
   for (const variant of ["oversized-approval", "bidi-approval"])
     test(`${harness} cannot approve hidden truncated actions and displays directional controls literally: ${variant}`, async () => {
       const { directory, executable } = await fixture();

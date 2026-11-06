@@ -1168,6 +1168,80 @@ test("cached file metadata cannot return after sign-out", async () => {
   }
 });
 
+for (const cachedOnly of [false, true]) {
+  test(`catalog admission rejects ${cachedOnly ? "cached" : "network"} reads while sign-out is stopping threads`, async () => {
+    const f = await fixture();
+    const entered = Promise.withResolvers<void>(),
+      gate = Promise.withResolvers<void>();
+    const stopping = spyOn(f.service, "stopCloudThreads").mockImplementation(async () => {
+      entered.resolve();
+      await gate.promise;
+    });
+    const reads = spyOn(f.state, "read"),
+      remote = spyOn(f.remote, "catalog");
+    const signingOut = f.cloud.signOut();
+    try {
+      await entered.promise;
+      const readCount = reads.mock.calls.length;
+      await expect(f.cloud.catalog("org", cachedOnly)).rejects.toThrow("account changed");
+      expect(remote).not.toHaveBeenCalled();
+      expect(reads.mock.calls.length).toBe(readCount);
+    } finally {
+      gate.resolve();
+      await signingOut;
+      stopping.mockRestore();
+      reads.mockRestore();
+      remote.mockRestore();
+    }
+  });
+}
+
+test("failed sign-out restores catalog admission and can be retried", async () => {
+  const f = await fixture();
+  const stopping = spyOn(f.service, "stopCloudThreads").mockRejectedValueOnce(
+    new Error("Stop failed"),
+  );
+  try {
+    await expect(f.cloud.signOut()).rejects.toThrow("Stop failed");
+    expect((await f.cloud.state()).signedIn).toBe(true);
+    for (const cachedOnly of [true, false])
+      expect((await f.cloud.catalog("org", cachedOnly)).files).toEqual(f.remote.library.files);
+    stopping.mockRestore();
+    await f.cloud.signOut();
+    expect((await f.cloud.state()).signedIn).toBe(false);
+    await expect(f.cloud.catalog("org", true)).rejects.toThrow();
+  } finally {
+    stopping.mockRestore();
+  }
+});
+
+for (const transition of ["sign-out", "close"] as const) {
+  test(`failed sign-out cannot restore catalog admission after a newer ${transition}`, async () => {
+    const f = await fixture();
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    const stopping = spyOn(f.service, "stopCloudThreads").mockImplementation(async () => {
+      entered.resolve();
+      await release.promise;
+      throw new Error("Stop failed");
+    });
+    const first = f.cloud.signOut();
+    try {
+      await entered.promise;
+      stopping.mockRestore();
+      if (transition === "close") await f.cloud.close();
+      else await f.cloud.signOut();
+      release.resolve();
+      await expect(first).rejects.toThrow("Stop failed");
+      await expect(f.cloud.catalog("org", true)).rejects.toThrow();
+    } finally {
+      release.resolve();
+      await first.catch(() => {});
+      stopping.mockRestore();
+    }
+  });
+}
+
 test("cached file opens reuse validated account metadata and adopt membership revocation", async () => {
   const f = await fixture();
   const fileId = f.remote.library.files[0].id;

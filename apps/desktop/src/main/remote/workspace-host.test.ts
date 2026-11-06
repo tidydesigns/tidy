@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { preparedHostSchema, runtimeSchema, hostDescriptorSchema } from "../../shared/remote";
 import { ProjectStore } from "../workspace/project-store";
+import { WorkspaceService } from "../workspace/workspace-service";
+import { createWorkspaceRequests } from "../ipc/workspace-requests";
 import { migrateWorkspaceRegistry } from "./workspace-host";
 import { selectHostActivation } from "./host-service";
 const cleanup: (() => unknown | Promise<unknown>)[] = [];
@@ -127,6 +129,65 @@ test("legacy registry migration preserves private thread authority and never ove
   expect(
     JSON.parse(await readFile(join(destination, "projects.json"), "utf8")).activeProjectId,
   ).toBe(id);
+});
+
+test("legacy migration preserves cloud access classification and local thread preferences", async () => {
+  const root = await mkdtemp(join(tmpdir(), "migrate-cloud-host-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "old"),
+    destination = join(root, "new"),
+    cloudId = randomUUID(),
+    localId = randomUUID();
+  await mkdir(source);
+  const registry = {
+    version: 1,
+    activeProjectId: cloudId,
+    projects: [
+      { id: cloudId, name: "Cloud", path: "/cloud", openedAt: "now", cloud: true },
+      { id: localId, name: "Local", path: "/local", openedAt: "now", threadMode: "local" },
+    ],
+  };
+  await writeFile(join(source, "projects.json"), JSON.stringify(registry));
+  await migrateWorkspaceRegistry(source, destination);
+  expect(JSON.parse(await readFile(join(destination, "projects.json"), "utf8"))).toEqual(registry);
+});
+
+test("migrated cloud projects remain inaccessible through native requests while local projects work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "migrate-cloud-access-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "old"),
+    destination = join(root, "new"),
+    cloudPath = join(root, "cloud"),
+    localPath = join(root, "local");
+  await mkdir(cloudPath);
+  await mkdir(localPath);
+  const legacy = new ProjectStore(source);
+  await legacy.initialize();
+  const cloud = await legacy.register(cloudPath, "Private cloud workspace");
+  const design = await legacy.createDesign(cloud.id);
+  const local = await legacy.open(localPath);
+  await legacy.setThreadMode(local.project.id, "local");
+  await migrateWorkspaceRegistry(source, destination);
+  const migrated = new ProjectStore(destination);
+  await migrated.initialize();
+  await migrated.recover();
+  const service = new WorkspaceService(migrated);
+  cleanup.push(() => service.close());
+  const requests = createWorkspaceRequests(service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder() {},
+  });
+  await expect(requests.invoke("project-snapshot", cloud.id, undefined)).rejects.toThrow(
+    "cloud workspace",
+  );
+  await expect(
+    requests.invoke("read-design", { projectId: cloud.id, designId: design.id }, undefined),
+  ).rejects.toThrow("cloud workspace");
+  expect(await requests.invoke("project-snapshot", local.project.id, undefined)).toMatchObject({
+    project: { id: local.project.id, path: local.project.path, threadMode: "local" },
+  });
 });
 
 test("a stalled shutdown fails within its deadline while retaining workspace ownership", async () => {

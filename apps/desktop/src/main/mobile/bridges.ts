@@ -1,5 +1,5 @@
 import { createServer } from "node:net";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientDuplexStream, ClientReadableStream } from "@grpc/grpc-js";
@@ -8,6 +8,8 @@ import { androidTools } from "./discovery";
 import { IOSRuntime } from "./runtime";
 import { mobileExec, mobileProcess, type MobileProcess } from "./process";
 import { MobileRPC, type RPCMessage } from "./rpc";
+import { readLocalFile } from "../platform/local-files";
+import { z } from "zod";
 
 export type DeviceFrame = {
   data: Buffer;
@@ -352,6 +354,33 @@ export function emulatorProperties(text: string) {
     }),
   );
 }
+
+const emulatorEndpointSchema = z.object({
+  "grpc.port": z.coerce.number().int().min(1).max(65535),
+  "grpc.token": z.string().min(1),
+  "port.serial": z.string().optional(),
+  "port.adb": z.string().optional(),
+});
+
+/** Read ownership and contents from one descriptor; reject links, oversized files, and unrelated emulator identities. */
+export async function readEmulatorEndpoint(path: string, serial: string) {
+  const contents = await readLocalFile(path, 64_000, async (info) => {
+    if (process.getuid && info.uid !== process.getuid())
+      throw new Error("The emulator endpoint belongs to another user.");
+  }).catch(() => null);
+  if (!contents) return null;
+  const parsed = emulatorEndpointSchema.safeParse(emulatorProperties(contents.toString("utf8")));
+  if (!parsed.success) return null;
+  const properties = parsed.data;
+  if (
+    properties["port.serial"] !== serial.slice(9) &&
+    properties["port.adb"] !== String(Number(serial.slice(9)) + 1)
+  )
+    return null;
+  return { port: properties["grpc.port"], token: properties["grpc.token"] };
+}
+
+/** Search a bounded set of discovery records, accepting only endpoints validated for the requested emulator. */
 async function emulatorEndpoint(serial: string) {
   const roots = [
     process.env.XDG_RUNTIME_DIR,
@@ -365,19 +394,8 @@ async function emulatorEndpoint(serial: string) {
       for (const file of (await readdir(directory).catch(() => []))
         .filter((file) => /^pid_\d+\.ini$/.test(file))
         .slice(0, 64)) {
-        const path = join(directory, file);
-        const info = await stat(path).catch(() => null);
-        if (!info || info.size > 64_000 || (process.getuid && info.uid !== process.getuid()))
-          continue;
-        const properties = emulatorProperties(await readFile(path, "utf8"));
-        const port = Number(properties["grpc.port"]);
-        if (
-          properties["port.serial"] !== serial.slice(9) &&
-          properties["port.adb"] !== String(Number(serial.slice(9)) + 1)
-        )
-          continue;
-        if (Number.isInteger(port) && port > 0 && port <= 65535 && properties["grpc.token"])
-          return { port, token: properties["grpc.token"] };
+        const endpoint = await readEmulatorEndpoint(join(directory, file), serial);
+        if (endpoint) return endpoint;
       }
     }
   }
