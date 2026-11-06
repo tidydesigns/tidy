@@ -213,10 +213,12 @@ const ConversationEntry = memo(function ConversationEntry({
   summaries,
   onOpenThread,
   source,
+  inTurn,
 }: {
   message: Message;
   machineId: string;
   source?: { threadId: string };
+  inTurn?: boolean;
   active: boolean;
   streaming: boolean;
   api: DesktopAPI;
@@ -235,7 +237,10 @@ const ConversationEntry = memo(function ConversationEntry({
   );
   const sentAt = message.sentAt ?? message.turn?.startedAt;
   return (
-    <div className="conversation-entry" ref={register}>
+    <div
+      className={`conversation-entry${inTurn && message.role === "user" ? " pt-4" : ""}`}
+      ref={register}
+    >
       <div
         className={
           message.role === "user"
@@ -244,7 +249,7 @@ const ConversationEntry = memo(function ConversationEntry({
         }
       >
         <article
-          className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "my-4 text-[light-dark(#292929,#e2e2e2)]"}`}
+          className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3 text-ink" : "my-4 text-[light-dark(#292929,#e2e2e2)]"}`}
           aria-label={
             source
               ? "Work from another thread"
@@ -342,6 +347,7 @@ const ConversationTurn = memo(function ConversationTurn({
       message={message}
       machineId={machineId}
       source={thread.messageSources?.[message.id]}
+      inTurn={hasPrompt && message.id !== prompt.id}
       threadId={thread.id}
       summaries={summaries}
       onOpenThread={onOpenThread}

@@ -2850,6 +2850,7 @@ export function App({
                         {queue.messages.length > 0 && (
                           <MessageQueue
                             messages={queue.messages}
+                            sending={queue.sending}
                             running={running}
                             error={thread.queueError}
                             onChange={queue.change}
@@ -3033,7 +3034,9 @@ export function App({
                             !event.nativeEvent.isComposing
                           ) {
                             event.preventDefault();
-                            const first = queue.messages[0];
+                            const first = queue.messages.find(
+                              (message) => !queue.sending.has(message.id),
+                            );
                             if (first && !event.repeat)
                               queue.change({ kind: "steer", messageId: first.id });
                             return;

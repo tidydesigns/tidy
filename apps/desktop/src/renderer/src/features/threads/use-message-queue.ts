@@ -11,8 +11,9 @@ type Pending = {
   id: string;
   threadId: string;
   change:
-    | { kind: "enqueue"; message: QueuedMessage }
-    | { kind: "action"; action: QueueAction }
+    | { kind: "enqueue"; message: QueuedMessage; delivery: MessageDelivery }
+    | { kind: "action"; action: Exclude<QueueAction, { kind: "steer" }> }
+    | { kind: "steer"; message: QueuedMessage; index: number }
     | { kind: "stop" };
 };
 
@@ -24,7 +25,7 @@ export function useMessageQueue({
   onRecover,
   waitForStart,
 }: {
-  api: DesktopAPI | undefined;
+  api: Pick<DesktopAPI, "sendMessage" | "updateMessageQueue" | "stopThread"> | undefined;
   thread: Thread | undefined;
   onThread(thread: Thread): void;
   onError(projectId: string, error: unknown): void;
@@ -32,18 +33,30 @@ export function useMessageQueue({
   waitForStart(threadId: string): Promise<unknown> | undefined;
 }) {
   const [pending, setPending] = useState<Pending[]>([]);
-  const requests = useRef(new Map<string, Promise<void>>());
+  const requests = useRef(new Map<string, Promise<boolean>>());
+  const edits = useRef(new Map<string, { message: QueuedMessage; request: Promise<boolean> }>());
+  const deliveries = useRef(new Set<string>());
+  const sending = new Set<string>();
   let messages = thread?.queuedMessages ?? [];
   for (const item of pending) {
     if (item.threadId !== thread?.id) continue;
     const change = item.change;
-    if (change.kind === "action") messages = applyQueueAction(messages, change.action);
-    else if (
-      change.kind === "enqueue" &&
-      !messages.some((message) => message.id === change.message.id) &&
-      !thread.messages.some((message) => message.id === change.message.id)
-    )
-      messages = [...messages, change.message];
+    if (change.kind === "steer") {
+      if (!messages.some((message) => message.id === change.message.id)) {
+        const index = Math.min(change.index, messages.length);
+        messages = [...messages.slice(0, index), change.message, ...messages.slice(index)];
+      }
+      sending.add(change.message.id);
+    } else if (change.kind === "action") messages = applyQueueAction(messages, change.action);
+    else if (change.kind === "enqueue") {
+      if (change.delivery === "steer") sending.add(change.message.id);
+      if (
+        !messages.some((message) => message.id === change.message.id) &&
+        (change.delivery === "steer" ||
+          !thread.messages.some((message) => message.id === change.message.id))
+      )
+        messages = [...messages, change.message];
+    }
   }
 
   function submit(
@@ -53,18 +66,30 @@ export function useMessageQueue({
   ) {
     if (!thread || !api) return;
     const target = thread;
+    const messageId =
+      change.kind === "steer"
+        ? change.message.id
+        : change.kind === "enqueue" && change.delivery === "steer"
+          ? change.message.id
+          : undefined;
+    const deliveryKey = messageId ? `${target.id}:${messageId}` : undefined;
+    if (deliveryKey && deliveries.current.has(deliveryKey)) return;
+    if (deliveryKey) deliveries.current.add(deliveryKey);
     const id = crypto.randomUUID();
     setPending((current) => [...current, { id, threadId: target.id, change }]);
-    const previous = requests.current.get(target.id) ?? Promise.resolve();
+    const previous = requests.current.get(target.id) ?? Promise.resolve(true);
     const next = previous.then(async () => {
       try {
         await waitForStart(target.id);
         const value = await request();
         if (value) onThread(value);
+        return true;
       } catch (error) {
         onError(target.projectId, error);
         if (recover) onRecover(target, recover);
+        return false;
       } finally {
+        if (deliveryKey) deliveries.current.delete(deliveryKey);
         setPending((current) => current.filter((item) => item.id !== id));
       }
     });
@@ -72,10 +97,12 @@ export function useMessageQueue({
     void next.finally(() => {
       if (requests.current.get(target.id) === next) requests.current.delete(target.id);
     });
+    return next;
   }
 
   return {
     messages,
+    sending,
     stopping: pending.some((item) => item.threadId === thread?.id && item.change.kind === "stop"),
     recover(message: QueuedMessage) {
       if (thread) onRecover(thread, message);
@@ -95,7 +122,7 @@ export function useMessageQueue({
     enqueue(message: QueuedMessage, delivery: MessageDelivery) {
       if (!api || !thread) return;
       submit(
-        { kind: "enqueue", message },
+        { kind: "enqueue", message, delivery },
         () =>
           api.sendMessage({
             projectId: thread.projectId,
@@ -111,12 +138,32 @@ export function useMessageQueue({
     },
     change(action: QueueAction) {
       if (!api || !thread) return;
-      const original = messages.find((message) => message.id === action.messageId);
-      submit(
-        { kind: "action", action },
-        () => api.updateMessageQueue({ projectId: thread.projectId, threadId: thread.id, action }),
-        action.kind === "edit" && original ? { ...original, text: action.text } : undefined,
+      const index = messages.findIndex((message) => message.id === action.messageId);
+      const original = messages[index];
+      if (!original) return;
+      const edited = action.kind === "edit" ? { ...original, text: action.text } : undefined;
+      const key = `${thread.id}:${action.messageId}`;
+      const editing = edits.current.get(key);
+      const request = submit(
+        action.kind === "steer"
+          ? { kind: "steer", message: editing?.message ?? original, index }
+          : { kind: "action", action },
+        async () => {
+          if (action.kind === "steer" && editing && !(await editing.request)) return;
+          return api.updateMessageQueue({
+            projectId: thread.projectId,
+            threadId: thread.id,
+            action,
+          });
+        },
+        edited,
       );
+      if (edited && request) {
+        edits.current.set(key, { message: edited, request });
+        void request.finally(() => {
+          if (edits.current.get(key)?.request === request) edits.current.delete(key);
+        });
+      }
     },
   };
 }

@@ -14,12 +14,14 @@ import {
 export function MessageQueue({
   messages,
   running,
+  sending,
   error,
   onChange,
   onRecover,
 }: {
   messages: QueuedMessage[];
   running: boolean;
+  sending?: ReadonlySet<string>;
   error?: string;
   onChange(action: QueueAction): void;
   onRecover(message: QueuedMessage): void;
@@ -40,6 +42,7 @@ export function MessageQueue({
     }
     onChange(action);
   }
+  const reorderable = messages.filter((message) => !sending?.has(message.id));
   if (!messages.length) return null;
   return (
     <section className="message-queue" aria-label="Message queue">
@@ -94,8 +97,8 @@ export function MessageQueue({
           setDrag(null);
           if (
             drag.beforeId !== drag.messageId &&
-            messages.some((message) => message.id === drag.messageId) &&
-            (drag.beforeId === null || messages.some((message) => message.id === drag.beforeId))
+            reorderable.some((message) => message.id === drag.messageId) &&
+            (drag.beforeId === null || reorderable.some((message) => message.id === drag.beforeId))
           )
             change({ kind: "move", ...drag });
         }}
@@ -114,20 +117,23 @@ export function MessageQueue({
             message={message}
             index={index}
             running={running}
+            sending={sending?.has(message.id) ?? false}
             onChange={change}
             onRecover={onRecover}
-            onMove={(direction) =>
+            onMove={(direction) => {
+              const position = reorderable.findIndex((item) => item.id === message.id);
               change({
                 kind: "move",
                 messageId: message.id,
-                beforeId: messages[index + (direction === -1 ? -1 : 2)]?.id ?? null,
-              })
-            }
-            first={index === 0}
+                beforeId: reorderable[position + (direction === -1 ? -1 : 2)]?.id ?? null,
+              });
+            }}
+            first={reorderable[0]?.id === message.id}
             helpId={helpId}
             picked={picked === message.id}
             onPick={() => {
-              const source = messages.findIndex((item) => item.id === picked);
+              const source = reorderable.findIndex((item) => item.id === picked);
+              const target = reorderable.findIndex((item) => item.id === message.id);
               if (source < 0) {
                 setPicked(message.id);
                 setAnnouncement(`Message ${index + 1} selected. Click another grip to place it.`);
@@ -135,8 +141,8 @@ export function MessageQueue({
                 if (picked !== message.id)
                   change({
                     kind: "move",
-                    messageId: messages[source].id,
-                    beforeId: messages[index + (source < index ? 1 : 0)]?.id ?? null,
+                    messageId: reorderable[source].id,
+                    beforeId: reorderable[target + (source < target ? 1 : 0)]?.id ?? null,
                   });
                 else setAnnouncement("Reordering cancelled.");
                 setPicked(null);
@@ -146,13 +152,13 @@ export function MessageQueue({
               setPicked(null);
               setAnnouncement("Reordering cancelled.");
             }}
-            last={index === messages.length - 1}
+            last={reorderable.at(-1)?.id === message.id}
             dragging={drag?.messageId === message.id}
             dropPosition={
               drag && drag.beforeId !== drag.messageId
                 ? drag.beforeId === message.id
                   ? "before"
-                  : drag.beforeId === null && index === messages.length - 1
+                  : drag.beforeId === null && message.id === reorderable.at(-1)?.id
                     ? "after"
                     : undefined
                 : undefined
@@ -164,16 +170,17 @@ export function MessageQueue({
             onDragEnd={() => setDrag(null)}
             onDragOver={(after) => {
               if (!drag) return;
-              const source = messages.findIndex((item) => item.id === drag.messageId);
+              const source = reorderable.findIndex((item) => item.id === drag.messageId);
               if (source === -1) return;
-              const insertion = index + (after ? 1 : 0);
+              const insertion =
+                reorderable.findIndex((item) => item.id === message.id) + (after ? 1 : 0);
               const beforeId =
                 insertion === source || insertion === source + 1
                   ? drag.messageId
-                  : (messages[insertion]?.id ?? null);
+                  : (reorderable[insertion]?.id ?? null);
               if (beforeId !== drag.beforeId) setDrag({ ...drag, beforeId });
             }}
-            canDrop={Boolean(drag)}
+            canDrop={Boolean(drag) && !sending?.has(message.id)}
           />
         ))}
       </ol>
@@ -185,6 +192,7 @@ function QueueRow({
   message,
   index,
   running,
+  sending,
   first,
   last,
   onChange,
@@ -204,6 +212,7 @@ function QueueRow({
   message: QueuedMessage;
   index: number;
   running: boolean;
+  sending: boolean;
   first: boolean;
   last: boolean;
   onChange(action: QueueAction): void;
@@ -248,15 +257,22 @@ function QueueRow({
   }
   function focusAfterRemoval(button: HTMLButtonElement) {
     const row = button.closest("li");
+    const rows = Array.from(row?.parentElement?.children ?? []);
+    const index = row ? rows.indexOf(row) : -1;
+    const neighbors = [...rows.slice(index + 1), ...rows.slice(0, index).reverse()];
     const next =
-      row?.nextElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
-      row?.previousElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
+      neighbors
+        .map((element) =>
+          element.querySelector<HTMLButtonElement>(".queue-row-actions button:not(:disabled)"),
+        )
+        .find((button) => button !== null) ??
       button.closest(".composer")?.querySelector<HTMLElement>('[contenteditable="true"]');
     next?.focus();
   }
   return (
     <li
       className="queue-row"
+      aria-busy={sending || undefined}
       data-dragging={dragging || undefined}
       data-drop-position={dropPosition}
       onDragOver={(event) => {
@@ -270,8 +286,8 @@ function QueueRow({
       <Button
         type="button"
         className="queue-icon queue-drag-handle"
-        draggable={!editing}
-        disabled={editing || (first && last)}
+        draggable={!editing && !sending}
+        disabled={sending || editing || (first && last)}
         aria-label={`Reorder queued message ${index + 1}`}
         aria-describedby={helpId}
         aria-pressed={picked}
@@ -351,6 +367,7 @@ function QueueRow({
           className="queue-icon"
           title="Edit message"
           ref={editButton}
+          disabled={sending}
           aria-label={`Edit queued message ${index + 1}`}
           onClick={() => {
             cancelled.current = false;
@@ -376,6 +393,7 @@ function QueueRow({
           type="button"
           className="quiet-button queue-steer"
           title={running ? "Use this instruction in the active turn" : "Send this message now"}
+          disabled={sending}
           aria-label={`Send queued message ${index + 1} now`}
           onClick={(event) => {
             focusAfterRemoval(event.currentTarget);
@@ -383,12 +401,13 @@ function QueueRow({
           }}
         >
           <MessageActionIcon action="steer" />
-          Send now
+          <span role={sending ? "status" : undefined}>{sending ? "Sending…" : "Send now"}</span>
         </Button>
         <Button
           type="button"
           className="queue-icon"
           title="Remove message"
+          disabled={sending}
           aria-label={`Remove queued message ${index + 1}`}
           onClick={(event) => {
             cancelled.current = true;
