@@ -60,6 +60,7 @@ export function createRemoteHost({
       writes: Promise<void>;
       queuedBytes: number;
       repositoryEvents: boolean;
+      pullRequestEvents: boolean;
     }
   >();
   const send = (
@@ -267,6 +268,7 @@ export function createRemoteHost({
             writes: Promise.resolve(),
             queuedBytes: 0,
             repositoryEvents: false,
+            pullRequestEvents: false,
           });
           alive.add(client);
           client.on("pong", () => alive.add(client));
@@ -316,6 +318,17 @@ export function createRemoteHost({
                           : unavailableReceiptResponse,
                       }
                     : undefined;
+                if (
+                  (request.name === "pull-request-state" ||
+                    request.name === "auto-complete-threads") &&
+                  request.input &&
+                  typeof request.input === "object" &&
+                  "prEvents" in request.input &&
+                  request.input.prEvents === true
+                ) {
+                  const auth = clients.get(client);
+                  if (auth) auth.pullRequestEvents = true;
+                }
                 if (isRemoteMutation(request.name)) {
                   const response = await receipts.execute(
                     ticket.clientId,
@@ -400,6 +413,7 @@ export function createRemoteHost({
   const unsubscribe = service.subscribeRenderer((event) => {
     for (const [client, auth] of clients) {
       if (event.type === "repository-change" && !auth.repositoryEvents) continue;
+      if (event.type === "pull-request-state" && !auth.pullRequestEvents) continue;
       send(client, { type: "event", event }, event);
     }
   });

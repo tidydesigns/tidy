@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Thread } from "../contracts/desktop";
 import type { ToolActivity } from "../contracts/tool-activity";
 import {
+  changesPullRequestState,
   createdPullRequest,
   createdPullRequests,
   confirmedPullRequests,
@@ -232,4 +233,23 @@ test("backfill keeps the newest twenty created PRs", () => {
       toolActivities: tools,
     }),
   ).toEqual(tools.slice(5).map((entry) => entry.output));
+});
+
+test("PR mutation receipts request fresh evidence without treating quoted commands as evidence", () => {
+  for (const input of [
+    "gh pr merge 42 --squash",
+    "gh pr close 42",
+    "gh pr reopen 42",
+    "gh pr ready 42",
+  ])
+    expect(changesPullRequestState({ ...tool, input, status: "completed", exitCode: 0 })).toBe(
+      true,
+    );
+  for (const input of ["echo 'gh pr merge 42'", "gh pr view 42", "cat <<EOF\ngh pr merge 42\nEOF"])
+    expect(changesPullRequestState({ ...tool, input, status: "completed", exitCode: 0 })).toBe(
+      false,
+    );
+  expect(
+    changesPullRequestState({ ...tool, input: "gh pr merge 42", status: "failed", exitCode: 1 }),
+  ).toBe(false);
 });

@@ -174,7 +174,17 @@ const api: DesktopAPI = {
       ...(stopActive ? { stopActive } : {}),
     }),
   readVideoChunk: (input) => request("read-video-chunk", input),
-  pullRequestState: (projectId, href) => request("pull-request-state", { projectId, href }),
+  pullRequestState: (projectId, href, force) =>
+    request("pull-request-state", {
+      projectId,
+      href,
+      prEvents: true,
+      ...(force ? { force: true } : {}),
+    }).catch((error: unknown) => {
+      if (error instanceof Error && error.message === "Invalid desktop request.")
+        return request("pull-request-state", { projectId, href });
+      throw error;
+    }),
   readChatImage: (projectId, threadId, href, chunk) =>
     request("read-chat-image", { projectId, threadId, href, ...chunk }),
   async openChatLink(_projectId, href) {
@@ -221,7 +231,12 @@ const api: DesktopAPI = {
   readAttachment: (projectId, attachmentId) =>
     request("read-attachment", { projectId, attachmentId }),
   autoCompleteThreads: (projectId, preferences, force) =>
-    request("auto-complete-threads", { projectId, preferences, ...(force ? { force: true } : {}) }),
+    request("auto-complete-threads", {
+      projectId,
+      prEvents: true,
+      preferences,
+      ...(force ? { force: true } : {}),
+    }),
   setThreadDone: (projectId, threadId, done) =>
     request("set-thread-done", { projectId, threadId, done }),
   respondToApproval: (projectId, threadId, approvalId, decision) =>

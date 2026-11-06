@@ -1,3 +1,4 @@
+import { pullRequestURL } from "../../shared/contracts/pull-request";
 import {
   type WorktreePreferences,
   type WorktreeStorage as WorktreeStorageResult,
@@ -58,6 +59,7 @@ import {
 import { HarnessSkills } from "../harnesses/harness-skills";
 import {
   createdPullRequests,
+  changesPullRequestState,
   confirmedPullRequests,
   pullRequestDetectionVersion,
 } from "../../shared/models/thread-pull-requests";
@@ -318,7 +320,9 @@ export class WorkspaceService {
 
   canDeliverEvent(event: DesktopEvent) {
     const id =
-      event.type === "designs" || event.type === "repository-change"
+      event.type === "designs" ||
+      event.type === "repository-change" ||
+      event.type === "pull-request-state"
         ? event.projectId
         : event.thread.projectId;
     return this.canAccessProject(id);
@@ -1140,10 +1144,31 @@ export class WorkspaceService {
   }
 
   private readonly completionPullRequests = new CompletionPullRequests();
-  private readonly completionChecks = new Map<string, { key: string; pending: Promise<void> }>();
+  private readonly completionChecks = new Map<
+    string,
+    { key: string; pending: Promise<void>; repeat: boolean; force: boolean }
+  >();
+  private readonly publishedPullRequests = new Map<string, string>();
 
-  async pullRequestState(href: string) {
-    return (await this.completionPullRequests.read(href))?.state ?? null;
+  private async readPullRequest(projectId: string, href: string, force = false) {
+    const value = await this.completionPullRequests.read(href, force);
+    const url = pullRequestURL(href);
+    if (value && url && this.canAccessProject(projectId)) {
+      const key = JSON.stringify([projectId, url]);
+      const previous = this.publishedPullRequests.get(key);
+      if (previous !== value.state && previous !== "merged") {
+        this.publishedPullRequests.delete(key);
+        this.publishedPullRequests.set(key, value.state);
+        if (this.publishedPullRequests.size > 256)
+          this.publishedPullRequests.delete(this.publishedPullRequests.keys().next().value!);
+        this.emit({ type: "pull-request-state", projectId, url, state: value.state });
+      }
+    }
+    return value;
+  }
+
+  async pullRequestState(projectId: string, href: string, force = false) {
+    return (await this.readPullRequest(projectId, href, force))?.state ?? null;
   }
 
   async setWorktreePreferences(input: WorktreePreferences) {
@@ -1378,90 +1403,126 @@ export class WorkspaceService {
   autoCompleteThreads(
     projectId: string,
     input: ThreadCompletion,
-    load: (url: string) => Promise<CompletionPullRequest | null> = (url) =>
-      this.completionPullRequests.read(url),
+    load?: (url: string) => Promise<CompletionPullRequest | null>,
     force = false,
   ): Promise<void> {
     const preferences = threadCompletionSchema.parse(input);
     const key = JSON.stringify(preferences);
     const previous = this.completionChecks.get(projectId);
-    if (previous?.key === key) return previous.pending;
-    if (force) this.completionPullRequests.invalidate();
-    const check = { key, pending: Promise.resolve() };
+    if (previous?.key === key) {
+      previous.repeat = true;
+      previous.force ||= force;
+      return previous.pending;
+    }
+    const check = { key, pending: Promise.resolve(), repeat: false, force };
     this.completionChecks.set(projectId, check);
     check.pending = (async () => {
-      if (this.closing || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
-        return;
-      await this.assertProjectAccess(projectId);
-      const summaries = await this.store.threadSummaries(projectId);
-      let unavailable = false;
-      for (const summary of summaries) {
-        if (this.completionChecks.get(projectId) !== check || this.closing) return;
-        if (
-          summary.doneAt ||
-          !["completed", "idle", "stopped"].includes(summary.status) ||
-          summary.queuedMessageCount ||
-          summary.pendingApprovalCount ||
-          (!preferences.inactiveDays && !summary.pullRequests?.length)
-        )
-          continue;
+      let failure: unknown;
+      do {
+        const refresh = check.force;
+        check.repeat = false;
+        check.force = false;
+        failure = undefined;
         try {
-          const requests =
-            preferences.merged || preferences.closed
-              ? await Promise.all(threadPullRequests(summary).map(load))
-              : [];
-          if (
-            requests.some(
-              (pr) =>
-                !pr ||
-                (preferences.merged &&
-                  preferences.target === "default" &&
-                  pr.state === "merged" &&
-                  pr.defaultBranch === null),
-            )
-          )
-            unavailable = true;
-          if (!threadCompletionReason(summary, preferences, requests)) continue;
-          await this.serialize(summary.id, async () => {
-            if (
-              this.completionChecks.get(projectId) !== check ||
-              this.closing ||
-              this.jobs.has(summary.id) ||
-              this.starting.has(summary.id) ||
-              this.sessions.backgroundContexts.some((context) => context.threadId === summary.id)
-            )
-              return;
-            await this.assertProjectAccess(projectId);
-            const current = await this.store.readThread(projectId, summary.id);
-            if (
-              this.completionChecks.get(projectId) !== check ||
-              this.closing ||
-              this.jobs.has(summary.id) ||
-              this.starting.has(summary.id) ||
-              current.revision !== summary.revision ||
-              !threadCanAutoComplete(current)
-            )
-              return;
-            const reason = threadCompletionReason(current, preferences, requests);
-            if (!reason) return;
-            current.doneAt = new Date().toISOString();
-            current.doneReason = reason;
-            current.revision++;
-            await this.store.writeThread(current);
-            this.emit({ type: "thread", thread: current });
-          });
-        } catch {
-          unavailable = true;
+          await this.checkThreadCompletion(
+            projectId,
+            preferences,
+            load ?? ((url) => this.readPullRequest(projectId, url, refresh)),
+            check,
+          );
+        } catch (error) {
+          failure = error;
         }
-      }
-      if (unavailable)
-        throw new Error(
-          "Automatic completion could not check or update some threads. Tidy will retry automatically.",
-        );
+      } while (check.repeat && this.completionChecks.get(projectId) === check && !this.closing);
+      if (failure) throw failure;
     })().finally(() => {
       if (this.completionChecks.get(projectId) === check) this.completionChecks.delete(projectId);
     });
     return check.pending;
+  }
+
+  private async checkThreadCompletion(
+    projectId: string,
+    preferences: ThreadCompletion,
+    load: (url: string) => Promise<CompletionPullRequest | null>,
+    check: object,
+  ) {
+    if (this.closing || (!preferences.merged && !preferences.closed && !preferences.inactiveDays))
+      return;
+    await this.assertProjectAccess(projectId);
+    const summaries = await this.store.threadSummaries(projectId);
+    let unavailable = false;
+    const lookups = new Map<string, Promise<CompletionPullRequest | null>>();
+    const read = (url: string) => {
+      let result = lookups.get(url);
+      if (!result) {
+        result = load(url);
+        lookups.set(url, result);
+      }
+      return result;
+    };
+    for (const summary of summaries) {
+      if (this.completionChecks.get(projectId) !== check || this.closing) return;
+      if (summary.doneAt || (!preferences.inactiveDays && !summary.pullRequests?.length)) continue;
+      try {
+        const requests =
+          preferences.merged || preferences.closed
+            ? await Promise.all(threadPullRequests(summary).map(read))
+            : [];
+        if (
+          requests.some(
+            (pr) =>
+              !pr ||
+              (preferences.merged &&
+                preferences.target === "default" &&
+                pr.state === "merged" &&
+                pr.defaultBranch === null),
+          )
+        )
+          unavailable = true;
+        if (
+          !["completed", "idle", "stopped"].includes(summary.status) ||
+          summary.queuedMessageCount ||
+          summary.pendingApprovalCount ||
+          !threadCompletionReason(summary, preferences, requests)
+        )
+          continue;
+        await this.serialize(summary.id, async () => {
+          if (
+            this.completionChecks.get(projectId) !== check ||
+            this.closing ||
+            this.jobs.has(summary.id) ||
+            this.starting.has(summary.id) ||
+            this.sessions.backgroundContexts.some((context) => context.threadId === summary.id)
+          )
+            return;
+          await this.assertProjectAccess(projectId);
+          const current = await this.store.readThread(projectId, summary.id);
+          if (
+            this.completionChecks.get(projectId) !== check ||
+            this.closing ||
+            this.jobs.has(summary.id) ||
+            this.starting.has(summary.id) ||
+            current.revision !== summary.revision ||
+            !threadCanAutoComplete(current)
+          )
+            return;
+          const reason = threadCompletionReason(current, preferences, requests);
+          if (!reason) return;
+          current.doneAt = new Date().toISOString();
+          current.doneReason = reason;
+          current.revision++;
+          await this.store.writeThread(current);
+          this.emit({ type: "thread", thread: current });
+        });
+      } catch {
+        unavailable = true;
+      }
+    }
+    if (unavailable)
+      throw new Error(
+        "Automatic completion could not check or update some threads. Tidy will retry automatically.",
+      );
   }
 
   setThreadDone(projectId: string, threadId: string, done: boolean) {
@@ -2055,10 +2116,12 @@ export class WorkspaceService {
             images: prepared.images,
           }))
         ) {
+          const sentAt = new Date().toISOString();
+          thread.autoDoneAfter = sentAt;
           thread.messages.splice(insertion, 0, {
             ...message,
             role: "user",
-            sentAt: new Date().toISOString(),
+            sentAt,
           });
           if (!job.stopped && !this.closing) this.automaticQueues.add(thread.id);
           await this.persistQueue(
@@ -2342,7 +2405,9 @@ export class WorkspaceService {
       if (lastUser < 0)
         throw new Error("The original request is unavailable. Send a message to continue.");
       thread.messages[lastUser] = { ...thread.messages[lastUser], turn };
-    } else
+    } else {
+      // A follow-up is new work; an older merge must not immediately close it again.
+      if (thread.messages.length) thread.autoDoneAfter = startedAt;
       thread.messages.push({
         id: messageId ?? randomUUID(),
         role: "user",
@@ -2353,6 +2418,7 @@ export class WorkspaceService {
           ? { attachments: attachments.map((file) => attachmentSchema.parse(file)) }
           : {}),
       });
+    }
     if (authorize) thread.messageSources = (await this.withThreadSources(thread)).messageSources;
     thread.status = "running";
     thread.revision++;
@@ -2523,6 +2589,7 @@ export class WorkspaceService {
         startedAt: existing?.startedAt ?? now,
         endedAt: update.tool.status === "running" ? undefined : (existing?.endedAt ?? now),
       });
+      const completed = existing?.status === "completed";
       if (existing) Object.assign(existing, value);
       else {
         activities.push(value);
@@ -2531,6 +2598,9 @@ export class WorkspaceService {
       for (const pullRequest of createdPullRequests(value))
         if (!thread.pullRequests?.includes(pullRequest))
           thread.pullRequests = [...(thread.pullRequests ?? []), pullRequest].slice(-20);
+      if (!completed && changesPullRequestState(value))
+        for (const url of thread.pullRequests ?? [])
+          void this.readPullRequest(thread.projectId, url, true).catch(() => {});
       job.changedTools.add(value.id);
       let size = activities.reduce((total, tool) => total + toolLogSize(tool), 0);
       while (activities.length > MAX_TOOL_ACTIVITIES || size > MAX_TOOL_LOG_CHARACTERS) {

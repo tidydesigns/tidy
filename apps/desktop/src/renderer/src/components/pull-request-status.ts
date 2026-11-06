@@ -1,15 +1,18 @@
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
 import type { PullRequestState } from "../../../shared/contracts/pull-request";
-import { pullRequestStateSchema } from "../../../shared/contracts/pull-request";
+import { pullRequestStateSchema, pullRequestURL } from "../../../shared/contracts/pull-request";
 import { z } from "zod";
 
-type StatusAPI = Pick<DesktopAPI, "pullRequestState">;
+export type StatusAPI = Pick<DesktopAPI, "pullRequestState"> & Partial<Pick<DesktopAPI, "onEvent">>;
 
 export class PullRequestStatus {
   private snapshot: { state: PullRequestState | null; checking: boolean };
   private listeners = new Set<() => void>();
   private expires = 0;
-  private pending = false;
+  private pending?: Promise<void>;
+  private queued?: Promise<void>;
+  private version = 0;
+  private unsubscribe?: () => void;
 
   constructor(
     private input: {
@@ -31,8 +34,23 @@ export class PullRequestStatus {
   read = () => this.snapshot;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
+    if (this.listeners.size === 1)
+      this.unsubscribe = this.input.api.onEvent?.((event) => {
+        if (
+          event.type === "pull-request-state" &&
+          event.projectId === this.input.projectId &&
+          event.url === pullRequestURL(this.input.url)
+        ) {
+          this.version++;
+          this.accept(event.state);
+        }
+      });
     return () => {
       this.listeners.delete(listener);
+      if (!this.listeners.size) {
+        this.unsubscribe?.();
+        this.unsubscribe = undefined;
+      }
     };
   };
 
@@ -43,22 +61,43 @@ export class PullRequestStatus {
     for (const listener of this.listeners) listener();
   }
 
-  async refresh() {
-    const { api, projectId, url, now = Date.now } = this.input;
-    if (!api.pullRequestState || this.pending || now() < this.expires) return;
-    this.pending = true;
-    if (this.snapshot.state === null) this.publish({ ...this.snapshot, checking: true });
-    let state: PullRequestState | null = null;
-    try {
-      state = await api.pullRequestState(projectId, url);
-    } catch {
-      state = null;
-    }
-    this.expires = now() + (state === null ? 15_000 : 60_000);
-    this.pending = false;
-    if (state !== null) this.input.onState?.(state);
-    this.publish({ state: state ?? this.snapshot.state, checking: false });
+  private accept(state: PullRequestState) {
+    // A merged PR cannot reopen; late responses must not turn its icon green again.
+    if (this.snapshot.state === "merged" && state !== "merged") return;
+    this.input.onState?.(state);
+    this.publish({ state, checking: false });
   }
+
+  refresh = (force = false): Promise<void> => {
+    const { api, projectId, url, now = Date.now } = this.input;
+    if (!api.pullRequestState) return Promise.resolve();
+    if (this.snapshot.state === "merged") {
+      this.input.onState?.("merged");
+      return Promise.resolve();
+    }
+    if (this.pending) {
+      if (!force) return Promise.resolve();
+      return (this.queued ??= this.pending.then(() => {
+        this.queued = undefined;
+        return this.refresh(true);
+      }));
+    }
+    if (!force && now() < this.expires) return Promise.resolve();
+    const version = this.version;
+    if (this.snapshot.state === null) this.publish({ ...this.snapshot, checking: true });
+    this.pending = (async () => {
+      let state: PullRequestState | null = null;
+      try {
+        state = await api.pullRequestState!(projectId, url, force);
+      } catch {}
+      this.expires = now() + (state === null ? 15_000 : 10_000);
+      if (version === this.version && state !== null) this.accept(state);
+      else this.publish({ ...this.snapshot, checking: false });
+    })().finally(() => {
+      this.pending = undefined;
+    });
+    return this.pending;
+  };
 }
 
 const statuses = new WeakMap<StatusAPI, Map<string, PullRequestStatus>>();
@@ -96,6 +135,7 @@ export function pullRequestStatus(input: {
   scope?: string;
   storage?: StatusStorage;
 }) {
+  input = { ...input, url: pullRequestURL(input.url) ?? input.url };
   let cache = statuses.get(input.api);
   if (!cache) {
     cache = new Map();

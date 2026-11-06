@@ -40,6 +40,7 @@ import { ProjectStore } from ${moduleURL("./project-store.ts")};
 import { WorkspaceService } from ${moduleURL("./workspace-service.ts")};
 import { createWorkspaceRequests } from ${moduleURL("../ipc/workspace-requests.ts")};
 import { defaultThreadCompletion } from ${moduleURL("../../shared/contracts/thread-completion.ts")};
+import { PullRequestStatus } from ${moduleURL("../../renderer/src/components/pull-request-status.ts")};
 let now = Date.now(); Date.now = () => now;
 const root = join(process.env.HOME, "project"); await mkdir(root);
 const store = new ProjectStore(join(process.env.HOME, "private")); await store.initialize();
@@ -54,6 +55,12 @@ const invoke = (name,input) => ipc.invoke(name,input,undefined);
 try {
   const thread = await invoke("start-thread",{projectId:project.id,harness:"codex",prompt:"Ship",designIds:[],threadMode:"local"});
   const url = "https://github.com/owner/repo/pull/42";
+  const status = new PullRequestStatus({projectId:project.id,url,api:{
+    pullRequestState:(projectId,href,force)=>invoke("pull-request-state",{projectId,href,force}),
+    onEvent:listener=>service.subscribeRenderer(listener),
+  }});
+  const stopStatus = status.subscribe(()=>{});
+  await status.refresh();
   run.input.onUpdate({type:"tool",tool:{id:"create",kind:"command",toolName:"Shell",title:"Create pull request",input:'BODY_FILE=/tmp/body.md\\ngh pr create --body-file "$BODY_FILE" && git status --short',status:"completed",exitCode:0,output:url}});
   if ((await service.readThread(project.id,thread.id)).pullRequests?.[0] !== url) throw Error("Live creation receipt was not linked");
   run.input.onUpdate({type:"message",id:"receipt",text:"Created pull request: "+url});
@@ -73,6 +80,8 @@ try {
   await writeFile(process.env.TIDY_GH_PHASE,"merged\\n");
   await invoke("auto-complete-threads",{projectId:project.id,preferences:defaultThreadCompletion,force:true});
   const done = JSON.parse(await readFile(await store.storagePath(project.id,"threads",thread.id),"utf8"));
+  if (status.read().state !== "merged") throw Error("Completion did not update the sidebar's cached PR status");
+  stopStatus();
   if (done.doneReason !== "merged" || !done.doneAt || doneEvents !== 1) throw Error("Merged PR did not persist and publish Done");
   await invoke("set-thread-done",{projectId:project.id,threadId:thread.id,done:false});
   await check();

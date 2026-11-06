@@ -3153,7 +3153,7 @@ test("explicit completion receipts are durable across unsupported shell syntax a
     state: "merged",
     baseBranch: "main",
     defaultBranch: "main",
-    endedAt: "2026-01-01T00:00:00Z",
+    endedAt: new Date(Date.parse(stored.autoDoneAfter!) + 1).toISOString(),
   }));
   expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
 });
@@ -3387,4 +3387,116 @@ test("inactivity completes threads without PRs, while queued work stays open", a
         event.thread.doneAt === done.doneAt,
     ),
   ).toBe(true);
+});
+
+test("a forced completion request racing a pending check runs one fresh follow-up", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  const started = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  let calls = 0;
+  const load = async () => {
+    const call = ++calls;
+    if (call === 1) {
+      started.resolve();
+      await gate.promise;
+    }
+    return {
+      state: call === 1 ? ("open" as const) : ("merged" as const),
+      baseBranch: "main",
+      defaultBranch: "main",
+      endedAt: call === 1 ? null : "2026-01-01T00:00:00Z",
+    };
+  };
+  const pending = service.autoCompleteThreads(project.id, defaultThreadCompletion, load);
+  await started.promise;
+  const forced = Array.from({ length: 100 }, () =>
+    service.autoCompleteThreads(project.id, defaultThreadCompletion, load, true),
+  );
+  gate.resolve();
+  await pending;
+  await Promise.all(forced);
+  expect(calls).toBe(2);
+  expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
+});
+
+test("running linked threads refresh PR evidence without stopping work", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  let calls = 0;
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => {
+    calls++;
+    return {
+      state: "merged",
+      baseBranch: "main",
+      defaultBranch: "main",
+      endedAt: "2026-01-01T00:00:00Z",
+    };
+  });
+  expect(calls).toBe(1);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  expect(runs[0].stopped).toBe(false);
+});
+
+test("a new user turn cannot be completed by the previous turn's merged PR", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Ship",
+    designIds: [],
+  });
+  let completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const stored = await store.readThread(project.id, thread.id);
+  stored.pullRequests = ["https://github.com/owner/repo/pull/42"];
+  await store.writeThread(stored);
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "New work" });
+  completed = finished(service, thread.id);
+  runs[1].complete();
+  await completed;
+  const { defaultThreadCompletion } = await import("../../shared/contracts/thread-completion");
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async () => ({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: "2026-01-01T00:00:00Z",
+  }));
+  const current = await store.readThread(project.id, thread.id);
+  expect(current.autoDoneAfter).toBeDefined();
+  expect(current.doneAt).toBeUndefined();
+  current.pullRequests!.push("https://github.com/owner/repo/pull/43");
+  current.revision++;
+  await store.writeThread(current);
+  await service.autoCompleteThreads(project.id, defaultThreadCompletion, async (url) => ({
+    state: "merged",
+    baseBranch: "main",
+    defaultBranch: "main",
+    endedAt: url.endsWith("/43")
+      ? new Date(Date.parse(current.autoDoneAfter!) + 1).toISOString()
+      : "2026-01-01T00:00:00Z",
+  }));
+  expect((await store.readThread(project.id, thread.id)).doneReason).toBe("merged");
 });

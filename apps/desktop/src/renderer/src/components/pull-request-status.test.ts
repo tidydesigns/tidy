@@ -178,7 +178,7 @@ test("status persistence retries failed writes and skips unchanged successful re
   const clock = spyOn(Date, "now").mockReturnValue(0);
   let saved = "";
   let writes = 0;
-  let state: "merged" | "open" = "merged";
+  let state: "closed" | "open" = "closed";
   const storage = {
     getItem: () => saved || null,
     setItem: (_key: string, value: string) => {
@@ -195,7 +195,7 @@ test("status persistence retries failed writes and skips unchanged successful re
   });
   try {
     await status.refresh();
-    expect(status.read().state).toBe("merged");
+    expect(status.read().state).toBe("closed");
     expect(saved).toBe("");
     clock.mockReturnValue(60_001);
     await status.refresh();
@@ -206,7 +206,7 @@ test("status persistence retries failed writes and skips unchanged successful re
       url,
       storage: { ...storage },
     });
-    expect(reopened.read().state).toBe("merged");
+    expect(reopened.read().state).toBe("closed");
     clock.mockReturnValue(120_002);
     await status.refresh();
     expect(writes).toBe(2);
@@ -218,4 +218,76 @@ test("status persistence retries failed writes and skips unchanged successful re
   } finally {
     clock.mockRestore();
   }
+});
+
+test("host completion events update both icons immediately and defeat stale in-flight responses", async () => {
+  const pending = Promise.withResolvers<"open">();
+  let receive:
+    | ((event: import("../../../shared/contracts/desktop").DesktopEvent) => void)
+    | undefined;
+  let subscriptions = 0;
+  let calls = 0;
+  const status = new PullRequestStatus({
+    projectId: "project",
+    url,
+    initialState: "open",
+    api: {
+      pullRequestState: () => {
+        calls++;
+        return pending.promise;
+      },
+      onEvent: (listener) => {
+        subscriptions++;
+        receive = listener;
+        return () => {
+          subscriptions--;
+        };
+      },
+    },
+  });
+  let notifications = 0;
+  const left = status.subscribe(() => notifications++);
+  const right = status.subscribe(() => notifications++);
+  const refresh = status.refresh();
+  receive?.({ type: "pull-request-state", projectId: "other", url, state: "merged" });
+  expect(status.read().state).toBe("open");
+  receive?.({ type: "pull-request-state", projectId: "project", url, state: "merged" });
+  expect(status.read().state).toBe("merged");
+  expect(notifications).toBe(2);
+  pending.resolve("open");
+  await refresh;
+  expect(status.read().state).toBe("merged");
+  await status.refresh(true);
+  expect(calls).toBe(1);
+  expect(subscriptions).toBe(1);
+  left();
+  right();
+  expect(subscriptions).toBe(0);
+});
+
+test("focus bypasses freshness and a forced refresh burst waits for one trailing request", async () => {
+  let calls = 0;
+  const gate = Promise.withResolvers<"open">();
+  const status = new PullRequestStatus({
+    projectId: "project",
+    url,
+    initialState: "open",
+    now: () => 1,
+    api: {
+      pullRequestState: async (_project, _url, force) => {
+        calls++;
+        if (calls === 1) return gate.promise;
+        expect(force).toBe(true);
+        return "merged";
+      },
+    },
+  });
+  const original = status.refresh();
+  const forced = Array.from({ length: 1000 }, () => status.refresh(true));
+  expect(calls).toBe(1);
+  gate.resolve("open");
+  await original;
+  await Promise.all(forced);
+  expect(status.read().state).toBe("merged");
+  expect(calls).toBe(2);
 });

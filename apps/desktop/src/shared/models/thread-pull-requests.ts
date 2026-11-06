@@ -126,6 +126,25 @@ function shellCommands(input: string): string[][] | null {
   return commands;
 }
 
+export function changesPullRequestState(tool: ToolActivity): boolean {
+  if (tool.status !== "completed" || (tool.exitCode !== undefined && tool.exitCode !== 0))
+    return false;
+  if (/(?:^|[\s._/])(?:merge|close|reopen|update)_pull_request$/.test(tool.toolName)) return true;
+  if (tool.kind !== "command" && tool.kind !== "test") return false;
+  const command = (tool.input ?? tool.title).replace(
+    /^(?:\/(?:usr\/)?bin\/)?(?:bash|zsh|sh)\s+-[a-z]*c\s+(['"])([\s\S]*)\1$/,
+    "$2",
+  );
+  return (
+    shellCommands(command)?.some(
+      (words) =>
+        words[0] === "gh" &&
+        words[1] === "pr" &&
+        ["merge", "close", "reopen", "ready"].includes(words[2] ?? ""),
+    ) ?? false
+  );
+}
+
 export function createdPullRequests(tool: ToolActivity): string[] {
   if (!tool.output) return [];
   const succeeded =

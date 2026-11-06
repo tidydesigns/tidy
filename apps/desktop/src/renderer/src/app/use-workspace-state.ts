@@ -188,9 +188,13 @@ export function useWorkspaceState({
     const restoreClearedProject = !loaded.current && cached?.projectId === null;
     const refresh = connection !== "offline" || !loaded.current;
     let bootstrapping = refresh;
-    const initialEvents = new Map<string, Exclude<DesktopEvent, { type: "repository-change" }>>();
+    const initialEvents = new Map<
+      string,
+      Exclude<DesktopEvent, { type: "repository-change" | "pull-request-state" }>
+    >();
     const unsubscribe = api.onEvent((event) => {
-      if (!mounted || event.type === "repository-change") return;
+      if (!mounted || event.type === "repository-change" || event.type === "pull-request-state")
+        return;
       if (bootstrapping) {
         const key = event.type === "designs" ? event.projectId : event.thread.id;
         const previous = initialEvents.get(key);

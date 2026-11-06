@@ -1,7 +1,7 @@
-import { pullRequestStatus } from "./pull-request-status";
+import { subscribePullRequestRefresh } from "./pull-request-refresh";
+import { pullRequestStatus, type StatusAPI } from "./pull-request-status";
 import { useContext, useEffect, useMemo, useRef, useSyncExternalStore, type Ref } from "react";
 import { NavigationScope } from "../app/session-state";
-import type { DesktopAPI } from "../../../shared/contracts/desktop";
 import type { PullRequestState } from "../../../shared/contracts/pull-request";
 
 export function PullRequestIcon({
@@ -10,7 +10,7 @@ export function PullRequestIcon({
   projectId,
 }: {
   url: string;
-  api: Pick<DesktopAPI, "pullRequestState">;
+  api: StatusAPI;
   projectId: string;
 }) {
   const element = useRef<SVGSVGElement>(null);
@@ -22,23 +22,20 @@ export function PullRequestIcon({
   const { state, checking } = useSyncExternalStore(status.subscribe, status.read, status.read);
   useEffect(() => {
     if (!api.pullRequestState) return;
-    let visible = false;
-    const refresh = () => {
-      if (visible && document.visibilityState !== "hidden") void status.refresh();
-    };
+    let unsubscribe: (() => void) | undefined;
     const observer = new IntersectionObserver(([entry]) => {
-      visible = entry?.isIntersecting ?? false;
-      if (visible) void refresh();
+      if (entry?.isIntersecting) {
+        unsubscribe ??= subscribePullRequestRefresh(status.refresh);
+        if (document.visibilityState !== "hidden") void status.refresh();
+      } else {
+        unsubscribe?.();
+        unsubscribe = undefined;
+      }
     });
     if (element.current) observer.observe(element.current);
-    const interval = setInterval(refresh, 60_000);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
     return () => {
-      clearInterval(interval);
+      unsubscribe?.();
       observer.disconnect();
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
     };
   }, [api, status]);
   return <PullRequestGlyph state={state} checking={checking} iconRef={element} />;

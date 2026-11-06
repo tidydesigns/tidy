@@ -362,7 +362,17 @@ function workspaceApi(machineId?: string): DesktopAPI {
     readChatImage: (projectId, threadId, href, chunk) =>
       scopedRequest("read-chat-image", { projectId, threadId, href, ...chunk }),
     openChatLink: (projectId, href) => scopedRequest("open-chat-link", { projectId, href }),
-    pullRequestState: (projectId, href) => scopedRequest("pull-request-state", { projectId, href }),
+    pullRequestState: (projectId, href, force) =>
+      scopedRequest("pull-request-state", {
+        projectId,
+        href,
+        prEvents: true,
+        ...(force ? { force: true } : {}),
+      }).catch((error: unknown) => {
+        if (error instanceof Error && error.message === "Invalid desktop request.")
+          return scopedRequest("pull-request-state", { projectId, href });
+        throw error;
+      }),
     setThreadSettings: (projectId, threadId, settings) =>
       scopedRequest("thread-settings", { projectId, threadId, settings }),
     setThreadExecutionProject: (projectId, threadId, executionProjectId, stopActive) =>
@@ -414,10 +424,11 @@ function workspaceApi(machineId?: string): DesktopAPI {
     autoCompleteThreads: (projectId, preferences, force) =>
       scopedRequest("auto-complete-threads", {
         projectId,
+        prEvents: true,
         preferences,
         ...(force ? { force: true } : {}),
       }).catch((error: unknown) => {
-        if (force && error instanceof Error && error.message === "Invalid desktop request.")
+        if (error instanceof Error && error.message === "Invalid desktop request.")
           return scopedRequest("auto-complete-threads", { projectId, preferences });
         throw error;
       }),

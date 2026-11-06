@@ -297,7 +297,14 @@ export function createWorkspaceRequests<Context>(
       ),
   );
   handle("read-video-chunk", videoChunkRequestSchema, (value) => service.readVideoChunk(value));
-  handle("pull-request-state", chatLinkRequestSchema, ({ href }) => service.pullRequestState(href));
+  handle(
+    "pull-request-state",
+    chatLinkRequestSchema.extend({
+      force: z.boolean().optional(),
+      prEvents: z.boolean().optional(),
+    }),
+    ({ projectId, href, force }) => service.pullRequestState(projectId, href, force),
+  );
   handle("read-chat-image", chatImageRequestSchema, (value) => service.readChatImage(value));
   handle("open-chat-link", chatLinkRequestSchema, (value) =>
     openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
@@ -498,7 +505,12 @@ export function createWorkspaceRequests<Context>(
   handle(
     "auto-complete-threads",
     z
-      .object({ projectId, preferences: threadCompletionSchema, force: z.boolean().optional() })
+      .object({
+        projectId,
+        preferences: threadCompletionSchema,
+        force: z.boolean().optional(),
+        prEvents: z.boolean().optional(),
+      })
       .strict(),
     ({ projectId, preferences, force }) =>
       service.autoCompleteThreads(projectId, preferences, undefined, force),

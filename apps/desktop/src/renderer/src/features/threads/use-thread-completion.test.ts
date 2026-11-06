@@ -82,14 +82,25 @@ test("completion checks expose failures, retry, react to finished threads, and i
       }),
     );
     expect(calls).toHaveLength(4);
-    expect(forced[3]).toBe(false);
+    expect(forced[3]).toBe(true);
+    await act(async () =>
+      receive?.({
+        type: "pull-request-state",
+        projectId: project.id,
+        url: "https://github.com/owner/repo/pull/42",
+        state: "merged",
+      }),
+    );
+    expect(calls).toHaveLength(5);
+    await act(async () => calls[4].resolve());
     await act(async () => {
       calls[3].resolve();
       window.dispatchEvent(new window.Event("focus"));
     });
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
+    expect(forced[5]).toBe(true);
     await act(async () => {
-      calls[4].resolve();
+      calls[5].resolve();
     });
   } finally {
     await act(async () => root.unmount());

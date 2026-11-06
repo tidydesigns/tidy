@@ -1,3 +1,4 @@
+import { subscribePullRequestRefresh } from "../../components/pull-request-refresh";
 import { useEffect, useRef } from "react";
 import {
   clearCompletionHealth,
@@ -51,31 +52,53 @@ export function useThreadCompletion(
     const all = () => check();
     const unsubscribe = subscribeThreadCompletion(all);
     const retry = subscribeCompletionRetry(() => check(undefined, true));
-    const timer = setInterval(all, 60_000);
-    const visible = () => {
-      if (document.visibilityState === "visible") check();
-    };
+    const refresh = subscribePullRequestRefresh((force) => check(undefined, force));
+    const settled = new Map<string, string>();
     const events = api.onEvent?.((event) => {
+      if (event.type === "pull-request-state") {
+        if (event.state === "merged" || event.state === "closed") check(event.projectId);
+        return;
+      }
       if (
         (event.type === "thread" ||
           event.type === "thread-summary" ||
           event.type === "thread-patch") &&
         !event.thread.doneAt &&
         ["completed", "idle", "stopped"].includes(event.thread.status)
-      )
-        check(event.thread.projectId);
+      ) {
+        const summary =
+          event.type === "thread-patch"
+            ? event.summary
+            : event.type === "thread-summary"
+              ? event.thread
+              : undefined;
+        const key = JSON.stringify([
+          summary?.queuedMessageCount ??
+            (event.type === "thread" ? event.thread.queuedMessages?.length : undefined),
+          summary?.pendingApprovalCount ??
+            (event.type === "thread" ? event.thread.pendingApprovals?.length : undefined),
+          event.thread.status,
+          event.thread.pullRequests,
+          event.thread.autoDoneAfter,
+        ]);
+        if (settled.get(event.thread.id) === key) return;
+        settled.set(event.thread.id, key);
+        check(event.thread.projectId, true);
+      } else if (
+        event.type === "thread" ||
+        event.type === "thread-summary" ||
+        event.type === "thread-patch"
+      ) {
+        settled.delete(event.thread.id);
+      }
     });
-    window.addEventListener("focus", all);
-    document.addEventListener("visibilitychange", visible);
     return () => {
       disposed = true;
       unsubscribe();
       retry();
       events?.();
       clearCompletionHealth(scope);
-      clearInterval(timer);
-      window.removeEventListener("focus", all);
-      document.removeEventListener("visibilitychange", visible);
+      refresh();
     };
   }, [api, projectIds, connected]);
 }
