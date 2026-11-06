@@ -395,6 +395,25 @@ in the composer. Credentials remain owned by each CLI; Tidy does not access thei
 sign-in stores or copy their credentials. The current integration uses Codex App Server over stdio and Claude Code
 bidirectional streaming JSON; tests exercise both protocols with fixture executables, without paid inference.
 
+### Banked Codex resets
+
+Open **Account & usage** in the sidebar to review Codex usage and banked resets. Expiry dates
+include the local time zone. When Codex returns a complete list, the earliest
+expiring available reset is selected first. A partial list requires an explicit
+selection; count-only responses cannot be redeemed in Tidy.
+
+Confirmation pins the selected reset's opaque ID and expiry. Tidy checks the
+account and current availability before sending that exact ID to Codex; it never
+falls back to a different reset. Older CLIs without explicit credit selection are
+blocked. Codex decides whether a usage window is eligible, and the app reads usage
+again after redemption instead of assuming the windows reset to zero.
+
+An uncertain result offers **Retry same reset**. The private host state retains
+its idempotency key across restarts, and another reset cannot be used until that
+attempt is resolved. Completed outcomes remain available by idempotency key after
+later redemptions. Older hosts keep their read-only count and expiry details.
+See the [Codex App Server reset contract](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt).
+
 ### Harness updates
 
 The desktop app checks installed Codex, Claude Code and OpenCode CLIs at startup,

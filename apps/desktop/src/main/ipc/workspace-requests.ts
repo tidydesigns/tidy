@@ -27,6 +27,7 @@ import {
   readRepositoryFile,
 } from "../repository/repository-files";
 import { repositoryPathSchema } from "../../shared/contracts/repository-files";
+import { resetSelectionSchema } from "../../shared/contracts/codex-usage";
 import { DraftImports } from "../workspace/draft-imports";
 import { terminalSessionSchema } from "../../shared/contracts/terminal";
 import { videoReadSchema, videoReferenceSchema } from "../../shared/contracts/video-artifacts";
@@ -278,6 +279,14 @@ export function createWorkspaceRequests<Context>(
     z.object({ projectId, harness: harnessIdSchema, refresh: z.boolean().optional() }).strict(),
     (value) =>
       readHarnessDetails(value.harness, store.project(value.projectId).path, value.refresh),
+  );
+  handle("codex-usage", z.object({ projectId }).strict(), (value) =>
+    store.codexUsage.read(store.project(value.projectId).path),
+  );
+  handle(
+    "codex-reset",
+    z.object({ projectId, selection: resetSelectionSchema }).strict(),
+    (value) => store.codexUsage.consume(store.project(value.projectId).path, value.selection),
   );
   handle(
     "harness-usage",

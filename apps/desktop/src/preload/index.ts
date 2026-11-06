@@ -375,6 +375,9 @@ function workspaceApi(machineId?: string): DesktopAPI {
     readVideoChunk: (input) => scopedRequest("read-video-chunk", input),
     readChatImage: (projectId, threadId, href, chunk) =>
       scopedRequest("read-chat-image", { projectId, threadId, href, ...chunk }),
+    codexUsage: (projectId) => scopedRequest("codex-usage", { projectId }),
+    consumeCodexReset: (projectId, selection) =>
+      scopedRequest("codex-reset", { projectId, selection }),
     openChatLink: (projectId, href) => scopedRequest("open-chat-link", { projectId, href }),
     pullRequestState: (projectId, href, force) =>
       scopedRequest("pull-request-state", {

@@ -14,6 +14,7 @@ import {
   repositoryChangesSchema,
   repositoryFileSchema,
 } from "./repository-files";
+import { codexUsageSchema, resetResultSchema } from "./codex-usage";
 import { draftImportResultSchema } from "./draft-import";
 import { branchSwitchResultSchema, repositoryContextSchema } from "./repository-context";
 import { videoChunkSchema as videoArtifactChunkSchema } from "./video-artifacts";
@@ -92,6 +93,8 @@ export const workspaceResponseSchemas = {
   "switch-branch": branchSwitchResultSchema,
   "harness-details": harnessDetailsSchema,
   "harness-usage": harnessUsageSchema,
+  "codex-usage": codexUsageSchema,
+  "codex-reset": resetResultSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),
   "read-video-chunk": videoChunkSchema,

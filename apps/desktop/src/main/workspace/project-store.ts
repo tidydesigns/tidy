@@ -2,6 +2,7 @@ import { WorktreePreferencesStore } from "../repository/worktree-preferences";
 import { WorktreeStorage } from "./worktree-storage";
 import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
+import { CodexUsageService } from "../harnesses/codex-usage";
 import { PrivateState } from "../platform/private-state";
 import {
   appendFile,
@@ -124,6 +125,7 @@ export class ProjectStore {
   readonly worktreeStorage: WorktreeStorage;
   private queueAuthority: QueueAuthority;
   private projectIdentity: ProjectIdentity;
+  readonly codexUsage: CodexUsageService;
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
@@ -138,6 +140,7 @@ export class ProjectStore {
     this.worktreePreferences = new WorktreePreferencesStore(this.processState);
     this.worktreeStorage = new WorktreeStorage(this);
     this.orchestrationDirectory = join(directory, "orchestration");
+    this.codexUsage = new CodexUsageService(new PrivateState(join(directory, "codex-resets")));
   }
 
   private storageClaim(path: string) {

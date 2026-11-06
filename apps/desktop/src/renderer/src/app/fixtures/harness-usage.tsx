@@ -1,3 +1,4 @@
+import { WorkspaceRequestError } from "../../../../shared/contracts/workspace-response";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 import type { DesktopAPI, HarnessId } from "../../../../shared/contracts/desktop";
@@ -45,6 +46,9 @@ export async function runHarnessUsageTests(root: Root) {
   const native = required(window.tidy, "Native API missing");
   const api: DesktopAPI = {
     ...native,
+    // Exercise compatibility with hosts that expose usage but not reset redemption.
+    codexUsage: undefined,
+    consumeCodexReset: undefined,
     harnessUsage: (_project, harness) =>
       new Promise((resolve, reject) => reads.push({ harness, resolve, reject })),
     openHarnessUsage: async (harness, page) => {
@@ -360,4 +364,230 @@ export async function runHarnessUsageTests(root: Root) {
     !panel().querySelector(".account-usage-notice") && panel().textContent?.includes("API billing"),
     "Another model's exhausted budget or Go subscription changed Console billing",
   );
+}
+
+export async function runCodexResetTests(root: Root) {
+  const host = required(document.getElementById("root"), "Root missing");
+  const expiry = Math.floor(Date.now() / 1000) + 3600;
+  const credit = (id: string, expiresAt: number) => ({
+    id,
+    expiresAt,
+    resetType: "codexRateLimits",
+    status: "available",
+    grantedAt: expiry - 7200,
+    title: null,
+    description: null,
+  });
+  const resets = {
+    accountKey: "a".repeat(64),
+    checkedAt: new Date().toISOString(),
+    windows: [],
+    resets: {
+      availableCount: 2,
+      credits: [credit("later", expiry + 86400), credit("tonight", expiry)],
+    },
+    redemptionUnavailable: null,
+    pendingReset: null,
+  };
+  let allowance = 100;
+  let reads = 0;
+  const calls: import("../../../../shared/contracts/codex-usage").ResetSelection[] = [];
+  const api: DesktopAPI = {
+    ...required(window.tidy, "Native API missing"),
+    harnessUsage: async () => ({
+      windows: [{ id: "primary", name: "5 hour", usedPercent: allowance }],
+      state: "available",
+      updatedAt: new Date().toISOString(),
+      usagePage: "subscription",
+    }),
+    codexUsage: async () => {
+      reads++;
+      return structuredClone(resets);
+    },
+    consumeCodexReset: async (_project, selection) => {
+      calls.push(selection);
+      allowance = 3;
+      resets.resets = { availableCount: 1, credits: [credit("later", expiry + 86400)] };
+      return { outcome: "reset", usage: structuredClone(resets) };
+    },
+  };
+  flushSync(() =>
+    root.render(
+      <div style={{ padding: 24, marginTop: 400 }}>
+        <HarnessUsage api={api} projectId={crypto.randomUUID()} harness="codex" ready />
+      </div>,
+    ),
+  );
+  const trigger = required(
+    host.querySelector<HTMLButtonElement>('[aria-label="Account & usage"]'),
+    "Usage trigger",
+  );
+  flushSync(() => trigger.click());
+  await until(
+    () => Boolean(host.querySelector('[aria-label^="Reset to use:"]')),
+    "Reset details did not preload",
+  );
+  const disclosure = required(
+    host.querySelector<HTMLDetailsElement>(".codex-reset-panel"),
+    "Reset disclosure",
+  );
+  check(!disclosure.open, "Reset details were not collapsed");
+  flushSync(() => required(disclosure.querySelector("summary"), "Reset summary").click());
+  const picker = required(
+    disclosure.querySelector('[aria-label^="Reset to use:"]'),
+    "Reset picker",
+  );
+  check(picker.getClientRects().length > 0, "Expanding reset details waited for a load");
+  check(reads === 1, "Expanding reset details refetched them");
+  const button = (text: string) =>
+    required(
+      [...disclosure.querySelectorAll("button")].find((item) => item.textContent?.trim() === text),
+      `Missing ${text}`,
+    );
+  flushSync(() => button("Use reset…").click());
+  check(disclosure.textContent?.includes("Use this banked reset?"), "Reset confirmation missing");
+  flushSync(() => button("Use this reset").click());
+  await until(
+    () => Boolean(disclosure.textContent?.includes("Reset applied.")),
+    "Redemption did not finish",
+  );
+  check(calls.length === 1 && calls[0].creditId === "tonight", "Redemption used the wrong credit");
+  check(calls[0].expiresAt === expiry, "Confirmation lost the selected expiry");
+  await until(
+    () => Boolean(host.textContent?.includes("97% left")),
+    "Parent usage was not refreshed",
+  );
+  check(!disclosure.textContent?.includes("2 available"), "Reset count stayed stale");
+
+  const renderCase = (key: string, testApi: DesktopAPI) =>
+    flushSync(() =>
+      root.render(
+        <div style={{ padding: 24, marginTop: 400 }}>
+          <HarnessUsage key={key} api={testApi} projectId={key} harness="codex" ready />
+        </div>,
+      ),
+    );
+  const openCase = async () => {
+    flushSync(() =>
+      required(
+        host.querySelector<HTMLButtonElement>('[aria-label="Account & usage"]'),
+        "Usage trigger",
+      ).click(),
+    );
+    await until(
+      () => Boolean(host.querySelector('[aria-label^="Reset to use:"]')),
+      "Reset picker missing",
+    );
+    flushSync(() =>
+      required(
+        host.querySelector<HTMLElement>(".codex-reset-panel summary"),
+        "Reset summary",
+      ).click(),
+    );
+  };
+  const findButton = (text: string) =>
+    [...host.querySelectorAll("button")].find((item) => item.textContent?.trim() === text);
+  const clickButton = (text: string) =>
+    flushSync(() => required(findButton(text), `Missing ${text}`).click());
+
+  resets.resets = { availableCount: 2, credits: [credit("tonight", expiry)] };
+  renderCase("partial-resets", api);
+  await openCase();
+  const partialPicker = required(
+    host.querySelector<HTMLButtonElement>('[aria-label="Reset to use: Choose a reset"]'),
+    "Partial list defaulted to a credit",
+  );
+  check(
+    required(findButton("Use reset…"), "Use reset action").disabled,
+    "Partial list enabled redemption before selection",
+  );
+  flushSync(() => partialPicker.click());
+  flushSync(() =>
+    required(
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(
+        (item) => !item.disabled,
+      ),
+      "Explicit reset option",
+    ).click(),
+  );
+  check(
+    !required(findButton("Use reset…"), "Use reset action").disabled,
+    "Explicit selection did not enable redemption",
+  );
+  check(calls.length === 1, "Selecting a partial-list credit spent it");
+
+  resets.resets.availableCount = 1;
+  const retried: import("../../../../shared/contracts/codex-usage").ResetSelection[] = [];
+  const uncertainApi: DesktopAPI = {
+    ...api,
+    consumeCodexReset: async (_project, selected) => {
+      retried.push(selected);
+      if (retried.length === 1) throw new Error("Synthetic lost response before host persistence");
+      return { outcome: "alreadyRedeemed", usage: structuredClone(resets) };
+    },
+  };
+  renderCase("uncertain-reset", uncertainApi);
+  await openCase();
+  clickButton("Use reset…");
+  clickButton("Use this reset");
+  await until(
+    () => Boolean(findButton("Retry same reset")),
+    "Uncertain attempt did not retain retry",
+  );
+  const beforeRefresh = reads;
+  flushSync(() =>
+    required(
+      host.querySelector<HTMLButtonElement>('[aria-label="Refresh account usage"]'),
+      "Refresh usage",
+    ).click(),
+  );
+  await until(() => reads > beforeRefresh, "Refresh did not recheck reset discovery");
+  await settle();
+  check(
+    findButton("Retry same reset") && !findButton("Use reset…"),
+    "A null pending record cleared an uncertain attempt",
+  );
+  clickButton("Retry same reset");
+  await until(
+    () => Boolean(host.textContent?.includes("Reset applied.")),
+    "Retry did not reconcile outcome",
+  );
+  check(
+    retried.length === 2 &&
+      retried[0].creditId === retried[1].creditId &&
+      retried[0].idempotencyKey === retried[1].idempotencyKey,
+    "Retry changed the original attempt identity",
+  );
+
+  const oldHostApi: DesktopAPI = {
+    ...api,
+    codexUsage: async () => {
+      throw new WorkspaceRequestError("Unknown desktop request.");
+    },
+    harnessUsage: async () => ({
+      windows: [],
+      state: "available",
+      updatedAt: new Date().toISOString(),
+      usagePage: "subscription",
+      resets: { availableCount: 2, items: [{ id: "legacy", expiresAt: expiry }] },
+    }),
+  };
+  renderCase("legacy-reset-host", oldHostApi);
+  flushSync(() =>
+    required(
+      host.querySelector<HTMLButtonElement>('[aria-label="Account & usage"]'),
+      "Legacy usage trigger",
+    ).click(),
+  );
+  await until(
+    () => Boolean(host.querySelector(".account-usage-reset-list time")),
+    "Unsupported discovery hid legacy reset details",
+  );
+  const legacy = required(
+    host.querySelector<HTMLTimeElement>(".account-usage-reset-list time"),
+    "Legacy expiry",
+  );
+  check(legacy.dateTime === new Date(expiry * 1000).toISOString(), "Legacy expiry changed");
+  check(host.textContent?.includes("2 available"), "Legacy count was hidden");
+  check(!host.querySelector(".codex-reset-button"), "Legacy host exposed a spending action");
 }

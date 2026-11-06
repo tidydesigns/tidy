@@ -160,6 +160,8 @@ const api: DesktopAPI = {
     request("harness-details", { projectId, harness, refresh }),
   harnessUsage: (projectId, harness, refresh) =>
     request("harness-usage", { projectId, harness, refresh }),
+  codexUsage: (projectId) => request("codex-usage", { projectId }),
+  consumeCodexReset: (projectId, selection) => request("codex-reset", { projectId, selection }),
   async openHarnessUsage(harness, page) {
     const urls = {
       codex: {

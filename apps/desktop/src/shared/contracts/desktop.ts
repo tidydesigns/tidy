@@ -8,6 +8,7 @@ import {
 import { threadModeSchema, threadWorktreeSchema, type ThreadMode } from "./thread-workspace";
 import type { ThreadNaming } from "./thread-naming";
 import { harnessFailureKindSchema } from "./harness-failure";
+import type { CodexUsage, ResetSelection, ResetResult } from "./codex-usage";
 import type { RepositoryContext } from "./repository-context";
 import type { ThreadPort } from "./thread-ports";
 import type { SkillCatalog } from "./skills";
@@ -276,6 +277,8 @@ export type DesktopAPI = {
     harness: HarnessId,
     refresh?: boolean,
   ): Promise<import("./harness-usage").HarnessUsage>;
+  codexUsage?(projectId: string): Promise<CodexUsage>;
+  consumeCodexReset?(projectId: string, selection: ResetSelection): Promise<ResetResult>;
   openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;
   readVideoChunk(
     input: import("./video-preview").VideoChunkRequest,
