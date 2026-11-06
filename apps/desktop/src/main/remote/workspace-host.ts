@@ -10,6 +10,7 @@ import { lockHost, lockWorkspaceHost } from "./host-lock";
 import { RequestReceipts } from "./receipts";
 import { SessionStore, writePrivateJSON } from "./session-store";
 import { readLocalFile } from "../platform/local-files";
+import { threadModeSchema } from "../../shared/contracts/thread-workspace";
 
 export const workspaceHostDirectory = () =>
   process.env.TIDY_HOST_STATE ?? join(homedir(), ".local", "state", "tidy-host");
@@ -92,6 +93,8 @@ export async function migrateWorkspaceRegistry(source: string, destination: stri
             name: z.string(),
             path: z.string(),
             openedAt: z.string(),
+            cloud: z.boolean().optional(),
+            threadMode: threadModeSchema.optional(),
           }),
         )
         .max(100),

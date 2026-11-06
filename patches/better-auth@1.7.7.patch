@@ -1,0 +1,86 @@
+diff --git a/dist/api/routes/update-user.mjs b/dist/api/routes/update-user.mjs
+--- a/dist/api/routes/update-user.mjs
++++ b/dist/api/routes/update-user.mjs
+@@ -479,7 +479,7 @@
+ 	* If the email is verified, we need to send a verification email
+ 	*/
+ 	if (canSendConfirmation) {
+-		const token = await createEmailVerificationToken(ctx.context.secret, ctx.context.session.user.email, newEmail, ctx.context.options.emailVerification?.expiresIn, { requestType: "change-email-confirmation" });
++		const token = await createEmailVerificationToken(ctx.context.secret, ctx.context.session.user.email, newEmail, ctx.context.options.emailVerification?.expiresIn, { requestType: "change-email-confirmation", userId: ctx.context.session.user.id });
+ 		const url = `${ctx.context.baseURL}/verify-email?token=${token}&callbackURL=${encodeURIComponent(ctx.body.callbackURL || "/")}`;
+ 		await ctx.context.runInBackgroundOrAwait(canSendConfirmation({
+ 			user: ctx.context.session.user,
+@@ -493,7 +493,7 @@
+ 		ctx.context.logger.error("Verification email isn't enabled.");
+ 		throw APIError.fromStatus("BAD_REQUEST", { message: "Verification email isn't enabled" });
+ 	}
+-	const token = await createEmailVerificationToken(ctx.context.secret, ctx.context.session.user.email, newEmail, ctx.context.options.emailVerification?.expiresIn, { requestType: "change-email-verification" });
++	const token = await createEmailVerificationToken(ctx.context.secret, ctx.context.session.user.email, newEmail, ctx.context.options.emailVerification?.expiresIn, { requestType: "change-email-verification", userId: ctx.context.session.user.id });
+ 	const url = `${ctx.context.baseURL}/verify-email?token=${token}&callbackURL=${encodeURIComponent(ctx.body.callbackURL || "/")}`;
+ 	await ctx.context.runInBackgroundOrAwait(canSendVerification({
+ 		user: {
+diff --git a/dist/api/routes/email-verification.mjs b/dist/api/routes/email-verification.mjs
+--- a/dist/api/routes/email-verification.mjs
++++ b/dist/api/routes/email-verification.mjs
+@@ -183,19 +183,23 @@
+ 	const parsed = z.object({
+ 		email: z.email(),
+ 		updateTo: z.string().optional(),
+-		requestType: z.string().optional()
++		requestType: z.string().optional(),
++		userId: z.string().optional()
+ 	}).parse(jwt.payload);
+ 	const user = await ctx.context.internalAdapter.findUserByEmail(parsed.email);
+ 	if (!user) return redirectOnError(BASE_ERROR_CODES.USER_NOT_FOUND);
+ 	if (parsed.updateTo) {
++		// An address can be reassigned; only the account that requested the change
++		// may redeem either stage. Old unbound change links must be reissued.
++		if (!parsed.userId || parsed.userId !== user.user.id) return redirectOnError(BASE_ERROR_CODES.INVALID_TOKEN);
+ 		const session = await getSessionFromCtx(ctx);
+-		if (session && session.user.email !== parsed.email) return redirectOnError(BASE_ERROR_CODES.INVALID_USER);
++		if (session && (session.user.id !== parsed.userId || session.user.email !== parsed.email)) return redirectOnError(BASE_ERROR_CODES.INVALID_USER);
+ 		switch (parsed.requestType) {
+ 			/**
+ 			* User clicks confirmation -> sends verification to new email
+ 			*/
+ 			case "change-email-confirmation": {
+-				const newToken = await createEmailVerificationToken(ctx.context.secret, parsed.email, parsed.updateTo, ctx.context.options.emailVerification?.expiresIn, { requestType: "change-email-verification" });
++				const newToken = await createEmailVerificationToken(ctx.context.secret, parsed.email, parsed.updateTo, ctx.context.options.emailVerification?.expiresIn, { requestType: "change-email-verification", userId: parsed.userId });
+ 				const updateCallbackURL = ctx.query.callbackURL ? encodeURIComponent(ctx.query.callbackURL) : encodeURIComponent("/");
+ 				const url = `${ctx.context.baseURL}/verify-email?token=${newToken}&callbackURL=${updateCallbackURL}`;
+ 				if (ctx.context.options.emailVerification?.sendVerificationEmail) await ctx.context.runInBackgroundOrAwait(ctx.context.options.emailVerification.sendVerificationEmail({
+@@ -222,7 +226,7 @@
+ 						user: user.user
+ 					};
+ 				}
+-				const updatedUser = await ctx.context.internalAdapter.updateUserByEmail(parsed.email, {
++				const updatedUser = await ctx.context.internalAdapter.updateUser(parsed.userId, {
+ 					email: parsed.updateTo,
+ 					emailVerified: true
+ 				});
+@@ -257,7 +261,7 @@
+ 						user: user.user
+ 					};
+ 				}
+-				const updatedUser = await ctx.context.internalAdapter.updateUserByEmail(parsed.email, {
++				const updatedUser = await ctx.context.internalAdapter.updateUser(parsed.userId, {
+ 					email: parsed.updateTo,
+ 					emailVerified: false
+ 				});
+diff --git a/dist/api/routes/sign-out.mjs b/dist/api/routes/sign-out.mjs
+--- a/dist/api/routes/sign-out.mjs
++++ b/dist/api/routes/sign-out.mjs
+@@ -1,3 +1,4 @@
++import { APIError } from "@better-auth/core/error";
+ import { deleteSessionCookie } from "../../cookies/index.mjs";
+ import { createAuthEndpoint } from "@better-auth/core/api";
+ import * as z from "zod";
+@@ -50,6 +51,8 @@
+ 		await ctx.context.internalAdapter.deleteSession(sessionCookieToken);
+ 	} catch (e) {
+ 		ctx.context.logger.error("Failed to delete session from database", e);
++		// Keep the cookie available for a retry until authoritative revocation succeeds.
++		throw APIError.from("SERVICE_UNAVAILABLE", { message: "Unable to sign out. Please try again." });
+ 	}
+ 	deleteSessionCookie(ctx);
+ 	const providerLogoutResult = await (async () => {

@@ -297,17 +297,26 @@ export class CloudService implements CloudAPI {
     return request;
   }
   async catalog(organizationId: string, cachedOnly = false) {
+    const generation = this.generation;
     await this.initialize();
-    const key = this.cacheKey("catalog", organizationId),
-      generation = this.generation;
+    const accountId = this.auth.accountId,
+      key = this.cacheKey("catalog", organizationId);
+    const current = () =>
+      generation === this.generation &&
+      accountId === this.auth.accountId &&
+      Boolean(accountId) &&
+      !this.accountChanging &&
+      !this.closed;
+    if (!current()) throw new Error("The account changed.");
     if (cachedOnly) {
       const catalog = cloudCatalogSchema.parse(await this.privateState.read(key));
-      if (generation !== this.generation || this.closed) throw new Error("The account changed.");
+      if (!current()) throw new Error("The account changed.");
       return catalog;
     }
     const catalog = await this.remote.catalog(organizationId);
-    if (generation !== this.generation) throw new Error("The account changed.");
+    if (!current()) throw new Error("The account changed.");
     const cached = cloudCatalogSchema.safeParse(await this.privateState.read(key));
+    if (!current()) throw new Error("The account changed.");
     if (cached.success) {
       const pending = new Set(this.sync.pendingFileIds);
       catalog.files.push(
@@ -316,9 +325,9 @@ export class CloudService implements CloudAPI {
         ),
       );
     }
-    if (generation !== this.generation || this.closed) throw new Error("The account changed.");
+    if (!current()) throw new Error("The account changed.");
     await this.privateState.write(key, catalog);
-    if (generation !== this.generation || this.closed) throw new Error("The account changed.");
+    if (!current()) throw new Error("The account changed.");
     return catalog;
   }
   private assertWorkspaceAvailable() {

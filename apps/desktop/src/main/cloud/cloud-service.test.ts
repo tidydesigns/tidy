@@ -1168,6 +1168,34 @@ test("cached file metadata cannot return after sign-out", async () => {
   }
 });
 
+for (const cachedOnly of [false, true]) {
+  test(`catalog admission rejects ${cachedOnly ? "cached" : "network"} reads while sign-out is stopping threads`, async () => {
+    const f = await fixture();
+    const entered = Promise.withResolvers<void>(),
+      gate = Promise.withResolvers<void>();
+    const stopping = spyOn(f.service, "stopCloudThreads").mockImplementation(async () => {
+      entered.resolve();
+      await gate.promise;
+    });
+    const reads = spyOn(f.state, "read"),
+      remote = spyOn(f.remote, "catalog");
+    const signingOut = f.cloud.signOut();
+    try {
+      await entered.promise;
+      const readCount = reads.mock.calls.length;
+      await expect(f.cloud.catalog("org", cachedOnly)).rejects.toThrow("account changed");
+      expect(remote).not.toHaveBeenCalled();
+      expect(reads.mock.calls.length).toBe(readCount);
+    } finally {
+      gate.resolve();
+      await signingOut;
+      stopping.mockRestore();
+      reads.mockRestore();
+      remote.mockRestore();
+    }
+  });
+}
+
 test("cached file opens reuse validated account metadata and adopt membership revocation", async () => {
   const f = await fixture();
   const fileId = f.remote.library.files[0].id;
