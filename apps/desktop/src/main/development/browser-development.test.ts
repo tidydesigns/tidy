@@ -172,6 +172,8 @@ test("authenticated browser requests retain origin, host and operation validatio
   expect((await request("harnesses", undefined, "https://other.example")).status).toBe(403);
   expect((await request("create-design", { projectId: "not-a-project" })).status).toBe(400);
   expect((await request("run-arbitrary-command", {})).status).toBe(400);
+  expect((await request("backend-harness-update-state")).status).toBe(400);
+  expect((await request("backend-install-harness-update", "codex")).status).toBe(400);
   const response = await fetch(origin, { headers: { Cookie: cookie, Host: "untrusted.example" } });
   expect(response.status).toBe(403);
 });

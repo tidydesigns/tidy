@@ -200,6 +200,13 @@ app.on("browser-window-created", (_event, window) => {
       );
       assert.equal(denied.ok, false);
       assert.match(denied.error, /Untrusted desktop request/);
+      for (const name of ["backend-harness-update-state", "backend-install-harness-update"]) {
+        const denied = await foreign.webContents.executeJavaScript(
+          `window.probe.invoke(${JSON.stringify(name)})`,
+        );
+        assert.equal(denied.ok, false);
+        assert.match(denied.error, /Untrusted desktop request/);
+      }
       for (const name of [
         "update-state",
         "check-updates",
@@ -230,6 +237,10 @@ app.on("browser-window-created", (_event, window) => {
       }
 
       // Synthetic states exercise the real grouped notice without upgrading a CLI.
+      // Let fixture discovery settle before injecting state, so a real discovery event cannot race it.
+      await wait(
+        "window.tidy.harnessUpdates().then(entries=>entries.length===3&&entries.every(entry=>entry.status==='check-error'))",
+      );
       const harnessNotice = {
         id: "codex",
         status: "available",
@@ -296,7 +307,7 @@ app.on("browser-window-created", (_event, window) => {
       ]);
       await wait("document.querySelector('[aria-label=\"Retry updating Codex\"]')!==null");
       await evaluate(
-        "document.querySelector('[aria-label=\"Dismiss harness updates\"]').click();true",
+        "document.querySelector('[aria-label=\"Remind me tomorrow about harness updates\"]').click();true",
       );
       await wait("document.querySelector('.harness-update-notice')===null");
       page.send("tidy:harness-updates", [{ ...harnessNotice, status: "installing" }]);
@@ -322,6 +333,14 @@ app.on("browser-window-created", (_event, window) => {
       page.send("tidy:harness-updates", []);
 
       // Exercise renderer update-state rendering and its sidebar action with synthetic events.
+      // Escape also closes compact navigation; restore it before inspecting its controls.
+      const showUpdateSidebar = async () => {
+        if (!(await evaluate("document.querySelector('#desktop-navigation').open"))) {
+          await evaluate("document.querySelector('.desktop-sidebar-reopen button').click();true");
+          await wait("document.querySelector('#desktop-navigation').open");
+        }
+      };
+      await showUpdateSidebar();
       assert.equal(
         await evaluate("document.querySelector('.sidebar-footer .account-usage-trigger')!==null"),
         true,
@@ -333,11 +352,14 @@ app.on("browser-window-created", (_event, window) => {
       assert.equal(await evaluate("document.querySelector('.app-update-button')!==null"), true);
       assert.equal(await evaluate("document.querySelector('.app-update-badge')===null"), true);
       for (const status of ["checking", "downloading", "installing"]) {
+        await showUpdateSidebar();
         page.send("tidy:update", { status, version: "0.1.0-beta.999" });
         await wait("document.querySelector('.app-update-button[aria-busy=\"true\"]')!==null");
         // Native keyboard/focus assertions need the primary renderer to own focus.
+        app.focus({ steal: true });
         window.focus();
         page.focus();
+        await wait("document.hasFocus()");
         assert.equal(
           await evaluate(
             "document.querySelector('.app-update-button').getAttribute('aria-disabled')",
@@ -345,6 +367,8 @@ app.on("browser-window-created", (_event, window) => {
           "true",
         );
         // Busy controls remain focusable so their status can be inspected without activating them.
+        await evaluate("document.querySelector('.app-update-button').blur();true");
+        await wait("document.activeElement!==document.querySelector('.app-update-button')");
         await evaluate(
           "document.querySelector('.app-update-button').focus();document.querySelector('.app-update-button').click();true",
         );
@@ -370,6 +394,7 @@ app.on("browser-window-created", (_event, window) => {
           true,
         );
       }
+      await showUpdateSidebar();
       page.send("tidy:update", { status: "ready", version: "0.1.0-beta.999" });
       await wait("document.querySelector('.app-update-button[aria-busy=\"false\"]')!==null");
       assert.equal(
@@ -473,6 +498,10 @@ app.on("browser-window-created", (_event, window) => {
         );
         primary.setFullScreen(false);
         await wait("!document.documentElement.hasAttribute('data-window-fullscreen')");
+        await showUpdateSidebar();
+        await wait(
+          "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left===84",
+        );
         assert.equal(
           await evaluate(
             "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
@@ -564,6 +593,16 @@ app.on("browser-window-created", (_event, window) => {
       );
       await evaluate("document.querySelector('#workspace-tab-code').click();true");
       await wait("document.querySelector('#thread-prompt')!==null");
+      if (
+        await evaluate(
+          "document.querySelector('#desktop-navigation').matches('[role=dialog][open]')",
+        )
+      ) {
+        await evaluate(
+          "document.querySelector('#desktop-navigation .desktop-sidebar-toggle').click();true",
+        );
+        await wait("!document.querySelector('#desktop-navigation').open");
+      }
       await wait(
         "document.querySelector('[aria-label^=\"Model:\"]')?.textContent==='Fixture Codex'",
       );

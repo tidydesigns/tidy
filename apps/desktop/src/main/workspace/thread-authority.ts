@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
-import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { permissionModeSchema } from "../../shared/contracts/permissions";
@@ -8,6 +8,12 @@ import { threadWorktreeSchema } from "../../shared/contracts/thread-workspace";
 import { harnessIdSchema, nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import type { Thread } from "../../shared/contracts/desktop";
 import { readLocalFile } from "../platform/local-files";
+import { writePrivateJSON } from "../remote/session-store";
+
+/** A persistent identity mismatch cannot be repaired by retrying provider submission. */
+export class ThreadAuthorityError extends Error {
+  readonly code = "FORBIDDEN";
+}
 
 const authoritySchema = z
   .object({
@@ -68,14 +74,16 @@ export class ThreadAuthority {
     const key = this.key(projectPath, thread);
     const previous = await this.read(projectPath, thread);
     if (previous && !isDeepStrictEqual(previous.worktree, thread.worktree))
-      throw new Error("This thread's worktree changed. Start a new thread.");
+      throw new ThreadAuthorityError("This thread's worktree changed. Start a new thread.");
     if (
       previous &&
       !changeExecution &&
       (previous.executionProjectId !== thread.executionProjectId ||
         previous.executionProjectPath !== executionProjectPath)
     )
-      throw new Error("This thread's execution project changed. Start a new thread.");
+      throw new ThreadAuthorityError(
+        "This thread's execution project changed. Start a new thread.",
+      );
     const value = authoritySchema.parse({
       harness: thread.harness,
       executionProjectId: thread.executionProjectId,
@@ -86,13 +94,7 @@ export class ThreadAuthority {
     });
     if (JSON.stringify(this.cache.get(key)) === JSON.stringify(value)) return;
     const path = join(this.directory, `${key}.json`);
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, JSON.stringify(value), { flag: "wx", mode: 0o600 });
-      await rename(temporary, path);
-      this.cache.set(key, value);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await writePrivateJSON(path, value, { durable: true });
+    this.cache.set(key, value);
   }
 }

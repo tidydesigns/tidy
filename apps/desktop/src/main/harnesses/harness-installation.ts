@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import { z } from "zod";
 import { findExecutable, findHarness, harnessEnvironment } from "./harnesses";
 import { readLocalFile } from "../platform/local-files";
@@ -10,7 +10,9 @@ import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates"
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 /** Normalize supported CLI version output, rejecting prereleases and unsafe numeric segments. */
 export function parseHarnessVersion(output: string) {
-  const match = /^(?:codex-cli\s+)?(\d+\.\d+\.\d+)(?:\s+\(Claude Code\))?\s*$/.exec(output.trim());
+  const match = /^(?:(?:codex-cli|opencode)\s+)?(\d+\.\d+\.\d+)(?:\s+\(Claude Code\))?\s*$/.exec(
+    output.trim(),
+  );
   if (!match || !stableVersion.test(match[1])) throw new Error("Unsupported harness version.");
   if (!match[1].split(".").map(Number).every(Number.isSafeInteger))
     throw new Error("Unsupported harness version.");
@@ -145,8 +147,8 @@ export async function inspectHarnessInstallation(
     const expected = id === "claude" ? ["claude-code", "claude-code@latest"] : [id];
     if (!expected.includes(brew[3])) return installation;
     const updater = await find("brew", { PATH: join(brew[1], "bin") });
+    installation.brew = { kind: brew[2] === "Caskroom" ? "cask" : "formula", name: brew[3] };
     if (updater) {
-      installation.brew = { kind: brew[2] === "Caskroom" ? "cask" : "formula", name: brew[3] };
       installation.command = {
         executable: updater,
         args: ["upgrade", `--${installation.brew.kind}`, brew[3]],
@@ -156,17 +158,22 @@ export async function inspectHarnessInstallation(
   }
   if (id === "claude") {
     try {
-      const settings = JSON.parse(
-        (
-          await read(
-            join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json"),
-            1024 * 1024,
-          )
-        ).toString("utf8"),
-      );
+      const settings = z
+        .object({ autoUpdatesChannel: z.enum(["stable", "latest"]).optional() })
+        .parse(
+          JSON.parse(
+            (
+              await read(
+                join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json"),
+                1024 * 1024,
+              )
+            ).toString("utf8"),
+          ),
+        );
       if (settings.autoUpdatesChannel === "stable") installation.channel = "stable";
-    } catch {
-      /* Use the CLI's default channel when no settings file exists. */
+    } catch (error) {
+      // Unreadable/malformed policy is not permission to advertise the default channel.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
   const native =
@@ -191,6 +198,7 @@ export async function inspectHarnessInstallation(
         manager === "bun"
           ? join(homedir(), ".bun/install/global/node_modules")
           : (await run({ executable: updater, args: ["root", "--global"] })).trim();
+      if (!isAbsolute(root)) continue;
       const packageRoot = await canonical(join(root, packageName));
       if (!executable.startsWith(packageRoot + sep)) continue;
       const manifest = z
@@ -210,6 +218,7 @@ export async function inspectHarnessInstallation(
         ];
         if (manager === "npm") {
           const prefix = (await run({ executable: updater, args: ["prefix", "--global"] })).trim();
+          if (!isAbsolute(prefix)) continue;
           args.push("--prefix", prefix);
         }
         installation.command = { executable: updater, args };

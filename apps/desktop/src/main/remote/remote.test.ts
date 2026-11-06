@@ -760,7 +760,7 @@ test("accepted mutations are not replayed after a lost acknowledgement", async (
   expect(await f.store.designs(f.project.id)).toHaveLength(1);
 });
 
-test("managed backend refuses an update while an agent is running", async () => {
+test("managed backend checkpoints active agents before accepting an update", async () => {
   const f = await fixture();
   const clientId = randomUUID();
   const token = await f.sessions.issue(clientId);
@@ -783,7 +783,7 @@ test("managed backend refuses an update while an agent is running", async () => 
   cleanups.push(() => host.close());
   const { client } = f.client();
   await until(() => client.status.kind === "connected");
-  await client.operation("start-thread", {
+  const accepted = await client.operation("start-thread", {
     projectId: f.project.id,
     harness: "claude",
     prompt: "Stay running",
@@ -798,13 +798,73 @@ test("managed backend refuses an update while an agent is running", async () => 
       "X-Tidy-Source-Timestamp": "200",
     },
   });
-  expect(response.status).toBe(409);
-  expect(await response.json()).toEqual({
-    error:
-      "Update blocked by active agent runs: 1. Finish active work and disconnect these sessions, then try again.",
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ stopping: true });
+  const entries = await f.store.updateResumes.list();
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    projectId: f.project.id,
+    threadId: accepted.id,
+    submission: { messageId: accepted.messages[0].id, state: "unknown" },
   });
-  expect(stopped).toBe(false);
-  expect(f.service.activeRunCount).toBeGreaterThan(0);
+  expect([entries[0].signature, entries[0].previousSignature]).toContain(
+    await f.store.updateResumeSignature(
+      await f.store.readThread(f.project.id, accepted.id),
+      f.project.path,
+    ),
+  );
+  await until(() => stopped);
+  expect(f.service.activeRunCount).toBe(0);
+});
+
+test("concurrent backend restart requests share a failed preparation and never acknowledge shutdown", async () => {
+  const f = await fixture();
+  const clientId = randomUUID();
+  const token = await f.sessions.issue(clientId);
+  let stopped = false;
+  const gate = Promise.withResolvers<() => void>();
+  const preparing = spyOn(f.service, "prepareUpdate").mockImplementation(() => gate.promise);
+  const updates = f.service.harnessUpdates;
+  const state = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(updates), "state")!;
+  let reads = 0;
+  Object.defineProperty(updates, "state", {
+    configurable: true,
+    get() {
+      reads++;
+      return state.get!.call(updates);
+    },
+  });
+  const host = createRemoteHost({
+    service: f.service,
+    sessions: f.sessions,
+    receipts: new RequestReceipts(join(f.root, "parallel-restart")),
+    identity: { hostId: randomUUID(), instanceId: randomUUID(), buildId: "fixture" },
+    shutdown: () => {
+      stopped = true;
+    },
+  });
+  const port = await host.listen();
+  cleanups.push(() => host.close());
+  const request = () =>
+    fetch(`http://127.0.0.1:${port}/maintenance/restart`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId },
+    });
+  const first = request();
+  const second = request();
+  try {
+    await until(() => reads >= 2);
+    expect(preparing).toHaveBeenCalledTimes(1);
+    gate.reject(new Error("Flush failed"));
+    expect((await Promise.all([first, second])).map((response) => response.status)).toEqual([
+      503, 503,
+    ]);
+    expect(stopped).toBe(false);
+  } finally {
+    gate.resolve(() => {});
+    preparing.mockRestore();
+    Reflect.deleteProperty(updates, "state");
+  }
 });
 
 test("a shared versioned backend rejects old-client restarts and accepts only a newer idle update", async () => {

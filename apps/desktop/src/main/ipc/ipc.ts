@@ -158,18 +158,25 @@ export function registerCommunityIPC(rendererURL: string) {
 }
 
 /** Renderer callers supply only an allowlisted harness ID, never a command/path/version. */
-export function registerHarnessUpdateIPC(updates: HarnessUpdates, rendererURL: string) {
+export function registerHarnessUpdateIPC(
+  updates: Pick<HarnessUpdates, "state" | "subscribe"> & {
+    install(
+      id: import("../../shared/contracts/harness-updates").UpdatableHarnessId,
+    ): void | Promise<void>;
+  },
+  rendererURL: string,
+) {
   ipcMain.handle("tidy:harness-updates", (event, ...args: unknown[]) => {
     if (!trustedRequest(event, rendererURL) || args.length)
       throw new Error("Untrusted desktop request.");
     return updates.state;
   });
-  ipcMain.handle("tidy:install-harness-update", (event, ...args: unknown[]) => {
+  ipcMain.handle("tidy:install-harness-update", async (event, ...args: unknown[]) => {
     if (!trustedRequest(event, rendererURL) || args.length !== 1)
       throw new Error("Untrusted desktop request.");
     const id = updatableHarnessIdSchema.safeParse(args[0]);
     if (!id.success) throw new Error("Invalid harness update request.");
-    updates.install(id.data);
+    await updates.install(id.data);
   });
   return updates.subscribe((state) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -535,6 +542,7 @@ export function registerWorkspaceIPC(
     });
   });
   const platform = {
+    harnessMaintenance: true,
     async chooseProject(event: IpcMainInvokeEvent) {
       const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
         title: "Open project",

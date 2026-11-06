@@ -74,11 +74,11 @@ try {
             "X-Tidy-Build": buildId,
             "X-Tidy-Source-Timestamp": String(sourceTimestamp),
           },
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(90_000),
           redirect: "error",
         });
         if (response.ok) {
-          for (let attempt = 0; attempt < 100; attempt++) {
+          for (let attempt = 0; attempt < 600; attempt++) {
             await delay(100);
             try {
               process.kill(previous.pid, 0);
@@ -244,6 +244,14 @@ try {
         sourceTimestamp,
       });
     process.stderr.write(JSON.stringify({ event: "host.ready", port, hostId }) + "\n");
+    void service.resumeUpdatedThreads().catch((error: unknown) => {
+      process.stderr.write(
+        JSON.stringify({
+          event: "host.recovery-pending",
+          message: error instanceof Error ? error.message : "Thread recovery is pending.",
+        }) + "\n",
+      );
+    });
   } else if (command === "revoke") {
     await sessions.revoke(z.string().uuid().parse(process.argv[3]));
   } else if (command === "version") {

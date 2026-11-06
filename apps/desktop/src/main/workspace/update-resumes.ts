@@ -1,4 +1,7 @@
 import { join } from "node:path";
+import { lstat, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { skillIdSchema } from "../../shared/contracts/skills";
 import { readLocalFile } from "../platform/local-files";
@@ -8,35 +11,95 @@ const entrySchema = z.object({
   projectId: z.uuid(),
   threadId: z.uuid(),
   signature: z.string().regex(/^[a-f0-9]{64}$/),
+  previousSignature: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   automaticQueue: z.boolean(),
+  reason: z.enum(["update", "restart", "provider"]).optional(),
+  attempt: z.number().int().nonnegative().optional(),
+  unknownAttempts: z.number().int().nonnegative().optional(),
+  retryAt: z.string().datetime().optional(),
+  background: z.boolean().optional(),
   submission: z
     .object({
-      state: z.enum(["not-submitted", "unknown", "rejected"]),
+      state: z.enum(["not-submitted", "unknown", "rejected", "accepted"]),
       messageId: z.uuid(),
       skillId: skillIdSchema.optional(),
     })
     .optional(),
 });
 export type UpdateResume = z.infer<typeof entrySchema>;
+const journalSchema = z
+  .array(entrySchema)
+  .max(1000)
+  .refine(
+    (entries) => new Set(entries.map((entry) => entry.threadId)).size === entries.length,
+    "Recovery entries must have unique thread IDs.",
+  );
+const MAX_JOURNAL_BYTES = 1024 * 1024;
 
-/** Only a planned update writes this private journal. Portable thread JSON cannot request execution. */
+/** Native execution writes this private journal. Portable thread JSON cannot request execution. */
 export class UpdateResumes {
   private changes: Promise<unknown> = Promise.resolve();
   private path: string;
+  private generations = new Map<string, number>();
+  private writeFailed = false;
+  private cached?: { version: string; entries: ReadonlyMap<string, UpdateResume> };
+  private written?: string;
   constructor(directory: string) {
     this.path = join(directory, "update-resumes.json");
   }
 
-  private async read() {
+  private async version() {
     try {
-      return z
-        .array(entrySchema)
-        .max(1000)
-        .parse(JSON.parse((await readLocalFile(this.path, 1024 * 1024)).toString("utf8")));
+      const info = await lstat(this.path, { bigint: true });
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new Error("Recovery intent must be a regular private file.");
+      return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}:${info.mode}:${info.nlink}`;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
       throw error;
     }
+  }
+
+  /** Reuse validated entries only while the private file's identity and timestamps match. */
+  private async read(): Promise<ReadonlyMap<string, UpdateResume>> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const version = await this.version();
+      if (this.cached?.version === version) return this.cached.entries;
+      this.cached = undefined;
+      const encoded =
+        version === "missing"
+          ? "[]"
+          : (await readLocalFile(this.path, MAX_JOURNAL_BYTES)).toString("utf8");
+      // Matching JSON text already passed native validation before the durable write.
+      const entries =
+        this.written === encoded
+          ? (JSON.parse(encoded) as UpdateResume[])
+          : journalSchema.parse(JSON.parse(encoded));
+      if (version !== (await this.version())) continue;
+      const indexed = new Map(entries.map((entry) => [entry.threadId, entry]));
+      this.cached = { version, entries: indexed };
+      this.written = undefined;
+      return indexed;
+    }
+    throw new Error("Recovery intent changed while it was being read. Retry shortly.");
+  }
+
+  /** Reuse native validation only after reading back exactly the JSON that was written. */
+  private async write(entries: ReadonlyMap<string, UpdateResume>) {
+    if (entries.size > 1000) throw new Error("Recovery intent reached its entry limit.");
+    const values = [...entries.values()];
+    const encoded = JSON.stringify(values);
+    if (Buffer.byteLength(encoded) > MAX_JOURNAL_BYTES)
+      throw new Error("Recovery intent reached its size limit.");
+    this.cached = undefined;
+    this.written = undefined;
+    this.writeFailed = true;
+    await writePrivateJSON(this.path, values, { durable: true });
+    this.written = encoded;
+    this.writeFailed = false;
   }
 
   private change<T>(operation: () => Promise<T>) {
@@ -47,62 +110,105 @@ export class UpdateResumes {
 
   async list() {
     await this.changes;
-    return this.read();
+    return structuredClone([...(await this.read()).values()]);
   }
 
-  stage(entries: UpdateResume[]) {
+  async get(projectId: string, threadId: string) {
+    await this.changes;
+    const entry = (await this.read()).get(threadId);
+    return entry?.projectId === projectId ? structuredClone(entry) : undefined;
+  }
+
+  /** Capture before asynchronous writes so Stop can fence every older checkpoint. */
+  generation(threadId: string) {
+    const generation = this.generations.get(threadId) ?? 0;
+    this.generations.set(threadId, generation);
+    return generation;
+  }
+
+  markUpdate() {
     return this.change(async () => {
-      const previous = await this.read();
-      const ids = new Set(entries.map((entry) => entry.threadId));
-      const value = z
-        .array(entrySchema)
-        .max(1000)
-        .parse([...previous.filter((entry) => !ids.has(entry.threadId)), ...entries]);
-      await writePrivateJSON(this.path, value, { durable: true });
+      const entries = await this.read();
+      if (!this.writeFailed && [...entries.values()].every((entry) => entry.reason === "update"))
+        return;
+      await this.write(
+        new Map([...entries].map(([id, entry]) => [id, { ...entry, reason: "update" }])),
+      );
     });
   }
 
-  /** Consume durably before launching: an uncertain restart must never submit the same work twice. */
+  async stage(entries: UpdateResume[]) {
+    const incoming = journalSchema.parse(entries);
+    return this.change(async () => {
+      const previous = await this.read();
+      const value = new Map(previous);
+      for (const entry of incoming) value.set(entry.threadId, entry);
+      if (!this.writeFailed && isDeepStrictEqual(value, previous)) return;
+      await this.write(value);
+    });
+  }
+
+  /** Authorize both sides of the atomic thread rename if the process dies between writes. */
+  async checkpoint(entry: UpdateResume, generation = this.generation(entry.threadId)) {
+    entry = entrySchema.parse(entry);
+    return this.change(async () => {
+      if (generation !== this.generation(entry.threadId)) return;
+      const entries = await this.read().catch(async (error: unknown) => {
+        if (!(error instanceof SyntaxError || error instanceof z.ZodError)) throw error;
+        // Retain corrupt bytes for diagnosis; only the current native snapshot can rebuild intent.
+        await rename(this.path, `${this.path}.corrupt-${randomUUID()}`);
+        return new Map<string, UpdateResume>();
+      });
+      const previous = entries.get(entry.threadId);
+      // The captured entry and the previous stored signature have already been validated.
+      const next: UpdateResume = {
+        ...entry,
+        previousSignature: entry.previousSignature ?? previous?.signature,
+      };
+      if (generation !== this.generation(entry.threadId)) return;
+      if (!this.writeFailed && isDeepStrictEqual(previous, next)) return;
+      const value = new Map(entries);
+      value.set(entry.threadId, next);
+      await this.write(value);
+    });
+  }
+
+  /** Discard obsolete intent only while it still matches the inspected checkpoint. */
   take(entry: UpdateResume) {
     return this.change(async () => {
       const entries = await this.read();
-      if (
-        !entries.some(
-          (item) => item.threadId === entry.threadId && item.signature === entry.signature,
-        )
-      )
-        return false;
-      await writePrivateJSON(
-        this.path,
-        entries.filter((item) => item.threadId !== entry.threadId),
-        {
-          durable: true,
-        },
-      );
+      if (entries.get(entry.threadId)?.signature !== entry.signature) return false;
+      const value = new Map(entries);
+      value.delete(entry.threadId);
+      await this.write(value);
       return true;
     });
   }
 
   cancel(projectId: string, threadId: string) {
+    this.generations.set(threadId, this.generation(threadId) + 1);
     return this.change(async () => {
-      let entries: UpdateResume[];
+      let entries: ReadonlyMap<string, UpdateResume>;
       try {
         entries = await this.read();
       } catch {
         // Unreadable restart intent cannot be trusted or allowed to block an explicit Stop.
-        await writePrivateJSON(this.path, [], { durable: true });
+        await this.write(new Map());
         return;
       }
-      const remaining = entries.filter(
-        (entry) => entry.projectId !== projectId || entry.threadId !== threadId,
-      );
-      if (remaining.length !== entries.length)
-        await writePrivateJSON(this.path, remaining, { durable: true });
+      if (entries.get(threadId)?.projectId !== projectId) {
+        if (this.writeFailed) await this.write(entries);
+        return;
+      }
+      const remaining = new Map(entries);
+      remaining.delete(threadId);
+      await this.write(remaining);
     });
   }
 
   clear() {
+    for (const [id, generation] of this.generations) this.generations.set(id, generation + 1);
     // Replace rather than parse: malformed recovery data must not prevent ordinary shutdown.
-    return this.change(() => writePrivateJSON(this.path, [], { durable: true }));
+    return this.change(() => this.write(new Map()));
   }
 }

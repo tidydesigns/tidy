@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile, readdir, readlink } from "node:fs/promises";
+import { readFile, readdir, readlink, stat as fileStat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { ThreadPort } from "../../shared/contracts/thread-ports";
 
@@ -300,4 +300,92 @@ export function scanOwnedProcesses(owners: ReadonlySet<string>): Promise<OwnedPr
   if (process.platform === "linux") return linuxProcesses(owners);
   if (process.platform === "darwin") return macProcesses(owners);
   throw new Error("Local process inspection is not supported on this computer.");
+}
+
+/** Include untagged descendants so recovery cannot mistake a filtered ownership scan for absence. */
+export async function scanProcessDescendants(roots: readonly OwnedProcess[]) {
+  type Identity = Omit<OwnedProcess, "owner">;
+  let processes: Identity[];
+  if (process.platform === "linux") {
+    const entries = await readdir("/proc");
+    const result = await batches(
+      entries.filter((entry) => /^\d+$/.test(entry)),
+      async (entry) => {
+        try {
+          const stat = await readFile(`/proc/${entry}/stat`, "utf8");
+          if (stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ")) return null;
+          return parseLinuxProcess(Number(entry), stat);
+        } catch (error) {
+          if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? ""))
+            return null;
+          if (["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+            const owner = await fileStat(`/proc/${entry}`).catch((cause: NodeJS.ErrnoException) => {
+              if (cause.code === "ENOENT" || cause.code === "ESRCH") return null;
+              throw cause;
+            });
+            if (!owner || owner.uid !== process.getuid?.()) return null;
+          }
+          throw new Error("Could not inspect the previous agent's descendants.");
+        }
+      },
+    );
+    processes = result.filter((entry) => entry !== null);
+  } else if (process.platform === "darwin") {
+    const table = await ps(["-axo", "pid=,ppid=,lstart=,stat=,comm="]);
+    processes = table
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        const match = /^\s*(\d+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(\S+)\s+(.+)$/.exec(
+          line,
+        );
+        if (!match) throw new Error("Could not inspect the previous agent's descendants.");
+        if (match[4].startsWith("Z")) return [];
+        return [
+          {
+            pid: Number(match[1]),
+            parentPid: Number(match[2]),
+            identity: `${match[1]}:${match[3]}`,
+            name: match[5].slice(0, 120),
+          },
+        ];
+      });
+  } else {
+    throw new Error("Agent retirement is not supported on this computer.");
+  }
+  const identities = new Map(processes.map((entry) => [entry.pid, entry.identity]));
+  const ids = new Set(
+    roots.filter((root) => identities.get(root.pid) === root.identity).map((root) => root.pid),
+  );
+  const rootIds = new Set(ids);
+  for (let round = 0; round < 64; round++) {
+    const previous = ids.size;
+    for (const entry of processes) if (ids.has(entry.parentPid)) ids.add(entry.pid);
+    if (ids.size === previous)
+      return processes.filter((entry) => ids.has(entry.pid) && !rootIds.has(entry.pid));
+  }
+  throw new Error("Could not bound the previous agent's process tree.");
+}
+
+/** A reparented child still occupies its original group even after its agent root exits. */
+export async function scanProcessGroups(
+  groups: ReadonlySet<number>,
+): Promise<Array<{ pid: number; groupId: number; identity: string }>> {
+  if (!groups.size) return [];
+  const table = await ps(["-axo", "pid=,pgid="]);
+  const pids = table
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+      if (!match) throw new Error("Could not inspect the previous agent's process groups.");
+      return groups.has(Number(match[2]))
+        ? [{ pid: Number(match[1]), groupId: Number(match[2]) }]
+        : [];
+    });
+  const entries = await batches(pids, async (entry) => {
+    const identity = await inspectProcessIdentity(entry.pid);
+    return identity ? { ...entry, identity } : null;
+  });
+  return entries.filter((entry) => entry !== null);
 }

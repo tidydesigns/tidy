@@ -114,9 +114,9 @@ opens an SSH local forward, verifies the backend instance, authenticates with th
 and exchanges a short-lived, single-use ticket for its WebSocket connection.
 
 Automatic recovery preserves compatible running builds. Choose **Update backend** in Settings
-to stage, verify and activate a newer source build. Active runs, browser tabs, terminals and
-in-flight requests prevent an update; Settings reports the refusal and that the previous backend
-is still in use. If installation or startup fails, Tidy attempts to reconnect to the verified
+to stage, verify and activate a newer source build. Agent runs and accepted requests are
+paused and checkpointed before a managed backend update. Open device previews, terminals or
+an active CLI installation can still defer maintenance; Settings reports the reason. If installation or startup fails, Tidy attempts to reconnect to the verified
 existing backend and shows the upgrade error. A successful upgrade reports that the backend is
 up to date. Choose **Update backend** again to retry a failed or deferred upgrade. Authentication,
 identity, protocol and cancellation failures do not trigger fallback. Externally managed
@@ -190,12 +190,13 @@ This is not an atomic transaction between workspace files and command receipts. 
 Pending receipts remain available to identify interrupted operations. Expired results are
 reported as unconfirmed; the client never resends those mutations automatically.
 
-Active jobs do not survive backend or machine restarts. A small process
-supervisor terminates an agent's process group when its controlling backend dies. Commands
-that deliberately create their own sessions can escape that process group. Recovery marks
-unfinished threads/tools interrupted, clears stale approvals and advances thread revisions.
-Continuing after a backend restart requires a new message; no approvals or prompts are
-replayed automatically. A machine
+Native processes do not survive backend or machine restarts. A small process supervisor
+terminates an agent's process group when its controlling backend dies. Private checkpoints
+preserve unfinished conversation and queue intent before inference, and recovery continues
+those turns automatically. Task grants are revalidated before delegated workers resume.
+Live approvals are cleared and must be requested again. Portable thread JSON cannot authorize
+recovery. Before replacing an orphan agent, recovery verifies private ownership and process
+birth identities; ambiguous actors block continuation with a visible error. A machine
 must remain awake and online. Recovery requires working SSH access; it cannot restore a
 powered-off machine, a failed SSH service or an unreachable network. Mobile/browser clients and Windows clients
 are outside this implementation. Remote macOS installation is implemented but still requires
@@ -219,10 +220,10 @@ to the server. Cloud workspace opening, cloud file mutations and sync are unavai
 while attached to an independently managed local backend. Those operations fail before
 accessing a second workspace store. Account and library metadata remain available. To use
 cloud workspaces, let background agents finish, stop that local backend and reopen Tidy
-so the desktop owns its workspace service. Agent and desktop update installation is also
-blocked for a desktop started in attached mode: that process cannot reserve maintenance
-against the authoritative backend. Version discovery still runs. These restrictions remain
-until restart, even if reconnection later creates a desktop-owned backend.
+so the desktop owns its workspace service. An attached desktop can update independently
+while its backend continues working. CLI updates are coordinated by the authoritative backend
+through authenticated, allowlisted operations. Older backends still receive local version
+notices with package-manager guidance until they support backend-owned CLI maintenance.
 
 Desktop IPC and remote workspace requests share a shutdown fence. Once closing begins,
 new workspace requests are rejected. Accepted requests finish before the final service flush
@@ -301,7 +302,7 @@ existing SSH forward; development-server ports need no additional forwarding.
 Credentials stay in Electron main, and pages run in sandboxed Chrome outside the
 Tidy renderer. Hosts advertise `browser-v2` and `browser-draft-discard`; older backends
 show an update message.
-Finish active runs and close browser tabs before restarting a backend to update it.
+Managed updates checkpoint active threads before restarting. Close device previews and terminals when Settings reports those maintenance blockers.
 
 Disconnecting or switching machines leaves host tabs open. Reconnection restores a
 fresh frame and requires taking control again. Old input is never replayed, and input

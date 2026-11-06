@@ -229,11 +229,12 @@ test("Stop holds the queue until a message is explicitly sent", async () => {
   expect(runs[2].input.prompt).toEndWith("Later");
 });
 
-test("failed turns preserve the queue for retry", async () => {
-  const { enqueue, runs, read, action, waitForStatus } = await fixture();
+test("provider retry waits preserve the queue and allow an explicit redirect", async () => {
+  const { enqueue, runs, read, action } = await fixture();
   await enqueue("Later");
   runs[0].fail(new Error("Provider unavailable"));
-  await waitForStatus("failed");
+  for (let attempt = 0; attempt < 100 && !(await read()).recovery; attempt++) await Bun.sleep(5);
+  expect((await read()).recovery?.reason).toBe("provider");
   expect(runs).toHaveLength(1);
   expect((await read()).queuedMessages).toHaveLength(1);
   await action({ kind: "steer", messageId: (await read()).queuedMessages![0].id });
@@ -492,7 +493,7 @@ test.each(["not-submitted", "rejected", "accepted", "unknown"] as const)(
     runs[0].finish();
     await waitForRun(2);
     runs[1].deliveryState = state;
-    runs[1].fail(new Error("Startup failed"));
+    runs[1].fail(new Error("Invalid request"));
     await waitForStatus("failed");
     const restored = state === "not-submitted" || state === "rejected";
     const result = await read();

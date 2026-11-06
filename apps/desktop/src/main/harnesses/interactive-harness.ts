@@ -243,8 +243,8 @@ export class HarnessSession {
       this.finish(error);
       this.state = { kind: "closed" };
     };
-    this.ready = this.adapter
-      .initialize()
+    this.ready = this.transport.ready
+      .then(() => this.adapter.initialize())
       .then(() => {
         if (harness !== "codex") {
           scope = usageScope(harness, cwd);

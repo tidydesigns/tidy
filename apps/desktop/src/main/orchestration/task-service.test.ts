@@ -7,6 +7,7 @@ import type { Thread } from "../../shared/contracts/desktop";
 import type { AgentScope } from "./contracts";
 import { TaskStore } from "./task-store";
 import { TaskService, inheritedPermissionMode, type TaskHost } from "./task-service";
+import { ThreadAuthorityError } from "../workspace/thread-authority";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -55,7 +56,8 @@ async function fixture() {
     },
     async readThread(projectId, id) {
       const thread = threads.get(id);
-      if (!thread || thread.projectId !== projectId) throw new Error("Thread missing.");
+      if (!thread || thread.projectId !== projectId)
+        throw Object.assign(new Error("Thread missing."), { code: "ENOENT" });
       return thread;
     },
     async listThreads() {
@@ -100,8 +102,69 @@ async function fixture() {
   };
   const service = new TaskService(store, host);
   cleanups.push(() => service.close());
-  return { store, service, scope, parent, host, threads, controller, launches: () => launches };
+  return {
+    directory,
+    store,
+    service,
+    scope,
+    parent,
+    host,
+    threads,
+    controller,
+    launches: () => launches,
+  };
 }
+
+test("a durable continuation on a host without resume support settles once", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  childFor(f, task);
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => (await store.get(task.id))?.state === "failed");
+  expect((await store.get(task.id))?.error).toContain("cannot resume");
+  expect(f.launches()).toBe(0);
+});
+
+test("private authority mismatches settle without provider retries", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  childFor(f, task);
+  f.host.resumeThread = async () => f.parent;
+  const read = f.host.readThread.bind(f.host);
+  f.host.readThread = async (project, id) => {
+    if (id === task.childThreadId) throw new ThreadAuthorityError("The harness changed on disk.");
+    return read(project, id);
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => (await store.get(task.id))?.state === "failed");
+  expect((await store.get(task.id))?.error).toContain("harness changed");
+  expect(f.launches()).toBe(0);
+});
+
+test("unclassified continuation failures eventually deliver a terminal task result", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  childFor(f, task);
+  let calls = 0;
+  f.host.resumeThread = async () => {
+    calls++;
+    throw new Error("Unclassified failure");
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  const deadline = Date.now() + 12_000;
+  while ((await store.get(task.id))?.state !== "failed") {
+    if (Date.now() > deadline) throw new Error("Unknown failures did not settle.");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(calls).toBe(4);
+  expect((await store.get(task.id))?.error).toContain("Unclassified failure");
+}, 15_000);
 
 test("fast async completion during submission releases execution slots and delivers each result once", async () => {
   const f = await fixture();
@@ -909,4 +972,829 @@ test("failed notifications preserve partial work and bound long error details to
   expect(message.text).toContain("Error: Worker file access failed");
   expect(message.text).toContain("Error truncated");
   expect(message.text).toContain("x".repeat(100));
+});
+
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+async function durableTask(f: Fixture, input: Partial<Parameters<TaskStore["create"]>[0]> = {}) {
+  return f.store.create({
+    projectId: f.parent.projectId,
+    parentThreadId: f.parent.id,
+    childThreadId: randomUUID(),
+    requestId: randomUUID(),
+    prompt: "Continue the assignment",
+    harness: "codex",
+    settings: { permissionMode: "default" },
+    parentGrant: { harness: "codex", permissionMode: "default" },
+    designIds: [],
+    depth: 1,
+    ...input,
+  });
+}
+async function reopenTasks(f: Fixture) {
+  await f.service.pauseForRestart();
+  await f.store.close();
+  const store = new TaskStore(f.directory);
+  await store.initialize();
+  const service = new TaskService(store, f.host);
+  cleanups.push(() => service.close());
+  return { store, service };
+}
+function childFor(
+  f: Fixture,
+  task: Awaited<ReturnType<typeof durableTask>>,
+  status: Thread["status"] = "interrupted",
+) {
+  const child: Thread = {
+    ...f.parent,
+    id: task.childThreadId,
+    status,
+    messages: [{ id: task.id, role: "user", text: task.prompt }],
+    designIds: task.designIds,
+    settings: task.settings,
+  };
+  f.threads.set(child.id, child);
+  return child;
+}
+
+test("restart re-admits queued tasks within scheduler limits and repeated recovery launches once", async () => {
+  const f = await fixture();
+  const tasks = [];
+  for (let index = 0; index < 5; index++) tasks.push(await durableTask(f));
+  const { service, store } = await reopenTasks(f);
+  await Promise.all([service.recover(), service.recover()]);
+  await until(async () => f.launches() === 2);
+  await service.recover();
+  expect(f.launches()).toBe(2);
+  const states = await Promise.all(tasks.map((task) => store.get(task.id)));
+  expect(states.filter((task) => task?.state === "running")).toHaveLength(2);
+  expect(states.filter((task) => task?.state === "queued")).toHaveLength(3);
+  await service.cancel(f.scope, { task_id: tasks[4].id });
+  const first = f.threads.get(tasks[0].childThreadId)!;
+  first.status = "completed";
+  await service.finished(first);
+  await until(async () => f.launches() === 3);
+  expect((await store.get(tasks[4].id))?.state).toBe("cancelled");
+});
+
+test("restart continues an existing child once without creating a child or another user bubble", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task);
+  let resumes = 0;
+  f.host.resumeThread = async (_projectId, id, authorize) => {
+    await authorize?.();
+    expect(id).toBe(child.id);
+    resumes++;
+    child.status = "running";
+    return child;
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => resumes === 1);
+  await service.recover();
+  expect(resumes).toBe(1);
+  expect(f.launches()).toBe(0);
+  expect(child.messages.filter((message) => message.role === "user")).toHaveLength(1);
+  child.messages.push({ id: randomUUID(), role: "assistant", text: "Recovered result" });
+  child.status = "completed";
+  await service.finished(child);
+  await service.reconcile();
+  await service.recover();
+  expect((await store.get(task.id))?.summary).toBe("Recovered result");
+  expect(f.parent.queuedMessages).toHaveLength(1);
+});
+
+test("restart reconciles already completed children without resuming inference", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "completed");
+  child.messages.push({ id: randomUUID(), role: "assistant", text: "Finished before the crash" });
+  const resume = spyOn(f.host, "startThread");
+  cleanups.push(async () => resume.mockRestore());
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => (await store.get(task.id))?.state === "completed");
+  expect(resume).not.toHaveBeenCalled();
+  expect((await store.get(task.id))?.summary).toBe("Finished before the crash");
+});
+
+test("recovered follow-ups continue their existing task message and scope result summaries", async () => {
+  const f = await fixture();
+  const initial = await durableTask(f);
+  await f.store.transition({ id: initial.id, state: "running" });
+  await f.store.transition({ id: initial.id, state: "completed" });
+  await f.store.delivered(initial.id);
+  const followup = await durableTask(f, { kind: "followup", childThreadId: initial.childThreadId });
+  await f.store.transition({ id: followup.id, state: "running" });
+  const child = childFor(f, followup);
+  child.messages.unshift({
+    id: randomUUID(),
+    role: "assistant",
+    text: "Previous unrelated answer",
+  });
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    child.status = "running";
+    return child;
+  };
+  const send = spyOn(f.host, "sendMessage");
+  cleanups.push(async () => send.mockRestore());
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => resumes === 1);
+  expect(send).not.toHaveBeenCalled();
+  child.messages.push({ id: randomUUID(), role: "assistant", text: "Follow-up result" });
+  child.status = "completed";
+  await service.finished(child);
+  expect((await store.get(followup.id))?.summary).toBe("Follow-up result");
+  expect(child.messages.filter((message) => message.id === followup.id)).toHaveLength(1);
+});
+
+test("recovery rechecks parent, child, design, and incoming receiver grants before resuming", async () => {
+  for (const changed of ["parent", "child", "design", "receiver", "legacy"] as const) {
+    const f = await fixture();
+    const recipient = randomUUID();
+    if (changed === "receiver") await f.store.setReceiver(f.parent.projectId, recipient, true);
+    const task = await durableTask(f, {
+      ...(changed === "receiver"
+        ? {
+            kind: "message" as const,
+            childThreadId: recipient,
+            recipientGrant: f.store.receiverGrant(f.parent.projectId, recipient),
+          }
+        : {}),
+      ...(changed === "legacy" ? { parentGrant: undefined } : {}),
+    });
+    await f.store.transition({ id: task.id, state: "running" });
+    const child = childFor(f, task);
+    let resumes = 0;
+    f.host.resumeThread = async () => {
+      resumes++;
+      return child;
+    };
+    const { service, store } = await reopenTasks(f);
+    if (changed === "parent") f.parent.settings = { permissionMode: "auto" };
+    if (changed === "child") child.settings = { permissionMode: "auto" };
+    if (changed === "design") child.designIds = [randomUUID()];
+    if (changed === "receiver") {
+      await store.setReceiver(f.parent.projectId, recipient, false);
+      await store.setReceiver(f.parent.projectId, recipient, true);
+    }
+    await service.recover();
+    await until(async () => (await store.get(task.id))?.state === "failed");
+    expect(resumes).toBe(0);
+    expect(f.launches()).toBe(0);
+  }
+});
+
+test("restart preserves cancellation and never resumes an incoming task or stops unrelated work", async () => {
+  const f = await fixture();
+  const recipient = randomUUID();
+  await f.store.setReceiver(f.parent.projectId, recipient, true);
+  const task = await durableTask(f, {
+    kind: "message",
+    childThreadId: recipient,
+    recipientGrant: f.store.receiverGrant(f.parent.projectId, recipient),
+  });
+  await f.store.transition({ id: task.id, state: "running" });
+  await f.store.transition({ id: task.id, state: "cancel_requested" });
+  const child = childFor(f, task, "running");
+  child.messages.push({ id: randomUUID(), role: "user", text: "Unrelated user request" });
+  let stopped = 0;
+  let resumed = 0;
+  let exactStops = 0;
+  f.host.stopThread = async () => {
+    stopped++;
+  };
+  f.host.stopTaskTurn = async (_project, _thread, taskId) => {
+    expect(taskId).toBe(task.id);
+    exactStops++;
+    return false;
+  };
+  f.host.resumeThread = async () => {
+    resumed++;
+    return child;
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => (await store.get(task.id))?.state === "cancelled");
+  expect(resumed).toBe(0);
+  expect(stopped).toBe(0);
+  expect(exactStops).toBe(1);
+  expect(child.status).toBe("running");
+});
+
+test("cancellation during resume preparation wins at the final authorization boundary", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let submissions = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    entered.resolve();
+    await release.promise;
+    await authorize?.();
+    submissions++;
+    return child;
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await entered.promise;
+  await service.cancel(f.scope, { task_id: task.id });
+  release.resolve();
+  await until(async () => (await store.get(task.id))?.state === "cancelled");
+  expect(submissions).toBe(0);
+});
+
+test("planned restart suppresses finish delivery and failed restart resumes stopped children", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    child.status = "running";
+    return child;
+  };
+  await f.service.pauseForRestart();
+  child.status = "stopped";
+  await f.service.cancelParent(f.parent.projectId, f.parent.id);
+  await f.service.finished(child);
+  await f.service.reconcile();
+  expect((await f.store.get(task.task_id))?.state).toBe("running");
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  expect(
+    await f.service
+      .delegate(f.scope, { request_id: randomUUID(), prompt: "Blocked" })
+      .catch((error: unknown) => error),
+  ).toMatchObject({ code: "UNAVAILABLE" });
+  expect(f.service.resumeAfterRestartFailure()).toBeUndefined();
+  expect(resumes).toBe(0);
+  await f.service.recover();
+  await until(async () => resumes === 1);
+  expect(f.launches()).toBe(1);
+  expect((await f.store.get(task.task_id))?.state).toBe("running");
+});
+
+test("pause waits for in-flight preparation and blocks its eventual provider submission", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let submissions = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    entered.resolve();
+    await release.promise;
+    await authorize?.();
+    submissions++;
+    return child;
+  };
+  await f.service.recover();
+  await entered.promise;
+  const paused = f.service.pauseForRestart();
+  release.resolve();
+  await paused;
+  expect(submissions).toBe(0);
+  expect((await f.store.get(task.id))?.state).toBe("running");
+});
+
+test("provider failures retry under scheduler ownership and never repost the initial prompt", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id)!;
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    child.status = "running";
+    return child;
+  };
+  child.status = "failed";
+  await f.service.finished(child);
+  await f.service.finished(child);
+  expect((await f.store.get(task.task_id))?.state).toBe("running");
+  expect(resumes).toBe(0);
+  await until(async () => resumes === 1);
+  expect(f.launches()).toBe(1);
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  child.status = "completed";
+  await f.service.finished(child);
+  expect((await f.store.get(task.task_id))?.state).toBe("completed");
+});
+
+test("host retry waits remain an active scheduler slot and cannot admit another child turn", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task);
+  let waiting = true;
+  f.host.isThreadRunning = (_project, id) => id === child.id && waiting;
+  let resumes = 0;
+  f.host.resumeThread = async () => {
+    resumes++;
+    return child;
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => Reflect.get(service, "byChild").has(child.id));
+  await service.finished(child);
+  await service.recover();
+  expect(resumes).toBe(0);
+  expect((await store.get(task.id))?.state).toBe("running");
+  waiting = false;
+  child.status = "completed";
+  await service.finished(child);
+  expect((await store.get(task.id))?.state).toBe("completed");
+});
+
+test("permanent provider errors settle delegated tasks instead of scheduling endless retries", async () => {
+  const f = await fixture();
+  f.host.resumeThread = async () => {
+    throw new Error("A permanent provider error must not be retried.");
+  };
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => (await f.store.get(task.task_id))?.state === "running");
+  const record = (await f.store.get(task.task_id))!;
+  const child = f.threads.get(record.childThreadId)!;
+  child.status = "failed";
+  child.errorKind = "request";
+  child.error = "The provider rejected this request.";
+  await f.service.finished(child);
+  expect((await f.store.get(task.task_id))?.state).toBe("failed");
+  expect(Reflect.get(f.service, "retryAt").has(task.task_id)).toBe(false);
+  expect(f.launches()).toBe(1);
+});
+
+test("ordinary task ownership survives restart before scheduler recovery and throughout retry waits", async () => {
+  const f = await fixture();
+  const recipient = randomUUID();
+  await f.store.setReceiver(f.parent.projectId, recipient, true);
+  const task = await durableTask(f, {
+    kind: "message",
+    childThreadId: recipient,
+    recipientGrant: f.store.receiverGrant(f.parent.projectId, recipient),
+  });
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task);
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    child.status = "failed";
+    return child;
+  };
+  const { service, store } = await reopenTasks(f);
+  expect(service.isManagedExecution(f.parent.projectId, recipient)).toBe(true);
+  expect(service.isManagedExecution(randomUUID(), recipient)).toBe(false);
+  await service.recover();
+  await until(async () => Reflect.get(service, "retryAt").has(task.id));
+  expect(service.isManagedExecution(f.parent.projectId, recipient)).toBe(true);
+  await service.cancel(f.scope, { task_id: task.id });
+  expect((await store.get(task.id))?.state).toBe("cancelled");
+  await until(async () => !Reflect.get(service, "active").has(task.id));
+  expect(service.isManagedExecution(f.parent.projectId, recipient)).toBe(false);
+});
+
+test("stopping a parent before recover cancels durable queued and running tasks", async () => {
+  const f = await fixture();
+  const queued = await durableTask(f);
+  const running = await durableTask(f);
+  await f.store.transition({ id: running.id, state: "running" });
+  childFor(f, running);
+  let resumes = 0;
+  f.host.resumeThread = async () => {
+    resumes++;
+    return f.parent;
+  };
+  const { service, store } = await reopenTasks(f);
+  await service.cancelParent(f.parent.projectId, f.parent.id);
+  await service.recover();
+  expect((await store.get(queued.id))?.state).toBe("cancelled");
+  expect((await store.get(running.id))?.state).toBe("cancelled");
+  expect(resumes).toBe(0);
+  expect(f.launches()).toBe(0);
+});
+
+test("a task prompt already in the durable child queue is resumed without resending", async () => {
+  const f = await fixture();
+  const recipient = randomUUID();
+  await f.store.setReceiver(f.parent.projectId, recipient, true);
+  const task = await durableTask(f, {
+    kind: "message",
+    childThreadId: recipient,
+    recipientGrant: f.store.receiverGrant(f.parent.projectId, recipient),
+  });
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "completed");
+  child.messages = [{ id: randomUUID(), role: "user", text: "Earlier request" }];
+  child.queuedMessages = [{ id: task.id, text: task.prompt }];
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    child.queuedMessages = [];
+    child.messages.push({ id: task.id, role: "user", text: task.prompt });
+    child.status = "running";
+    return child;
+  };
+  const send = spyOn(f.host, "sendMessage");
+  cleanups.push(async () => send.mockRestore());
+  const { service } = await reopenTasks(f);
+  await service.recover();
+  await until(async () => resumes === 1);
+  expect(send).not.toHaveBeenCalled();
+  expect(child.messages.filter((message) => message.id === task.id)).toHaveLength(1);
+});
+
+test("recovery retries transient storage outages without another manual recovery call", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  const read = f.store.unfinished.bind(f.store);
+  let reads = 0;
+  const unavailable = spyOn(f.store, "unfinished").mockImplementation(async (...args) => {
+    if (++reads === 1) throw new Error("Worker temporarily unavailable.");
+    return read(...args);
+  });
+  cleanups.push(async () => unavailable.mockRestore());
+  expect(await f.service.recover().catch((error: unknown) => error)).toBeInstanceOf(Error);
+  await until(async () => f.launches() === 1);
+  expect((await f.store.get(task.id))?.state).toBe("running");
+});
+
+test("expired host retry waits are re-admitted by recover without losing scheduler ownership", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task);
+  let waiting = true;
+  let resumes = 0;
+  f.host.isThreadRunning = () => waiting;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    waiting = true;
+    child.status = "running";
+    return child;
+  };
+  await f.service.recover();
+  await until(async () => Reflect.get(f.service, "waiting").has(task.id));
+  await f.service.recover();
+  expect(resumes).toBe(0);
+  waiting = false;
+  await f.service.recover();
+  await until(async () => resumes === 1);
+  await f.service.recover();
+  expect(resumes).toBe(1);
+  expect((await f.store.get(task.id))?.state).toBe("running");
+});
+
+test("parent cancellation drains a recovered queue larger than storage admission without losing intent", async () => {
+  const f = await fixture();
+  const tasks = [];
+  for (let index = 0; index < 105; index++) tasks.push(await durableTask(f));
+  const unrelated = await durableTask(f, { parentThreadId: randomUUID() });
+  const { service, store } = await reopenTasks(f);
+  await service.cancelParent(f.parent.projectId, f.parent.id);
+  for (const task of tasks) expect((await store.get(task.id))?.state).toBe("cancelled");
+  expect((await store.get(unrelated.id))?.state).toBe("queued");
+  expect(f.launches()).toBe(0);
+});
+
+test("close preserves queued and running tasks for the next scheduler instead of cancelling them", async () => {
+  const f = await fixture();
+  const tasks = [];
+  for (let index = 0; index < 3; index++)
+    tasks.push(
+      await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: `Inspect ${index}` }),
+    );
+  await until(async () => f.launches() === 2);
+  await f.service.close();
+  const restored = new TaskStore(f.directory);
+  cleanups.push(() => restored.close());
+  await restored.initialize();
+  const states = await Promise.all(
+    tasks.map(async (task) => (await restored.get(task.task_id))?.state),
+  );
+  expect(states).toEqual(["running", "running", "queued"]);
+  expect(await restored.pendingDeliveries()).toEqual([]);
+});
+
+async function providerRetryWait() {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "running");
+  child.recovery = { reason: "provider", attempt: 2, retryAt: "2000-01-01T00:00:00.000Z" };
+  f.host.isThreadRunning = (_project, id) => id === child.id;
+  await f.service.recover();
+  await until(async () => Reflect.get(f.service, "waiting").has(task.id));
+  return { ...f, task, child };
+}
+
+test("retryThread bypasses a provider retry wait, coalesces calls, and retains the active scheduler slot", async () => {
+  const f = await providerRetryWait();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    entered.resolve();
+    await release.promise;
+    await authorize?.();
+    resumes++;
+    return f.child;
+  };
+  const send = spyOn(f.host, "sendMessage");
+  cleanups.push(async () => send.mockRestore());
+  const first = f.service.retryThread(f.parent.projectId, f.child.id);
+  const duplicate = f.service.retryThread(f.parent.projectId, f.child.id);
+  expect(first).toBe(duplicate);
+  await entered.promise;
+  // The retry timer has expired, but provider submission is still preparing.
+  f.host.isThreadRunning = () => false;
+  await f.service.recover();
+  expect(Reflect.get(f.service, "active").size).toBe(1);
+  release.resolve();
+  expect(await first).toBe(f.child);
+  expect(await duplicate).toBe(f.child);
+  expect(resumes).toBe(1);
+  expect(Reflect.get(f.service, "active").size).toBe(1);
+  expect(f.child.recovery?.attempt).toBe(2);
+  expect(f.child.messages.filter((message) => message.role === "user")).toHaveLength(1);
+  expect(send).not.toHaveBeenCalled();
+  expect(f.launches()).toBe(0);
+  f.child.status = "completed";
+  await f.service.finished(f.child);
+  expect((await f.store.get(f.task.id))?.state).toBe("completed");
+});
+
+test("retryThread re-admits a durable running recipient task without duplicating its prompt", async () => {
+  const f = await fixture();
+  const recipient = randomUUID();
+  await f.store.setReceiver(f.parent.projectId, recipient, true);
+  const task = await durableTask(f, {
+    kind: "message",
+    childThreadId: recipient,
+    recipientGrant: f.store.receiverGrant(f.parent.projectId, recipient),
+  });
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "running");
+  child.recovery = { reason: "provider", attempt: 3, retryAt: "2000-01-01T00:00:00.000Z" };
+  f.host.isThreadRunning = () => true;
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    return child;
+  };
+  const { service, store } = await reopenTasks(f);
+  expect(await service.retryThread(f.parent.projectId, child.id)).toBe(child);
+  expect(resumes).toBe(1);
+  expect(Reflect.get(service, "active").size).toBe(1);
+  child.messages.push({ id: randomUUID(), role: "assistant", text: "Recovered recipient result" });
+  child.status = "completed";
+  await service.finished(child);
+  expect((await store.get(task.id))?.summary).toBe("Recovered recipient result");
+  expect(child.messages.filter((message) => message.id === task.id)).toHaveLength(1);
+});
+
+test("retryThread queues durable retries behind scheduler limits and forces resume only on admission", async () => {
+  const f = await fixture();
+  for (let index = 0; index < 2; index++)
+    await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: `Hold slot ${index}` });
+  await until(async () => f.launches() === 2);
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "running");
+  f.host.isThreadRunning = () => true;
+  let resumes = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    await authorize?.();
+    resumes++;
+    return child;
+  };
+  expect(await f.service.retryThread(f.parent.projectId, child.id)).toBeUndefined();
+  expect(resumes).toBe(0);
+  expect(Reflect.get(f.service, "active").size).toBe(2);
+  const first = [...f.threads.values()].find(
+    (thread) => thread.id !== f.parent.id && thread.id !== child.id,
+  )!;
+  first.status = "completed";
+  await f.service.finished(first);
+  await until(async () => resumes === 1);
+  expect(Reflect.get(f.service, "active").size).toBe(2);
+});
+
+test("retryThread rejects revoked active grants and releases the original execution slot", async () => {
+  const f = await providerRetryWait();
+  let resumed = false;
+  f.host.resumeThread = async () => {
+    resumed = true;
+    return f.child;
+  };
+  f.parent.settings = { permissionMode: "auto" };
+  expect(
+    await f.service.retryThread(f.parent.projectId, f.child.id).catch((error: unknown) => error),
+  ).toMatchObject({ code: "FORBIDDEN" });
+  expect(resumed).toBe(false);
+  expect((await f.store.get(f.task.id))?.state).toBe("failed");
+  await until(async () => Reflect.get(f.service, "active").size === 0);
+});
+
+test("retryThread final authorization preserves cancellation during provider preparation", async () => {
+  const f = await providerRetryWait();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let submissions = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    entered.resolve();
+    await release.promise;
+    await authorize?.();
+    submissions++;
+    return f.child;
+  };
+  const retry = f.service
+    .retryThread(f.parent.projectId, f.child.id)
+    .catch((error: unknown) => error);
+  await entered.promise;
+  await f.service.cancel(f.scope, { task_id: f.task.id });
+  release.resolve();
+  expect(await retry).toMatchObject({ code: "FORBIDDEN" });
+  expect(submissions).toBe(0);
+  expect((await f.store.get(f.task.id))?.state).toBe("cancelled");
+});
+
+test("pauseForRestart waits for retryThread preparation and prevents its late submission", async () => {
+  const f = await providerRetryWait();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let submissions = 0;
+  f.host.resumeThread = async (_project, _thread, authorize) => {
+    entered.resolve();
+    await release.promise;
+    await authorize?.();
+    submissions++;
+    return f.child;
+  };
+  const retry = f.service
+    .retryThread(f.parent.projectId, f.child.id)
+    .catch((error: unknown) => error);
+  await entered.promise;
+  let paused = false;
+  const pausing = f.service.pauseForRestart().then(() => {
+    paused = true;
+  });
+  await Promise.resolve();
+  expect(paused).toBe(false);
+  release.resolve();
+  await pausing;
+  expect(await retry).toBeUndefined();
+  expect(submissions).toBe(0);
+  expect((await f.store.get(f.task.id))?.state).toBe("running");
+  expect(await f.service.retryThread(f.parent.projectId, f.child.id)).toBeUndefined();
+});
+
+test("retryThread does not resume queued, cancelled, unrelated, or closed tasks", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  const child = childFor(f, task, "running");
+  let resumes = 0;
+  f.host.resumeThread = async () => {
+    resumes++;
+    return child;
+  };
+  expect(await f.service.retryThread(f.parent.projectId, child.id)).toBeUndefined();
+  expect(await f.service.retryThread(randomUUID(), child.id)).toBeUndefined();
+  await f.store.transition({ id: task.id, state: "running" });
+  await f.store.transition({ id: task.id, state: "cancel_requested" });
+  expect(await f.service.retryThread(f.parent.projectId, child.id)).toBeUndefined();
+  await f.store.transition({ id: task.id, state: "cancelled" });
+  expect(await f.service.retryThread(f.parent.projectId, child.id)).toBeUndefined();
+  await f.service.close();
+  expect(await f.service.retryThread(f.parent.projectId, child.id)).toBeUndefined();
+  expect(resumes).toBe(0);
+});
+
+test("retryThread revalidates durable receiver grants before provider submission", async () => {
+  const f = await fixture();
+  const recipient = randomUUID();
+  await f.store.setReceiver(f.parent.projectId, recipient, true);
+  const task = await durableTask(f, {
+    kind: "message",
+    childThreadId: recipient,
+    recipientGrant: f.store.receiverGrant(f.parent.projectId, recipient),
+  });
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "running");
+  let submissions = 0;
+  let checkpointStops = 0;
+  f.host.stopTaskTurn = async (_project, _thread, id) => {
+    expect(id).toBe(task.id);
+    checkpointStops++;
+    return true;
+  };
+  f.host.resumeThread = async () => {
+    submissions++;
+    return child;
+  };
+  await f.store.setReceiver(f.parent.projectId, recipient, false);
+  await f.store.setReceiver(f.parent.projectId, recipient, true);
+  expect(
+    await f.service.retryThread(f.parent.projectId, recipient).catch((error: unknown) => error),
+  ).toMatchObject({ code: "FORBIDDEN" });
+  await until(async () => (await f.store.get(task.id))?.state === "failed");
+  await until(async () => checkpointStops === 1);
+  expect(submissions).toBe(0);
+});
+
+test("retryThread never creates an absent child or appends an unsubmitted task prompt", async () => {
+  const f = await fixture();
+  const missing = await durableTask(f);
+  await f.store.transition({ id: missing.id, state: "running" });
+  let resumes = 0;
+  f.host.resumeThread = async () => {
+    resumes++;
+    return f.parent;
+  };
+  expect(await f.service.retryThread(f.parent.projectId, missing.childThreadId)).toBeUndefined();
+  const initial = await durableTask(f);
+  await f.store.transition({ id: initial.id, state: "running" });
+  await f.store.transition({ id: initial.id, state: "completed" });
+  await f.store.delivered(initial.id);
+  const followup = await durableTask(f, { kind: "followup", childThreadId: initial.childThreadId });
+  await f.store.transition({ id: followup.id, state: "running" });
+  childFor(f, initial, "completed");
+  const send = spyOn(f.host, "sendMessage");
+  cleanups.push(async () => send.mockRestore());
+  expect(await f.service.retryThread(f.parent.projectId, followup.childThreadId)).toBeUndefined();
+  expect(resumes).toBe(0);
+  expect(f.launches()).toBe(0);
+  expect(send).not.toHaveBeenCalled();
+});
+
+test("restart pause during result preparation retains delivery until the parent is restored", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  await f.store.transition({ id: task.id, state: "completed", summary: "Durable result" });
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const read = f.host.readThread.bind(f.host);
+  f.host.readThread = async (projectId, threadId) => {
+    if (threadId === f.parent.id) {
+      entered.resolve();
+      await release.promise;
+    }
+    return read(projectId, threadId);
+  };
+  const reconciling = f.service.reconcile();
+  await entered.promise;
+  const pausing = f.service.pauseForRestart();
+  f.parent.status = "stopped";
+  release.resolve();
+  await Promise.all([reconciling, pausing]);
+  expect((await f.store.get(task.id))?.delivered).toBe(false);
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  f.parent.status = "running";
+  f.service.resumeAfterRestartFailure();
+  await f.service.recover();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect(f.parent.queuedMessages![0].text).toContain("Durable result");
+});
+
+test("a bounded wait collects a recovered completion and acknowledges only after response delivery", async () => {
+  const f = await fixture();
+  const task = await durableTask(f);
+  await f.store.transition({ id: task.id, state: "running" });
+  const child = childFor(f, task, "completed");
+  child.messages.push({ id: randomUUID(), role: "assistant", text: "Recovered findings" });
+  const { service, store } = await reopenTasks(f);
+  const subscribed = spyOn(store, "subscribe");
+  const sends = spyOn(f.host, "sendMessage");
+  cleanups.push(async () => {
+    subscribed.mockRestore();
+    sends.mockRestore();
+  });
+  const delivery = service.resultDelivery(f.scope);
+  const waiting = service.read(f.scope, { task_ids: [task.id], wait_ms: 2000 }, delivery);
+  await until(async () => subscribed.mock.calls.length === 1);
+  await service.recover();
+  const result = await waiting;
+  expect(result.tasks[0]).toMatchObject({ state: "completed", summary: "Recovered findings" });
+  expect((await store.get(task.id))?.delivered).toBe(false);
+  await service.reconcile();
+  expect(sends).not.toHaveBeenCalled();
+  await delivery.settle(true);
+  await service.recover();
+  expect((await store.get(task.id))?.delivered).toBe(true);
+  expect(sends).not.toHaveBeenCalled();
+  expect(f.launches()).toBe(0);
 });

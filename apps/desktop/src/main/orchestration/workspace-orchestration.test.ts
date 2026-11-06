@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { DesignAgentAction } from "../../shared/contracts/design-agent";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
+import { TaskStore } from "./task-store";
 import type { startHarness } from "../harnesses/harnesses";
 import type { AgentMcpConnection } from "../harnesses/session-types";
 
@@ -415,12 +416,14 @@ test("renderer task views include queued assignments, durable turn links and pri
       .readThreadTasks({ projectId: randomUUID(), threadId: parent.id })
       .catch((error) => error),
   ).toBeInstanceOf(Error);
-  f.runs[1].input.onUpdate({
+  const firstRun = f.runs.find((run) => run.input.prompt.includes("Inspect design"));
+  if (!firstRun) throw new Error("Missing design inspection run.");
+  firstRun.input.onUpdate({
     type: "message",
     id: "review-result",
     text: "Design review complete",
   });
-  f.runs[1].complete();
+  firstRun.complete();
   await until(async () =>
     (await f.service.readThreadTasks({ projectId: f.project.id, threadId: parent.id })).tasks.some(
       (task) => task.id === first.task_id && task.state === "completed",
@@ -1196,9 +1199,12 @@ test("follow-ups respect both global and project concurrency across live workspa
     async () => (await f.service.tasks.store.get(String(initial.task_id)))?.state === "completed",
   );
   const held: Record<string, unknown>[] = [];
-  for (const connection of [tools, tools, otherTools, otherTools])
+  for (const [index, connection] of [tools, tools, otherTools, otherTools].entries())
     held.push(
-      await call(connection, "task_delegate", { request_id: randomUUID(), prompt: "Hold a slot" }),
+      await call(connection, "task_delegate", {
+        request_id: randomUUID(),
+        prompt: `Hold slot ${index}`,
+      }),
     );
   await until(async () => f.runs.length === 7);
   const next = await call(tools, "thread_send", {
@@ -1208,12 +1214,12 @@ test("follow-ups respect both global and project concurrency across live workspa
   });
   expect(next.state).toBe("queued");
   expect(f.runs).toHaveLength(7);
-  f.runs[5].complete();
+  f.runs.find((run) => run.input.prompt.includes("Hold slot 2"))!.complete();
   await until(
     async () => (await f.service.tasks.store.get(String(held[2].task_id)))?.state === "completed",
   );
   expect(f.runs).toHaveLength(7);
-  f.runs[3].complete();
+  f.runs.find((run) => run.input.prompt.includes("Hold slot 0"))!.complete();
   await until(async () => f.runs.length === 8);
   expect(f.runs[7].input.prompt).toContain("Continue in the same child");
 });
@@ -1730,7 +1736,7 @@ test("owned follow-ups wait for a manually resumed child before launching", asyn
 });
 
 for (const kind of ["child", "ordinary"] as const) {
-  test(`updates do not resume ${kind} task execution outside its scheduler`, async () => {
+  test(`updates retain ${kind} task checkpoints and durable scheduler ownership`, async () => {
     const f = await independentThreads();
     f.runs[0].input.onUpdate({ type: "session", id: randomUUID() });
     let target: string;
@@ -1759,7 +1765,12 @@ for (const kind of ["child", "ordinary"] as const) {
     await f.service.prepareUpdate();
     const resumable = await f.store.updateResumes.list();
     expect(resumable.some((entry) => entry.threadId === f.parent.id)).toBe(true);
-    expect(resumable.some((entry) => entry.threadId === target)).toBe(false);
+    expect(resumable.some((entry) => entry.threadId === target)).toBe(true);
+    expect(f.service.tasks.isManagedExecution(f.project.id, target)).toBe(true);
+    const restarted = new TaskStore(f.store.orchestrationDirectory);
+    cleanups.push(() => restarted.close());
+    await restarted.initialize();
+    expect(restarted.isManagedExecution(f.project.id, target)).toBe(true);
   });
 }
 
@@ -1901,7 +1912,7 @@ test("reading a failed result acknowledges legacy queued notices after upgrade",
     },
     { harness: "codex", permissionMode: "default", authorize: async () => {} },
   );
-  f.runs[1].input.onUpdate({ type: "error", text: "Worker file access failed" });
+  f.runs[1].input.onUpdate({ type: "error", text: "Worker file access failed", kind: "request" });
   f.runs[1].complete();
   await until(
     async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "failed",

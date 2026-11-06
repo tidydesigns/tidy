@@ -535,7 +535,7 @@ test("update preparation checkpoints a running harness and can reopen the worksp
     designIds: [],
   });
   expect(next.status).toBe("running");
-  expect(runs.length).toBe(2);
+  expect(runs.length).toBe(3);
 });
 
 test("a failed update flush releases the workspace instead of leaving it permanently closed", async () => {
@@ -762,9 +762,9 @@ test("deleted design references do not block follow-ups or drafts and surviving 
 test("design reference failures other than missing files still prevent harness execution", async () => {
   const { store, service, project, runs } = await fixture();
   const design = await store.createDesign(project.id);
-  const read = spyOn(store, "readDesignReference").mockRejectedValue(
-    Object.assign(new Error("Permission denied"), { code: "EACCES" }),
-  );
+  const read = spyOn(store, "readDesignReference").mockImplementation(async () => {
+    throw Object.assign(new Error("Permission denied"), { code: "EACCES" });
+  });
   try {
     await expect(
       service.startThread({

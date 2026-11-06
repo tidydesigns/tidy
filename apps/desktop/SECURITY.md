@@ -224,6 +224,19 @@ installing state. Recovery releases only its own update reservation and cannot
 reopen harness admission or cancel an ordinary quit that began during preparation.
 Native error details remain outside the renderer.
 
+Native runs authorize durable recovery in private app state before crossing the provider
+submission boundary. Fingerprints cover the authorized thread and execution paths; the
+journal covers both sides of private session-authority changes and the atomic thread rename.
+Provider input waits for durable root-process ownership. Project JSON cannot create restart
+intent. Stop cancels that intent. Capacity/transport retries keep the existing user message,
+recheck cloud access and task grants, and preserve backoff across restarts. Recovery does
+not replay approvals. Verified private process tokens and birth identities guard orphan
+retirement; retained process-group records also detect untagged children after reparenting.
+Ambiguous ownership blocks a replacement process. Thaw cleanup can undo its own SIGSTOP
+after verifying the same process birth identity; destructive signals still require the private
+ownership token. CLI maintenance requests
+accept only an allowlisted provider ID, never a command, path or version from a renderer.
+
 Run from the repository root:
 
 ```sh

@@ -386,8 +386,17 @@ on your desktop.
 3. In Code, choose Codex or Claude Code, optionally attach design references, and
    start a thread. The harness runs in the project root and receives the attached
    design file paths. Follow-up messages resume the locally bound native harness session.
-4. Stop cancels the active process and its commands. Closing the app stops active
-   runs; an interrupted run is never silently restarted. Send a message to continue.
+4. Stop cancels the active process, queued recovery and its commands. Closing the app
+   checkpoints unfinished runs. Reopening automatically continues trusted local checkpoints,
+   preserving the conversation and queued messages. Update and retry notices explain the pause.
+   Pending approvals must be requested again; explicitly stopped work stays stopped.
+
+Temporary provider capacity, rate-limit, connection and harness failures retry with increasing
+backoff. Unclassified provider failures get three automatic continuations, then retain the
+thread as failed for an explicit retry. Retry timing and delegated task ownership survive restarts. Tidy checks the current
+workspace before continuing an uncertain submission; it does not duplicate its user message.
+Cloud recovery still requires the original account and workspace authorization. Recovery waits
+when process ownership cannot be verified, rather than overlapping an unknown old agent.
 
 Tidy uses the installed CLIs and their existing sign-ins. Install and sign in to
 Codex (`codex login`) or Claude Code (`claude auth login`), then use Check connection
@@ -423,8 +432,11 @@ the installed and available versions in one compact card, with Codex, Claude Cod
 and OpenCode marks and an **Update** action for each recognized installation.
 Queued rows explain whether they are waiting for active responses or another
 installer. Only a running update shows a spinner; completed rows retain their
-provider mark and show a checkmark. Dismissing availability hides that version until a newer release
-is found. Offline checks stay quiet and preserve known updates.
+provider mark and show a checkmark. **Remind me tomorrow** snoozes notices for one day;
+a new version or changed outcome appears immediately. Failed discovery is visible and retries
+with per-provider backoff while preserving known updates. Newly installed CLIs are detected
+on the next one-minute executable check. App updates and CLI updates remain separate;
+CLI installation always requires an explicit Update action.
 
 Updates start immediately when possible. Claude's native updater can install in
 the background during an active response; its versioned installer leaves the

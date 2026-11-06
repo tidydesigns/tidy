@@ -21,6 +21,7 @@ test("stream patches preserve old message identities, append once and ignore sta
     status: "running",
     error: "Earlier provider failure",
     errorKind: "unavailable",
+    recovery: { reason: "provider", attempt: 1, retryAt: new Date().toISOString() },
     designIds: [],
     updatedAt: new Date().toISOString(),
   };
@@ -47,6 +48,7 @@ test("stream patches preserve old message identities, append once and ignore sta
   expect(result.messages[0]).toBe(first);
   expect(result.error).toBeUndefined();
   expect(result.errorKind).toBeUndefined();
+  expect(result.recovery).toBeUndefined();
   expect(applyThreadPatch(result, patch)).toBe(result);
   expect(
     applyThreadPatch(previous, { ...patch, thread: { ...patch.thread, projectId: randomUUID() } }),

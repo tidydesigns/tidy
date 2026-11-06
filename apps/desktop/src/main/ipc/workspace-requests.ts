@@ -33,6 +33,7 @@ import { terminalSessionSchema } from "../../shared/contracts/terminal";
 import { videoReadSchema, videoReferenceSchema } from "../../shared/contracts/video-artifacts";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
+import { updatableHarnessIdSchema } from "../../shared/contracts/harness-updates";
 import {
   branchNameSchema,
   type BranchSwitchResult,
@@ -59,6 +60,7 @@ import { chatImageRequestSchema } from "../../shared/contracts/chat-images";
 import { chatLinkRequestSchema, openChatLink } from "../workspace/chat-links";
 
 export type WorkspacePlatform<Context> = {
+  harnessMaintenance?: boolean;
   chooseProject(context: Context): Promise<string | null>;
   chooseDesign(context: Context): Promise<{ name: string; document: unknown } | null>;
   openExternal(url: string): Promise<void>;
@@ -114,6 +116,24 @@ export function createWorkspaceRequests<Context>(
       }
     });
   }
+  handle(
+    "backend-harness-update-state",
+    z.object({ refresh: z.boolean().optional() }).strict().optional(),
+    async (value) => {
+      if (!platform.harnessMaintenance)
+        throw new Error("CLI maintenance is only available in the desktop app or its backend.");
+      service.harnessUpdates.start();
+      if (value?.refresh) await service.harnessUpdates.check();
+      return service.harnessUpdates.state;
+    },
+  );
+  handle("backend-install-harness-update", updatableHarnessIdSchema, (id) => {
+    if (!platform.harnessMaintenance)
+      throw new Error("CLI maintenance is only available in the desktop app or its backend.");
+    service.harnessUpdates.install(id);
+    return service.harnessUpdates.state;
+  });
+
   handle(
     "set-thread-work-permission",
     z.object({ projectId: uuid, threadId: uuid, enabled: z.boolean() }).strict(),
