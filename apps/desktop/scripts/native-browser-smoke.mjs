@@ -437,7 +437,7 @@ const deadline = setTimeout(() => {
       ),
     );
     const iframe = document.createElement("iframe");
-    iframe.src = new URL("/frame", location.href).href;
+    iframe.src = new URL("/frame", location.href.replace("127.0.0.1", "localhost")).href;
     document.body.append(iframe);
   });
   await until(

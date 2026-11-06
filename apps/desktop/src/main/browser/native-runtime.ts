@@ -504,6 +504,9 @@ export class NativeBrowserRuntime implements ConnectionTransport {
             throw new Error("Unknown native browser session.");
           break;
         case "Target.setAutoAttach":
+          // Electron's debugger cannot resume auto-paused cross-site child renderers.
+          // Attach without pausing so embedded pages keep loading and remain automatable.
+          params = { ...params, waitForDebuggerOnStart: false };
           break;
         default:
           throw new Error(`Unsupported native browser command: ${method}`);
