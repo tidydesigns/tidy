@@ -59,6 +59,8 @@ export async function openTunnel({
           redirect: "error",
         });
         const descriptor = hostDescriptorSchema.parse(await response.json());
+        signal.throwIfAborted();
+        if (failure) throw ssh.failure(failure);
         if (descriptor.hostId !== host.hostId || descriptor.instanceId !== host.instanceId)
           throw new RemoteFailure("identity", "Remote backend identity mismatch.");
         return {
@@ -72,6 +74,8 @@ export async function openTunnel({
           },
         };
       } catch (error) {
+        signal.throwIfAborted();
+        if (failure) throw ssh.failure(failure);
         if (error instanceof RemoteFailure) throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, 200));

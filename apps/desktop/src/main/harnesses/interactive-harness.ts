@@ -16,14 +16,13 @@ import {
   HarnessRequestError,
   HarnessTransport,
 } from "./harness-transport";
-import { plainToolText } from "./tool-events";
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SessionContext, TurnInput, HarnessAdapter, AdapterContext } from "./session-types";
 
 const approvalText = (value: string) =>
-  plainToolText(value).replace(
-    /[\u202a-\u202e\u2066-\u2069]/g,
-    (character) => `\\u${character.charCodeAt(0).toString(16)}`,
+  value.replace(
+    /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 type Turn = {
   input: TurnInput;
