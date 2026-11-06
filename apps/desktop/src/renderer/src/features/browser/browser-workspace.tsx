@@ -1,3 +1,4 @@
+import { browserDeviceScaleFactor } from "../../../../shared/browser-viewport";
 import { BrowserFileChooser, BrowserDownloads } from "./browser-files";
 import { BrowserPageDialog } from "./browser-page-dialog";
 import { BrowserGlyph, Glyph, BrowserIconButton, browserInputClass } from "./browser-controls";
@@ -160,20 +161,29 @@ export const BrowserWorkspace = memo(function BrowserWorkspace({
         const current = stateRef.current.tabs.find(
           (tab) => tab.id === stateRef.current.activeTabId,
         );
-        if (current?.width === width && current.height === height) return;
-        if (!width || !height || previous === `${width}:${height}`) return;
-        previous = `${width}:${height}`;
-        send({ kind: "resize", width, height });
+        const deviceScaleFactor = browserDeviceScaleFactor(width, height, window.devicePixelRatio);
+        if (
+          current?.width === width &&
+          current.height === height &&
+          (current.deviceScaleFactor ?? 1) === deviceScaleFactor
+        )
+          return;
+        const key = `${width}:${height}:${deviceScaleFactor}`;
+        if (!width || !height || previous === key) return;
+        previous = key;
+        send({ kind: "resize", width, height, deviceScaleFactor });
       }, 100);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(surface.current);
+    window.addEventListener("resize", resize);
     resize();
     return () => {
       clearTimeout(timer);
       observer.disconnect();
+      window.removeEventListener("resize", resize);
     };
-  }, [visible, canInput, tab?.id, tab?.width, tab?.height, viewport, send]);
+  }, [visible, canInput, tab?.id, tab?.width, tab?.height, tab?.deviceScaleFactor, viewport, send]);
 
   const refreshConsole = useCallback(async () => {
     const current = stateRef.current;

@@ -18,6 +18,7 @@ export const browserTabSchema = z.object({
   canGoForward: z.boolean(),
   width: z.number().int(),
   height: z.number().int(),
+  deviceScaleFactor: z.number().finite().min(1).max(2).optional(),
 });
 export const browserStateSchema = z.object({
   keyboardCommands: z.boolean().optional(),
@@ -147,6 +148,7 @@ export const browserInputSchema = z.discriminatedUnion("kind", [
       kind: z.literal("resize"),
       width: z.number().int().min(320).max(2560),
       height: z.number().int().min(240).max(1600),
+      deviceScaleFactor: z.number().finite().min(1).max(2).optional(),
     })
     .strict(),
   z

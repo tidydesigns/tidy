@@ -77,7 +77,8 @@ export function useBrowserSession({
           if (projected.activeTabId !== old.activeTabId) setPainted(null);
           if (
             old.phase.kind !== event.state.phase.kind ||
-            old.activeTabId !== event.state.activeTabId
+            old.activeTabId !== event.state.activeTabId ||
+            (old.control !== "you" && event.state.control === "you")
           )
             setError("");
           break;

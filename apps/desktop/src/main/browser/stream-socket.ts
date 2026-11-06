@@ -1,4 +1,5 @@
 import { encodeBrowserFrame } from "./frame-codec";
+import { BrowserInputQueue } from "./input-queue";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import {
@@ -28,14 +29,13 @@ export async function serveBrowserStream({
     alive = true;
   });
   let writes = Promise.resolve();
-  let inputs = Promise.resolve();
-  let pendingInputs = 0;
   const attached = Promise.withResolvers<void>();
   let queuedBytes = 0;
   const stop = () => {
     if (closed) return;
     closed = true;
     attached.resolve();
+    inputs.clear();
     watch?.close();
     clearInterval(heartbeat);
     socket.terminate();
@@ -54,26 +54,23 @@ export async function serveBrowserStream({
   heartbeat.unref();
   socket.once("close", stop);
   socket.on("error", stop);
+  const inputs = new BrowserInputQueue({
+    dispatch: async (input) => {
+      await attached.promise;
+      if (closed) return;
+      if (!(await authorized())) stop();
+      else if (!closed) watch?.input(input);
+    },
+    failed: stop,
+  });
   socket.on("message", (data, binary) => {
-    if (binary || Buffer.byteLength(data.toString()) > 128 * 1024 || pendingInputs >= 64) {
+    if (binary || Buffer.byteLength(data.toString()) > 128 * 1024) {
       stop();
       return;
     }
     try {
       const input = browserInputEnvelopeSchema.parse(JSON.parse(data.toString()));
-      pendingInputs++;
-      inputs = inputs
-        .then(async () => {
-          await attached.promise;
-          if (closed) return;
-          const valid = await authorized();
-          if (!valid) stop();
-          else if (!closed) watch?.input(input);
-        })
-        .catch(stop)
-        .finally(() => {
-          pendingInputs--;
-        });
+      if (!inputs.push(input)) stop();
     } catch {
       stop();
     }
@@ -82,7 +79,8 @@ export async function serveBrowserStream({
     watch = await browser.watch(scope, viewerId ?? randomUUID(), (event) => {
       const data = event.kind === "frame" ? encodeBrowserFrame(event) : JSON.stringify(event);
       const bytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
-      if (queuedBytes + socket.bufferedAmount + bytes > 4 * 1024 * 1024) {
+      // Capture allows at most 8 MiB unacknowledged per viewer; leave room for headers/state.
+      if (queuedBytes + socket.bufferedAmount + bytes > 16 * 1024 * 1024) {
         stop();
         return;
       }
