@@ -1003,9 +1003,36 @@ test("owned follow-ups share scheduler slots, preserve results and cancel throug
   const tools = await f.runs[0].input.agentTools?.open();
   if (!tools) throw new Error("Missing tool connection.");
   cleanups.push(async () => tools.close());
+  const releaseFirst = Promise.withResolvers<void>();
+  const startThread = f.service.startThread.bind(f.service);
+  const starts = spyOn(f.service, "startThread").mockImplementation(async (input) => {
+    if (input.prompt === "First") await releaseFirst.promise;
+    return startThread(input);
+  });
+  cleanups.push(async () => {
+    releaseFirst.resolve();
+    starts.mockRestore();
+  });
   const first = await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "First" });
-  await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "Second" });
+  const second = await call(tools, "task_delegate", {
+    request_id: randomUUID(),
+    prompt: "Second",
+  });
+  await until(async () => f.runs.length === 2);
+  releaseFirst.resolve();
   await until(async () => f.runs.length === 3);
+  const runsByThread = new Map(
+    await Promise.all(
+      f.runs.slice(1).map(async (run) => {
+        const childTools = await run.input.agentTools?.open();
+        if (!childTools) throw new Error("Missing child tool connection.");
+        cleanups.push(async () => childTools.close());
+        const context = await call(childTools, "tidy_context", {});
+        return [context.thread_id, run] as const;
+      }),
+    ),
+  );
+  expect(runsByThread.get(second.child_thread_id)).toBe(f.runs[1]);
   const request = {
     thread_id: first.child_thread_id,
     request_id: randomUUID(),
@@ -1020,8 +1047,10 @@ test("owned follow-ups share scheduler slots, preserve results and cancel throug
     message: "Later follow up",
   });
   expect(f.runs).toHaveLength(3);
-  f.runs[1].input.onUpdate({ type: "message", id: "first-result", text: "Original result" });
-  f.runs[1].complete();
+  const firstRun = runsByThread.get(first.child_thread_id);
+  if (!firstRun) throw new Error("Missing first child run.");
+  firstRun.input.onUpdate({ type: "message", id: "first-result", text: "Original result" });
+  firstRun.complete();
   await until(async () => f.runs.length === 4);
   expect(f.runs[3].input.prompt).toContain("Follow up");
   const original = await f.service.tasks.store.get(String(first.task_id));
