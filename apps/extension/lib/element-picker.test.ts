@@ -51,14 +51,33 @@ afterEach(async () => {
   await win.happyDOM.close();
 });
 
-function key(value: string) {
-  (pickerShadow.activeElement ?? win).dispatchEvent(
-    new win.KeyboardEvent("keydown", {
-      key: value,
+// happy-dom has no browser input source. Mark only positive-control events as trusted.
+function trusted<T extends object>(event: T): T {
+  Object.defineProperty(event, "isTrusted", { value: true });
+  return event;
+}
+
+function click(element: Element) {
+  const event = trusted(
+    new win.MouseEvent("click", {
       bubbles: true,
       composed: true,
       cancelable: true,
     }),
+  );
+  element.dispatchEvent(event as unknown as MouseEvent);
+}
+
+function key(value: string) {
+  ((pickerShadow.activeElement ?? win) as unknown as EventTarget).dispatchEvent(
+    trusted(
+      new win.KeyboardEvent("keydown", {
+        key: value,
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      }),
+    ) as unknown as KeyboardEvent,
   );
 }
 
@@ -76,25 +95,25 @@ test("picker navigates with arrow keys and selects, deselects and copies through
   key("ArrowDown");
   expect(targetButton().textContent).toContain("h1: Introduction");
   // happy-dom does not synthesize native keyboard activation; exercise the click handler directly.
-  targetButton().click();
+  click(targetButton());
   expect(targetButton().getAttribute("aria-pressed")).toBe("true");
   expect(pickerShadow.querySelector('[role="status"]')?.textContent).toBe("1 element selected.");
-  targetButton().click();
+  click(targetButton());
   expect(targetButton().getAttribute("aria-pressed")).toBe("false");
   key("ArrowRight");
   expect(targetButton().textContent).toContain("p: Body copy");
-  targetButton().click();
+  click(targetButton());
   key("ArrowUp");
   key("ArrowRight");
   expect(targetButton().textContent).toContain("footer: Footer");
-  targetButton().click();
+  click(targetButton());
   key("ArrowLeft");
   expect(targetButton().textContent).toContain("section");
   const copy = [...pickerShadow.querySelectorAll("button")].find((button) =>
     button.textContent?.includes("Copy 2 elements"),
   );
   expect(copy).toBeDefined();
-  copy!.click();
+  click(copy!);
   expect(onConfirm).toHaveBeenCalledWith([
     win.document.querySelector("p"),
     win.document.querySelector("footer"),
@@ -111,7 +130,7 @@ test("picker starts at prior focus, restores it on Escape and leaves page activa
   expect(targetButton().textContent).toContain("a: Continue");
   expect(
     link.dispatchEvent(
-      new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),
+      trusted(new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true })),
     ),
   ).toBe(false);
   expect(targetButton().getAttribute("aria-pressed")).toBe("true");
@@ -121,7 +140,7 @@ test("picker starts at prior focus, restores it on Escape and leaves page activa
   expect(targetButton().textContent).toContain("a: Continue");
   expect(
     win.document.documentElement.dispatchEvent(
-      new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),
+      trusted(new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true })),
     ),
   ).toBe(false);
   expect(targetButton().textContent).toContain("a: Continue");
@@ -158,16 +177,52 @@ test("pointer bursts paint the latest target once and scroll reuses selection ou
   const last = win.document.querySelector("footer")!;
   for (let i = 0; i < 20; i++) {
     (i % 2 ? first : last).dispatchEvent(
-      new win.PointerEvent("pointermove", { bubbles: true, composed: true }),
+      trusted(new win.PointerEvent("pointermove", { bubbles: true, composed: true })),
     );
   }
   expect(request).toHaveBeenCalledTimes(1);
   frame!(0);
   expect(targetButton().textContent).toContain("First");
-  targetButton().click();
+  click(targetButton());
   const outline = pickerShadow.querySelector(".outline.selected");
   for (let i = 0; i < 20; i++) win.dispatchEvent(new win.Event("scroll"));
   expect(request).toHaveBeenCalledTimes(2);
   frame!(0);
   expect(pickerShadow.querySelector(".outline.selected")).toBe(outline);
+});
+
+test("page-generated events cannot select, move, confirm or cancel a capture", () => {
+  win.document.body.innerHTML = "<section>First</section><footer>Second</footer>";
+  const onConfirm = mock((_elements: Element[]) => {});
+  const onCancel = mock(() => {});
+  picker = startElementPicker({ onConfirm, onCancel });
+  const section = win.document.querySelector("section")!;
+  const footer = win.document.querySelector("footer")!;
+  footer.dispatchEvent(new win.PointerEvent("pointermove", { bubbles: true, composed: true }));
+  const pageClick = mock(() => {});
+  footer.addEventListener("click", pageClick);
+  const syntheticClick = new win.MouseEvent("click", {
+    bubbles: true,
+    composed: true,
+    cancelable: true,
+  });
+  expect(footer.dispatchEvent(syntheticClick)).toBe(true);
+  expect(pageClick).toHaveBeenCalledTimes(1);
+  expect(targetButton().textContent).toContain("section: First");
+  expect(targetButton().getAttribute("aria-pressed")).toBe("false");
+  click(section as unknown as Element);
+  expect(targetButton().getAttribute("aria-pressed")).toBe("true");
+  for (const value of ["ArrowDown", " ", "Enter", "Escape"])
+    win.dispatchEvent(
+      new win.KeyboardEvent("keydown", { key: value, bubbles: true, composed: true }),
+    );
+  const copy = [...pickerShadow.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Copy element"),
+  )!;
+  copy.click();
+  expect(onConfirm).not.toHaveBeenCalled();
+  expect(onCancel).not.toHaveBeenCalled();
+  expect(targetButton().getAttribute("aria-pressed")).toBe("true");
+  click(copy);
+  expect(onConfirm).toHaveBeenCalledWith([section]);
 });

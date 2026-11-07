@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { createElement } from "react";
+import ts from "typescript";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -100,6 +101,49 @@ const invalid = <NewThread variant="unknown" />;
     await rm(directory, { recursive: true, force: true });
   }
 }, 30_000);
+
+test("exported root identifiers remain string literals in JSX expressions", () => {
+  for (const rootId of ['root"quoted', "root\\path", "root\nline", "root{expression}"]) {
+    const content = document();
+    const previousId = "new-thread";
+    for (const node of content.nodes) {
+      if (node.id === previousId) node.id = rootId;
+      if (node.parentId === previousId) node.parentId = rootId;
+    }
+    const output = exportComponent(content, rootId, "QuotedRoot");
+    const compiled = ts.transpileModule(output.files[0].content, {
+      fileName: "QuotedRoot.tsx",
+      compilerOptions: { jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.Latest },
+      reportDiagnostics: true,
+    });
+    expect(compiled.diagnostics).toEqual([]);
+    const source = ts.createSourceFile(
+      "QuotedRoot.tsx",
+      output.files[0].content,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const attributes: ts.JsxAttribute[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isJsxAttribute(node) && node.name.getText(source) === "rootId") attributes.push(node);
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+    expect(attributes).toHaveLength(1);
+    const owner = attributes[0].parent.parent;
+    if (!ts.isJsxOpeningElement(owner) && !ts.isJsxSelfClosingElement(owner))
+      throw new Error("Expected an attribute on a JSX element");
+    expect(owner.tagName.getText(source)).toBe("TidyDesign");
+    const initializer = attributes[0].initializer!;
+    expect(ts.isJsxExpression(initializer)).toBe(true);
+    if (!ts.isJsxExpression(initializer)) throw new Error("Expected JSX expression");
+    const value = initializer.expression!;
+    expect(ts.isStringLiteral(value)).toBe(true);
+    if (!ts.isStringLiteral(value)) throw new Error("Expected literal root ID");
+    expect(value.text).toBe(rootId);
+  }
+});
 
 test("exports only selected asset bytes and strips source paths and history", () => {
   const content = document();

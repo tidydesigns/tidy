@@ -1,12 +1,16 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { ACCOUNT_EXPORT_LIMITS as limits } from "@/lib/security/resource-limits";
+import { VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 import { lockPrivacyAccount, PrivacyError } from "./access";
 import { analyticsStorageEnabled } from "@/lib/analytics/store";
 
 // Explicit projections ensure future credential columns cannot leak into exports.
-// Shared content is included only while the requester remains a member.
-const memberFile = `select f.id from "designFile" f join "member" m on m."organizationId"=f."organizationId" where m."userId"=$1`;
+// Shared content requires a current membership with a reader role.
+// Authored contributions (such as comment and feedback bodies) remain personal;
+// creator/author attribution does not grant access to mutable shared metadata.
+const memberFile = `select f.id from "designFile" f join "member" m on m."organizationId"=f."organizationId" where m."userId"=$1 and m.role in ${VIEW_ROLES_SQL}`;
+const memberReview = `select r.id from "githubReview" r join "designFile" f on f.id=r."fileId" and f."organizationId"=r."organizationId" where f.id in (${memberFile})`;
 export const exportQueries: Record<string, string> = {
   profile:
     'select id,name,email,"emailVerified",image,"createdAt","updatedAt" from "user" where id=$1',
@@ -22,8 +26,7 @@ export const exportQueries: Record<string, string> = {
     'select "organizationId",role,status,"createdAt","expiresAt" from invitation where "inviterId"=$1',
   files: `select id,"organizationId",name,"createdAt","updatedAt" from "designFile" where "createdBy"=$1 and id in (${memberFile})`,
   documents: `select d."fileId",d.revision,d.content,d."updatedAt" from "designDocument" d join "designFile" f on f.id=d."fileId" where f."createdBy"=$1 and f.id in (${memberFile})`,
-  folders:
-    'select f.id,f."organizationId",f.name,f."createdAt" from "designFolder" f join member m on m."organizationId"=f."organizationId" where f."createdBy"=$1 and m."userId"=$1',
+  folders: `select f.id,f."organizationId",f.name,f."createdAt" from "designFolder" f join member m on m."organizationId"=f."organizationId" where f."createdBy"=$1 and m."userId"=$1 and m.role in ${VIEW_ROLES_SQL}`,
   comments: 'select id,"threadId",body,"createdAt" from "designCommentMessage" where "authorId"=$1',
   commentThreads:
     'select id,"fileId",x,y,"createdAt" from "designCommentThread" where "createdBy"=$1',
@@ -34,18 +37,18 @@ export const exportQueries: Record<string, string> = {
   restores:
     'select "fileId","operationId","restoredVersionId","beforeVersionId","createdAt" from "designFileRestore" where "createdBy"=$1',
   github: 'select "githubId",login from "githubUser" where "userId"=$1',
-  githubReviews:
-    'select id,"fileId",repository,number,title,url,"createdAt" from "githubReview" where "createdBy"=$1',
-  githubFeedback:
-    'select id,"reviewId",body,status,response,"createdAt" from "githubFeedback" where "authorId"=$1',
+  githubReviews: `select id,"fileId",repository,number,title,url,"createdAt" from "githubReview" where "createdBy"=$1 and id in (${memberReview})`,
+  githubFeedback: `select f.id,f."reviewId",f.body,
+    case when accessible.id is not null then f.status end as status,
+    case when accessible.id is not null then f.response end as response,f."createdAt"
+    from "githubFeedback" f left join (${memberReview}) accessible on accessible.id=f."reviewId" where f."authorId"=$1`,
   connectors:
     'select id,provider,"externalWorkspaceId","externalUserId","workspaceName","accountName",scopes,state,"updatedAt" from "connectorAccount" where "userId"=$1',
   connectorLinks:
     'select c."organizationId",c."accountId",c."createdAt" from "connectorConnection" c join "connectorAccount" a on a.id=c."accountId" where a."userId"=$1',
   agentConnection:
     'select provider,subject,"accountLabel",scopes,status,"updatedAt" from "agentConnection" where "userId"=$1',
-  agentThreads:
-    'select id,"organizationId",title,"createdAt","updatedAt" from "agentThread" where "createdBy"=$1',
+  agentThreads: `select t.id,t."organizationId",t.title,t."createdAt",t."updatedAt" from "agentThread" t where t."createdBy"=$1 and exists (select 1 from "member" m where m."organizationId"=t."organizationId" and m."userId"=$1 and m.role in ${VIEW_ROLES_SQL})`,
   agentRuns:
     'select id,"threadId",model,status,reason,"createdAt","finishedAt" from "agentRun" where "ownerId"=$1',
   agentMessages:

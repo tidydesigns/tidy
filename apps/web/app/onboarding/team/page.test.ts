@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 // Keep auth and Next request mocks isolated from the rest of the suite.
-test("team onboarding overlaps role and invitation reads while retaining access checks", () => {
+test("team onboarding redirects non-managers before loading invitations", () => {
   const child = Bun.spawnSync(
     [
       process.execPath,
@@ -20,7 +20,9 @@ test("team onboarding overlaps role and invitation reads while retaining access 
         getSession: async () => signedIn ? { user: { email: "test@example.test" } } : null,
         listOrganizations: async () => { organizationReads++; return [{ id: "first", name: "First" }, { id: "selected", name: "Selected" }]; },
         getActiveMemberRole: ({ query }) => { calls.push(["role", query.organizationId]); return new Promise(resolve => { releaseRole = () => resolve({ role }); }); },
-        listInvitations: ({ query }) => { calls.push(["invitations", query.organizationId]); return new Promise(resolve => { releaseInvites = () => resolve([
+        listInvitations: ({ query }) => {
+          if (!["owner", "admin"].includes(role)) throw new Error("invitation-read-forbidden");
+          calls.push(["invitations", query.organizationId]); return new Promise(resolve => { releaseInvites = () => resolve([
           { id: "pending", email: "invite@example.test", role: "viewer", status: "pending", expiresAt: new Date(Date.now() + 60000) },
           { id: "expired", status: "pending", expiresAt: new Date(0) },
           { id: "accepted", status: "accepted", expiresAt: new Date(Date.now() + 60000) },
@@ -30,16 +32,34 @@ test("team onboarding overlaps role and invitation reads while retaining access 
       const load = () => TeamPage({ searchParams: Promise.resolve({ organizationId: "selected" }) });
       const page = load();
       await new Promise(resolve => setTimeout(resolve, 0));
+      assert.deepEqual(calls, [["role", "selected"]]);
+      releaseRole();
+      await new Promise(resolve => setTimeout(resolve, 0));
       assert.deepEqual(calls, [["role", "selected"], ["invitations", "selected"]]);
-      releaseRole(); releaseInvites();
+      releaseInvites();
       const result = await page;
       assert.equal(result.props.children.props.organizationId, "selected");
       assert.deepEqual(result.props.children.props.initialInvites.map(item => item.id), ["pending"]);
-      role = "viewer";
-      const denied = load();
+      role = "admin";
+      const adminCallStart = calls.length;
+      const adminPage = load();
       await new Promise(resolve => setTimeout(resolve, 0));
-      releaseRole(); releaseInvites();
-      await assert.rejects(denied, /redirect:\\//);
+      releaseRole();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      releaseInvites();
+      const adminResult = await adminPage;
+      assert.deepEqual(calls.slice(adminCallStart), [["role", "selected"], ["invitations", "selected"]]);
+      assert.equal(adminResult.props.children.props.organizationId, "selected");
+      assert.deepEqual(adminResult.props.children.props.initialInvites.map(item => item.id), ["pending"]);
+      for (const deniedRole of ["viewer", "editor", "member", "unknown"]) {
+        role = deniedRole;
+        const invitationReads = calls.filter(([kind]) => kind === "invitations").length;
+        const denied = assert.rejects(load(), error => error.message === "redirect:/");
+        await new Promise(resolve => setTimeout(resolve, 0));
+        releaseRole();
+        await denied;
+        assert.equal(calls.filter(([kind]) => kind === "invitations").length, invitationReads);
+      }
       signedIn = false;
       const before = organizationReads;
       await assert.rejects(load(), /redirect:\\/login/);

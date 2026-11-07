@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/organizations/roles";
 import { OnboardingShell } from "@/components/onboarding/onboarding-shell";
 import { TeamInvites } from "./team-invites";
 import type { Metadata } from "next";
@@ -35,19 +36,16 @@ export default async function TeamPage({ searchParams }: PageProps<"/onboarding/
 
   const requestedId = (await searchParams).organizationId;
   const organization = organizations.find((item) => item.id === requestedId) ?? organizations[0];
-  // Both endpoints authorize the requested organization independently. Fetch
-  // them together so invitation loading adds no extra sequential round trip.
-  const [{ role }, invitations] = await Promise.all([
-    auth.api.getActiveMemberRole({
-      headers: requestHeaders,
-      query: { organizationId: organization.id },
-    }),
-    auth.api.listInvitations({
-      headers: requestHeaders,
-      query: { organizationId: organization.id },
-    }),
-  ]);
-  if (!role.split(",").some((item) => item === "owner" || item === "admin")) redirect("/");
+  const { role } = await auth.api.getActiveMemberRole({
+    headers: requestHeaders,
+    query: { organizationId: organization.id },
+  });
+  // Invitation reads require management access, so redirect other members first.
+  if (!can(role, "manage")) redirect("/");
+  const invitations = await auth.api.listInvitations({
+    headers: requestHeaders,
+    query: { organizationId: organization.id },
+  });
 
   return (
     <OnboardingShell

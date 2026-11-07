@@ -106,11 +106,13 @@ export class CloudAuth {
       this.session = undefined;
     }
   }
-  private async persist(session: Session, epoch: number) {
+  private async persist(session: Session, epoch: number, expectedSession?: Session) {
     if (!this.available)
       throw new Error("Protected credential storage is unavailable on this computer.");
     const write = this.writes.then(async () => {
-      if (epoch !== this.epoch) throw new CloudHTTPError(401);
+      // Check inside the write queue: a reconnect may have committed while renewal waited.
+      if (epoch !== this.epoch || (expectedSession && this.session !== expectedSession))
+        throw new CloudHTTPError(401);
       await this.state.write("credentials", {
         origin: this.origin,
         encrypted: this.protection.encrypt(JSON.stringify(session)).toString("base64"),
@@ -336,6 +338,7 @@ export class CloudAuth {
         expiresAt: Date.now() + token.expires_in * 1000,
       },
       epoch,
+      session,
     );
   }
   async request(path: string, init?: RequestInit) {
