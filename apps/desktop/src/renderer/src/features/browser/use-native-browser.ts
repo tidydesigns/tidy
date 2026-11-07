@@ -27,8 +27,8 @@ export function useNativeBrowser({
     let previous = "";
     let frame = 0;
     let overlayElements: Element[] = [];
-    const update = () => {
-      frame = 0;
+    const readBounds = () => {
+      if (document.hidden || !target.checkVisibility({ visibilityProperty: true })) return null;
       const rect = target.getBoundingClientRect();
       const availableWidth = Math.max(0, Math.min(rect.width, innerWidth - rect.x));
       const availableHeight = Math.max(0, Math.min(rect.height, innerHeight - rect.y));
@@ -39,7 +39,10 @@ export function useNativeBrowser({
       const height = viewport ? Math.round(viewport.height * scale) : availableHeight;
       const x = rect.x + (availableWidth - width) / 2,
         y = rect.y;
+      if (!(width > 0 && height > 0 && x >= 0 && y >= 0)) return null;
       const occluded = overlayElements.some((overlay) => {
+        // The workspace panel can itself be a dialog containing the native surface.
+        if (overlay.contains(target)) return false;
         if (!overlay.checkVisibility({ visibilityProperty: true })) return false;
         const box = overlay.getBoundingClientRect();
         if (!box.width || !box.height) return false;
@@ -49,10 +52,11 @@ export function useNativeBrowser({
           (box.left < x + width && box.right > x && box.top < y + height && box.bottom > y)
         );
       });
-      const bounds =
-        !document.hidden && width > 0 && height > 0 && x >= 0 && y >= 0
-          ? { x, y, width, height, zoom: scale, occluded, ...(viewport ? { viewport } : {}) }
-          : null;
+      return { x, y, width, height, zoom: scale, occluded, ...(viewport ? { viewport } : {}) };
+    };
+    const update = () => {
+      frame = 0;
+      const bounds = readBounds();
       const key = JSON.stringify(bounds);
       if (key !== previous) {
         previous = key;
