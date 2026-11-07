@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { act, createElement } from "react";
+import { act, createElement, Profiler } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { clearToasts, ToastViewport } from "@tidy/ui/toast";
@@ -73,12 +73,22 @@ test("limited threads share a dismissible recovery toast; one click resumes acro
   const container = document.createElement("div");
   document.body.append(container);
   let root = createRoot(container);
+  let commits = 0;
   const render = (currentApi = api, snapshots?: Record<string, ProjectSnapshot>) =>
     root.render(
       createElement(
         ToastViewport,
         null,
-        createElement(ResumeLimitedThreads, { api: currentApi, projects, snapshots }),
+        createElement(
+          Profiler,
+          {
+            id: "recovery",
+            onRender: () => {
+              commits++;
+            },
+          },
+          createElement(ResumeLimitedThreads, { api: currentApi, projects, snapshots }),
+        ),
       ),
     );
   const action = () => document.querySelector<HTMLButtonElement>(".tidy-toast-action");
@@ -105,6 +115,29 @@ test("limited threads share a dismissible recovery toast; one click resumes acro
     expect(document.querySelectorAll(".tidy-toast")).toHaveLength(1);
     expect(document.body.textContent).toContain("9 threads are blocked");
     expect(requests).toHaveLength(0);
+
+    const firstAction = action()!;
+    firstAction.focus();
+    const additional = { ...threads[0], id: crypto.randomUUID() };
+    await act(async () => emit(additional));
+    expect(document.body.textContent).toContain("10 threads are blocked");
+    expect(action()).toBe(firstAction);
+    expect(document.activeElement).toBe(firstAction);
+    const before = commits;
+    const streaming = { ...additional, id: crypto.randomUUID(), status: "running" as const };
+    for (let revision = 2; revision <= 101; revision++)
+      await act(async () => {
+        emit({ ...additional, revision }); // failed-thread metadata
+        emit({ ...streaming, revision }); // another agent's streaming output
+      });
+    expect(commits - before).toBe(0);
+    expect(action()).toBe(firstAction);
+    await act(async () =>
+      emit({ ...additional, revision: 102, status: "running", error: undefined }),
+    );
+    expect(document.body.textContent).toContain("9 threads are blocked");
+    expect(action()).toBe(firstAction);
+    expect(document.activeElement).toBe(firstAction);
     await act(async () => dismiss().click());
     await act(async () => emit({ ...threads[0], revision: 2 }));
     expect(action()).toBeNull(); // metadata must not reopen a dismissed failure
@@ -113,11 +146,14 @@ test("limited threads share a dismissible recovery toast; one click resumes acro
     );
     await act(async () => emit({ ...threads[0], revision: 4 }));
     expect(action()?.textContent).toBe("Resume all");
+    const retryAction = action();
     await act(async () => {
       action()!.click();
       action()!.click();
     });
     expect(action()?.disabled).toBe(true);
+    expect(action()?.textContent).toBe("Resuming…");
+    expect(action()).toBe(retryAction);
     expect(requests).toEqual([{ projectId: projects[0].id }]);
     await act(async () =>
       gates[0].resolve({

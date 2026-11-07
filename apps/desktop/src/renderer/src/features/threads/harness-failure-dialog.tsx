@@ -1,7 +1,7 @@
 import { harnessNames } from "../../../../shared/contracts/harness-updates";
 import type { HarnessFailureKind } from "../../../../shared/contracts/harness-failure";
-import { useEffect, useId, useRef, useState } from "react";
-import { showToast, dismissToast } from "@tidy/ui/toast";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useToastNotice } from "@tidy/ui/toast";
 import { isLimitedThread } from "../../../../shared/models/thread-recovery";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
@@ -173,7 +173,6 @@ export function HarnessFailureDialog({
 export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
   const [queue, setQueue] = useState<Failure[]>([]);
   const [details, setDetails] = useState<Failure | null>(null);
-  const owner = useRef({});
   useEffect(() => {
     setQueue([]);
     setDetails(null);
@@ -208,24 +207,23 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
     });
   }, [api]);
   const thread = queue[0];
-  useEffect(() => {
-    if (!thread) return;
+  const notice = useMemo(() => {
+    if (!thread) return null;
     const failure = describeHarnessFailure(thread.error ?? "", thread.errorKind);
-    const id = showToast(
-      `${failure.title}: ${thread.title}`,
-      "error",
-      () => setQueue((current) => current.filter((item) => item !== thread)),
-      owner.current,
-      {
+    return {
+      message: `${failure.title}: ${thread.title}`,
+      tone: "error" as const,
+      onDismiss: () => setQueue((current) => current.filter((item) => item !== thread)),
+      action: {
         label: "Details",
         onClick: () => {
           setDetails(thread);
           setQueue((current) => current.filter((item) => item !== thread));
         },
       },
-    );
-    return () => dismissToast(id);
+    };
   }, [thread]);
+  useToastNotice(notice);
   return details && api ? (
     <HarnessFailureDialog
       key={`${details.id}:${details.revision}`}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   dismissToast,
@@ -8,6 +8,9 @@ import {
   showToast,
   subscribeToasts,
   toastSnapshot,
+  updateToast,
+  type ToastAction,
+  type ToastNotice,
 } from "./toast-store";
 export { showToast, dismissToast, clearToasts } from "./toast-store";
 
@@ -22,7 +25,7 @@ export function Toast({
   message: string;
   onDismiss: () => void;
   children?: ReactNode;
-  action?: { label: string; onClick: () => void; disabled?: boolean };
+  action?: ToastAction;
   tone?: "error" | "success" | "info";
 }) {
   return (
@@ -68,7 +71,7 @@ export function ToastViewport({ children }: { children?: ReactNode }) {
     const update = () => {
       const notices = toastSnapshot();
       for (const [id, timer] of timers) {
-        if (!notices.some((notice) => notice.id === id)) {
+        if (!notices.some((notice) => notice.id === id && notice.tone === "success")) {
           clearTimeout(timer);
           timers.delete(id);
         }
@@ -123,4 +126,24 @@ export function ToastViewport({ children }: { children?: ReactNode }) {
 /** Success notices expire; errors remain until explicitly dismissed. */
 export function useSuccessToast() {
   return (message: string) => showToast(message, "success");
+}
+
+/** A component-owned toast keeps its identity until dismissed or unmounted. */
+export function useToastNotice(notice: Omit<ToastNotice, "id" | "owner"> | null) {
+  const owned = useRef<{ id?: number }>({}).current;
+  useEffect(() => {
+    if (!notice) {
+      if (owned.id !== undefined) dismissToast(owned.id);
+      owned.id = undefined;
+    } else if (owned.id === undefined || !updateToast(owned.id, notice)) {
+      owned.id = showToast(notice.message, notice.tone, notice.onDismiss, owned, notice.action);
+    }
+  }, [notice, owned]);
+  useEffect(
+    () => () => {
+      if (owned.id !== undefined) dismissToast(owned.id);
+      owned.id = undefined;
+    },
+    [owned],
+  );
 }

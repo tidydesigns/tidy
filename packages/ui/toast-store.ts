@@ -26,11 +26,12 @@ function publish(next: readonly ToastNotice[]) {
 }
 export function dismissToast(id: number, notifyOwner = false) {
   const notice = notices.find((notice) => notice.id === id);
+  if (!notice) return;
   publish(notices.filter((notice) => notice.id !== id));
-  if (notifyOwner) notice?.onDismiss?.();
+  if (notifyOwner) notice.onDismiss?.();
 }
 export function clearToasts() {
-  publish([]);
+  if (notices.length) publish([]);
 }
 export function showToast(
   message: string,
@@ -46,4 +47,16 @@ export function showToast(
   const id = ++nextId;
   publish([...notices, { id, message, tone, onDismiss, owner, action }]);
   return id;
+}
+
+/** Keep an actionable notice in place as its message and progress change. */
+export function updateToast(id: number, content: Omit<ToastNotice, "id" | "owner">) {
+  const existing = notices.find((notice) => notice.id === id);
+  if (!existing) return false;
+  publish(
+    notices.map((notice) =>
+      notice === existing ? { id, owner: existing.owner, ...content } : notice,
+    ),
+  );
+  return true;
 }
