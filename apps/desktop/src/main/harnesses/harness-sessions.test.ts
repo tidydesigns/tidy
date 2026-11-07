@@ -1071,6 +1071,7 @@ test("OpenCode does not send a prompt when cancelled during session setup", asyn
     input: { harness: "opencode", executable: "unused", cwd: directory },
     transport,
     emit() {},
+    turnEmitter: () => () => {},
     complete() {},
     accepted() {},
     submitting() {},
@@ -2793,8 +2794,14 @@ test.each(["rejected", "malformed"])(
     try {
       await adapter.initialize();
       // Exercise the adapter's generation boundary while the first request is still pending.
-      await adapter.submit({ prompt: `defer-prompt-response ${response}`, onUpdate() {} });
-      await adapter.submit({ prompt: "release-prompt-response", onUpdate() {} });
+      await adapter.submit(
+        { prompt: `defer-prompt-response ${response}`, onUpdate() {} },
+        new AbortController().signal,
+      );
+      await adapter.submit(
+        { prompt: "release-prompt-response", onUpdate() {} },
+        new AbortController().signal,
+      );
       await done.promise;
       // Drain both the success and rejection handlers for the responses sent together.
       await Bun.sleep(0);
