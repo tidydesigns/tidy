@@ -52,7 +52,12 @@ export function useNativeBrowser({
         );
       });
       const bounds =
-        !document.hidden && width > 0 && height > 0 && x >= 0 && y >= 0
+        !document.hidden &&
+        target.checkVisibility({ visibilityProperty: true }) &&
+        width > 0 &&
+        height > 0 &&
+        x >= 0 &&
+        y >= 0
           ? { x, y, width, height, zoom: scale, occluded, ...(viewport ? { viewport } : {}) }
           : null;
       const key = JSON.stringify(bounds);

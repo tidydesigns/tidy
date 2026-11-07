@@ -147,7 +147,26 @@ async function run() {
   await frames();
   check(!latest!.occluded, "Closing the overlay did not restore native content");
   const panel = document.getElementById("panel") as HTMLDialogElement;
+  panel.append(wrapper);
+  menu.style.left = "350px";
+  menu.removeAttribute("aria-modal");
+  await frames();
+  check(latest!.occluded, "An overlapping dialog inside the workspace panel was ignored");
+  wrapper.remove();
+  await frames();
+  check(!latest!.occluded, "Closing an in-panel dialog did not restore native content");
+  panel.style.visibility = "hidden";
+  await frames();
+  check(latest === null, "An invisible workspace panel left its native preview attached");
+  panel.style.visibility = "visible";
+  await frames();
+  check(
+    latest && !latest.occluded,
+    "Making the workspace panel visible did not restore its preview",
+  );
   panel.close();
+  await frames();
+  check(latest === null, "Closing the workspace panel left its native preview attached");
   panel.showModal();
   await frames();
   check(!latest!.occluded, "The containing modal dialog obscured its own preview");
