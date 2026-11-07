@@ -2683,7 +2683,7 @@ export function App({
                   >
                     <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-4 gap-y-1">
                       <div
-                        className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "basis-40" : ""}`}
+                        className={`content-heading flex min-h-[34px] min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1 [&>div:first-child]:basis-40 ${thread ? "basis-40" : ""}`}
                       >
                         {thread || selectedSummary ? (
                           <ThreadTitle
