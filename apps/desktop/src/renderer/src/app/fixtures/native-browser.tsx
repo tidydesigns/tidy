@@ -155,9 +155,30 @@ async function run() {
   wrapper.remove();
   await frames();
   check(!latest!.occluded, "Closing an in-panel dialog did not restore native content");
+  panel.style.zIndex = "1";
+  document.body.append(surface);
+  Object.assign(surface.style, { left: "300px", top: "100px" });
+  await frames();
+  check(latest!.occluded, "A former containing dialog failed to obscure the moved preview");
+  panel.append(surface);
+  Object.assign(surface.style, { left: "20px", top: "20px" });
+  await frames();
+  check(!latest!.occluded, "Returning the preview to its dialog did not restore native content");
   panel.style.visibility = "hidden";
   await frames();
   check(latest === null, "An invisible workspace panel left its native preview attached");
+  measurements = 0;
+  const hiddenPresentations = presentations;
+  for (let i = 0; i < 20; i++) {
+    panel.style.backgroundColor = i % 2 ? "black" : "white";
+    await frames(1);
+  }
+  await frames();
+  check(
+    measurements === 0 && presentations === hiddenPresentations,
+    `Hidden preview updates performed unnecessary work (${measurements} reads, ${presentations - hiddenPresentations} updates)`,
+  );
+  panel.style.removeProperty("background-color");
   panel.style.visibility = "visible";
   await frames();
   check(
