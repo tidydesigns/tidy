@@ -1,9 +1,12 @@
+export type ToastAction = { label: string; onClick: () => void; disabled?: boolean };
+
 export type ToastNotice = {
   id: number;
   message: string;
   tone: "error" | "success" | "info";
   onDismiss?: () => void;
   owner?: object;
+  action?: ToastAction;
 };
 let nextId = 0;
 let notices: readonly ToastNotice[] = [];
@@ -34,12 +37,13 @@ export function showToast(
   tone: ToastNotice["tone"] = "error",
   onDismiss?: () => void,
   owner?: object,
+  action?: ToastAction,
 ) {
   const existing = notices.find(
     (notice) => notice.message === message && notice.tone === tone && notice.owner === owner,
   );
   if (existing) return existing.id;
   const id = ++nextId;
-  publish([...notices, { id, message, tone, onDismiss, owner }]);
+  publish([...notices, { id, message, tone, onDismiss, owner, action }]);
   return id;
 }

@@ -1,6 +1,8 @@
 import { harnessNames } from "../../../../shared/contracts/harness-updates";
 import type { HarnessFailureKind } from "../../../../shared/contracts/harness-failure";
 import { useEffect, useId, useRef, useState } from "react";
+import { showToast, dismissToast } from "@tidy/ui/toast";
+import { isLimitedThread } from "../../../../shared/models/thread-recovery";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import type { DesktopAPI, ThreadSummary } from "../../../../shared/contracts/desktop";
@@ -170,8 +172,11 @@ export function HarnessFailureDialog({
 
 export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
   const [queue, setQueue] = useState<Failure[]>([]);
+  const [details, setDetails] = useState<Failure | null>(null);
+  const owner = useRef({});
   useEffect(() => {
     setQueue([]);
+    setDetails(null);
     const seen = new Map<string, { revision: number; status: ThreadSummary["status"] }>();
     return api?.onEvent((event) => {
       if (
@@ -184,8 +189,9 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
       const previous = seen.get(thread.id);
       if (previous && previous.revision > thread.revision) return;
       seen.set(thread.id, { revision: thread.revision, status: thread.status });
-      if (thread.status !== "failed") {
+      if (thread.status !== "failed" || thread.doneAt || thread.parentThreadId || thread.recovery) {
         if (previous?.status !== "failed") return;
+        setDetails((current) => (current?.id === thread.id ? null : current));
         setQueue((current) =>
           current.some((item) => item.id === thread.id)
             ? current.filter((item) => item.id !== thread.id)
@@ -194,18 +200,38 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
         return;
       }
       if (previous?.status !== "running") return;
+      // Limited threads share one bulk recovery toast rather than one dialog per agent.
+      if (api?.resumeLimitedThreads && isLimitedThread(thread)) return;
       const { id, projectId, revision, title, harness, error, errorKind } = thread;
       const notice: Failure = { id, projectId, revision, title, harness, error, errorKind };
       setQueue((current) => [...current, notice]);
     });
   }, [api]);
   const thread = queue[0];
-  return thread && api ? (
+  useEffect(() => {
+    if (!thread) return;
+    const failure = describeHarnessFailure(thread.error ?? "", thread.errorKind);
+    const id = showToast(
+      `${failure.title}: ${thread.title}`,
+      "error",
+      () => setQueue((current) => current.filter((item) => item !== thread)),
+      owner.current,
+      {
+        label: "Details",
+        onClick: () => {
+          setDetails(thread);
+          setQueue((current) => current.filter((item) => item !== thread));
+        },
+      },
+    );
+    return () => dismissToast(id);
+  }, [thread]);
+  return details && api ? (
     <HarnessFailureDialog
-      key={`${thread.id}:${thread.revision}`}
-      thread={thread}
+      key={`${details.id}:${details.revision}`}
+      thread={details}
       api={api}
-      onClose={() => setQueue((current) => current.filter((item) => item !== thread))}
+      onClose={() => setDetails(null)}
     />
   ) : null;
 }

@@ -1,3 +1,4 @@
+import { ToastViewport } from "@tidy/ui/toast";
 import { runSkillSelectionTests } from "./skill-selection";
 import { runDesignPreviewTests, runPreviewBoundsTests } from "./design-preview";
 import { runLocalCanvasPreviewTests } from "./local-canvas-preview";
@@ -275,6 +276,7 @@ export async function runHarnessFailureNoticeTests(root: Root) {
       root.render(
         <StrictMode>
           <HarnessFailureNotices key={accessKey} api={api} />
+          <ToastViewport />
         </StrictMode>,
       ),
     );
@@ -294,38 +296,38 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   emit({ ...thread, id: "historical-failure", revision: 2, doneAt: timestamp });
   await settle();
   check(!modal(), "Historical failure opened a new dialog after a metadata update");
+  const toast = () => document.querySelector<HTMLElement>(".tidy-toast[role='alert']");
+  const toastButton = (label: string) =>
+    required(
+      Array.from(toast()?.querySelectorAll("button") ?? []).find(
+        (button) => button.textContent === label || button.getAttribute("aria-label") === label,
+      ),
+      label,
+    );
   emit({ ...thread, status: "running", error: undefined });
   emit(thread);
-  await until(() => Boolean(modal()), "Failure dialog");
-  await settle();
-  check(modal()?.querySelector("h2")?.textContent === "Request blocked", "Policy guidance missing");
-  check(
-    document.activeElement?.getAttribute("aria-label") === "Dismiss error",
-    "Dismiss did not receive initial focus",
-  );
+  await until(() => Boolean(toast()), "Failure toast");
+  check(!modal(), "Failure stole focus with an automatic modal");
+  check(toast()?.textContent?.includes("Request blocked"), "Policy guidance missing");
+  toastButton("Details").click();
+  await until(() => Boolean(modal()), "Explicit error details");
+  check(modal()?.querySelector("h2")?.textContent === "Request blocked", "Policy details missing");
   check(!modal()?.querySelector("details")?.open, "Technical details expanded by default");
-  emit({ ...thread, revision: 2 });
   modal()?.close();
-  await until(() => !modal(), "Dismiss failure");
-  emit({ ...thread, revision: 3 });
+  await until(() => !modal(), "Close details");
+  emit({ ...thread, revision: 2 });
   await settle();
-  check(!modal(), "Duplicate failure reopened a dismissed dialog");
+  check(!toast() && !modal(), "Duplicate failure reopened a notice");
   emit({ ...thread, revision: 4, status: "running", error: undefined });
   emit({ ...thread, revision: 3 });
   await settle();
-  check(!modal(), "Stale failure interrupted a retry");
+  check(!toast(), "Stale failure interrupted a retry");
   emit({ ...thread, revision: 5 });
-  await until(() => Boolean(modal()), "New failure after retry");
-  const previousDialog = required(modal(), "Previous failure dialog");
-  previousDialog.close();
+  await until(() => Boolean(toast()), "New failure after retry");
+  toastButton("Dismiss notification").click();
+  await until(() => !toast(), "Dismiss failure toast");
   emit({ ...thread, revision: 6, status: "running", error: undefined });
   emit({ ...thread, revision: 7, errorKind: "account", error: "Verification required" });
-  await until(
-    () => modal()?.querySelector("h2")?.textContent === "Account needs attention",
-    "Replacement failure after immediate retry",
-  );
-  await settle();
-  check(Boolean(modal()), "Old close event dismissed the replacement failure");
   emit({ ...thread, id: "second-failure", status: "running", error: undefined });
   emit({
     ...thread,
@@ -333,26 +335,28 @@ export async function runHarnessFailureNoticeTests(root: Root) {
     errorKind: undefined,
     error: "401 authentication failed",
   });
-  await settle();
-  modal()?.close();
   await until(
-    () => modal()?.querySelector("h2")?.textContent === "Sign in again",
+    () => Boolean(toast()?.textContent?.includes("Account needs attention")),
+    "Replacement failure",
+  );
+  toastButton("Dismiss notification").click();
+  await until(
+    () => Boolean(toast()?.textContent?.includes("Sign in again")),
     "Queued background failure",
   );
   emit({ ...thread, id: "second-failure", revision: 2, status: "running", error: undefined });
-  await until(() => !modal(), "Retry removes stale dialog");
+  await until(() => !toast(), "Retry removes stale toast");
   emit({ ...thread, revision: 8, status: "running", error: undefined });
   emit({ ...thread, revision: 9 });
-  emit({ ...thread, id: "second-failure", revision: 3, status: "running", error: undefined });
-  emit({ ...thread, id: "second-failure", revision: 4 });
-  await until(() => Boolean(modal()), "Open and queued failures before access change");
+  await until(() => Boolean(toast()), "Failure before access change");
+  toastButton("Details").click();
+  await until(() => Boolean(modal()), "Open details before access change");
   render("changed-access");
   await settle();
-  check(!modal(), "Access change retained a previous account’s failure dialog");
+  check(!modal() && !toast(), "Access change retained a previous account’s failure");
   emit({ ...thread, revision: 10 });
-  emit({ ...thread, id: "second-failure", revision: 5 });
   await settle();
-  check(!modal(), "Access change retained queued failures or replayed historical errors");
+  check(!modal() && !toast(), "Access change replayed historical errors");
   check(listeners.size === 1, "Access change leaked an event subscription");
 }
 
