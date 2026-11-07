@@ -40,6 +40,17 @@ test("team onboarding redirects non-managers before loading invitations", () => 
       const result = await page;
       assert.equal(result.props.children.props.organizationId, "selected");
       assert.deepEqual(result.props.children.props.initialInvites.map(item => item.id), ["pending"]);
+      role = "admin";
+      const adminCallStart = calls.length;
+      const adminPage = load();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      releaseRole();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      releaseInvites();
+      const adminResult = await adminPage;
+      assert.deepEqual(calls.slice(adminCallStart), [["role", "selected"], ["invitations", "selected"]]);
+      assert.equal(adminResult.props.children.props.organizationId, "selected");
+      assert.deepEqual(adminResult.props.children.props.initialInvites.map(item => item.id), ["pending"]);
       for (const deniedRole of ["viewer", "editor", "member", "unknown"]) {
         role = deniedRole;
         const invitationReads = calls.filter(([kind]) => kind === "invitations").length;

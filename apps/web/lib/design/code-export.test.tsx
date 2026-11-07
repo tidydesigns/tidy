@@ -111,6 +111,12 @@ test("exported root identifiers remain string literals in JSX expressions", () =
       if (node.parentId === previousId) node.parentId = rootId;
     }
     const output = exportComponent(content, rootId, "QuotedRoot");
+    const compiled = ts.transpileModule(output.files[0].content, {
+      fileName: "QuotedRoot.tsx",
+      compilerOptions: { jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.Latest },
+      reportDiagnostics: true,
+    });
+    expect(compiled.diagnostics).toEqual([]);
     const source = ts.createSourceFile(
       "QuotedRoot.tsx",
       output.files[0].content,
