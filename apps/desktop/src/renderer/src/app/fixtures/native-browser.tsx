@@ -35,11 +35,27 @@ function Fixture({ preset = false }: { preset?: boolean }) {
     viewport: preset ? { width: 1440, height: 900 } : null,
   });
   return (
-    <div
-      ref={element}
-      id="surface"
-      style={{ position: "absolute", left: 300, top: 100, width: 320, height: 200 }}
-    />
+    <dialog
+      open
+      role="complementary"
+      id="panel"
+      style={{
+        position: "absolute",
+        left: 280,
+        top: 80,
+        width: 360,
+        height: 240,
+        margin: 0,
+        padding: 0,
+        border: 0,
+      }}
+    >
+      <div
+        ref={element}
+        id="surface"
+        style={{ position: "absolute", left: 20, top: 20, width: 320, height: 200 }}
+      />
+    </dialog>
   );
 }
 const check = (value: unknown, message: string) => {
@@ -59,7 +75,7 @@ async function run() {
   };
   // Let the operating system finish presenting the isolated test window.
   await frames(24);
-  check(latest && !latest.occluded, "Visible preview did not attach");
+  check(latest && !latest.occluded, "Preview inside the workspace dialog did not attach");
   const chat = document.createElement("div");
   document.body.append(chat);
   await frames();
@@ -130,6 +146,22 @@ async function run() {
   wrapper.remove();
   await frames();
   check(!latest!.occluded, "Closing the overlay did not restore native content");
+  const panel = document.getElementById("panel") as HTMLDialogElement;
+  panel.close();
+  panel.showModal();
+  await frames();
+  check(!latest!.occluded, "The containing modal dialog obscured its own preview");
+  const modal = document.createElement("dialog");
+  document.body.append(modal);
+  modal.showModal();
+  await frames();
+  check(latest!.occluded, "A separate modal dialog failed to obscure native content");
+  modal.close();
+  modal.remove();
+  await frames();
+  check(!latest!.occluded, "Closing a separate modal did not restore the contained preview");
+  panel.close();
+  panel.show();
   flushSync(() => root.render(<Fixture preset />));
   await frames();
   check(

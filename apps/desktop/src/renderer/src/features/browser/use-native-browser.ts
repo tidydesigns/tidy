@@ -40,6 +40,8 @@ export function useNativeBrowser({
       const x = rect.x + (availableWidth - width) / 2,
         y = rect.y;
       const occluded = overlayElements.some((overlay) => {
+        // The workspace panel can itself be a dialog containing the native surface.
+        if (overlay.contains(target)) return false;
         if (!overlay.checkVisibility({ visibilityProperty: true })) return false;
         const box = overlay.getBoundingClientRect();
         if (!box.width || !box.height) return false;
