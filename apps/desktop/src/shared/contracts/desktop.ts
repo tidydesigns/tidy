@@ -370,6 +370,10 @@ export type DesktopAPI = {
   ): Promise<void>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
+  /** Read recovery eligibility across projects without loading designs or conversations. */
+  threadRecoveryState?(
+    projectId: string,
+  ): Promise<import("./thread-recovery").ThreadRecoveryState[]>;
   resumeLimitedThreads?(
     input: import("./thread-recovery").ThreadRecoveryRequest,
   ): Promise<import("./thread-recovery").ThreadRecoveryResult>;

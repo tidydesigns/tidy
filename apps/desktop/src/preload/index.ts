@@ -197,6 +197,7 @@ function terminalApi(machineId?: string): TerminalAPI {
 }
 const zTerminalEnvelope = z.object({ watchId: z.uuid(), output: terminalOutputSchema });
 
+/** Bind workspace requests and event streams to the selected local or remote machine. */
 function workspaceApi(machineId?: string): DesktopAPI {
   const scopedRequest = <Name extends WorkspaceOperation>(name: Name, input?: unknown) =>
     request(name, input, machineId);
@@ -463,6 +464,7 @@ function workspaceApi(machineId?: string): DesktopAPI {
     respondToApproval: (projectId, threadId, approvalId, decision) =>
       scopedRequest("respond-approval", { projectId, threadId, approvalId, decision }),
     stopThread: (projectId, threadId) => scopedRequest("stop-thread", { projectId, threadId }),
+    threadRecoveryState: (projectId) => scopedRequest("thread-recovery-state", { projectId }),
     resumeLimitedThreads: (input) => scopedRequest("resume-limited-threads", input),
     threadPorts: (projectId, threadId) => scopedRequest("thread-ports", { projectId, threadId }),
     stopThreadPort: (projectId, threadId, portId) =>

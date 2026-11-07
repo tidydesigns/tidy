@@ -1,9 +1,12 @@
+export type ToastAction = { label: string; onClick: () => void; disabled?: boolean };
+
 export type ToastNotice = {
   id: number;
   message: string;
   tone: "error" | "success" | "info";
   onDismiss?: () => void;
   owner?: object;
+  action?: ToastAction;
 };
 let nextId = 0;
 let notices: readonly ToastNotice[] = [];
@@ -21,25 +24,42 @@ function publish(next: readonly ToastNotice[]) {
   notices = next;
   for (const listener of listeners) listener();
 }
+/** Remove a notice once and optionally notify its owner of an explicit user dismissal. */
 export function dismissToast(id: number, notifyOwner = false) {
   const notice = notices.find((notice) => notice.id === id);
+  if (!notice) return;
   publish(notices.filter((notice) => notice.id !== id));
-  if (notifyOwner) notice?.onDismiss?.();
+  if (notifyOwner) notice.onDismiss?.();
 }
+/** Clear the notification stack without publishing redundant empty snapshots. */
 export function clearToasts() {
-  publish([]);
+  if (notices.length) publish([]);
 }
+/** Publish an owned, optionally actionable notice, deduplicating identical message and tone pairs. */
 export function showToast(
   message: string,
   tone: ToastNotice["tone"] = "error",
   onDismiss?: () => void,
   owner?: object,
+  action?: ToastAction,
 ) {
   const existing = notices.find(
     (notice) => notice.message === message && notice.tone === tone && notice.owner === owner,
   );
   if (existing) return existing.id;
   const id = ++nextId;
-  publish([...notices, { id, message, tone, onDismiss, owner }]);
+  publish([...notices, { id, message, tone, onDismiss, owner, action }]);
   return id;
+}
+
+/** Keep an actionable notice in place as its message and progress change. */
+export function updateToast(id: number, content: Omit<ToastNotice, "id" | "owner">) {
+  const existing = notices.find((notice) => notice.id === id);
+  if (!existing) return false;
+  publish(
+    notices.map((notice) =>
+      notice === existing ? { id, owner: existing.owner, ...content } : notice,
+    ),
+  );
+  return true;
 }

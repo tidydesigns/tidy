@@ -172,6 +172,7 @@ const modePreloaders = {
 } satisfies Record<Mode, () => void>;
 const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 
+/** Coordinate machine navigation and optimistic workspace actions without blocking the active surface. */
 export function App({
   workspaceAPI,
   machine,
@@ -2216,7 +2217,15 @@ export function App({
       canvasFocused={!settingsOpen && (canvasFocused || terminalFullscreen)}
       settingsOpen={settingsOpen}
     >
-      <HarnessFailureNotices key={failureNoticeAccessKey} api={api} />
+      <HarnessFailureNotices key={failureNoticeAccessKey} api={api} projects={projects} />
+      <ResumeLimitedThreads
+        key={`limited:${failureNoticeAccessKey}`}
+        api={api}
+        projects={projects}
+        snapshots={snapshots}
+        pendingDone={updatingDone}
+        connected={!machine || machine.connected}
+      />
       <CommandPalette
         api={api}
         machineLabel={machine?.current.label}
@@ -2486,7 +2495,6 @@ export function App({
           aria-label="Design folders"
           hidden={mode !== "design"}
         />
-        <ResumeLimitedThreads api={api} projects={projects} />
         <div className="sidebar-footer mt-auto flex shrink-0 items-center gap-2 p-2">
           <Button
             ref={settingsTrigger}

@@ -19,3 +19,12 @@ export const threadRecoveryResultSchema = z.object({
 
 export type ThreadRecoveryRequest = z.infer<typeof threadRecoveryRequestSchema>;
 export type ThreadRecoveryResult = z.infer<typeof threadRecoveryResultSchema>;
+
+/** Minimal host state for recovery discovery; never includes messages or provider sessions. */
+export const threadRecoveryStateSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  revision: z.number().int().nonnegative(),
+  limited: z.boolean(),
+});
+export type ThreadRecoveryState = z.infer<typeof threadRecoveryStateSchema>;
