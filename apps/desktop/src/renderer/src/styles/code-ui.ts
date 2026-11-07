@@ -1,4 +1,4 @@
-export const codeFontClassName = "[font-family:system-ui,sans-serif]";
+export const codeFontClassName = "[font-family:var(--font-instrument-sans)]";
 
 export const codeScrollbarClassName = [
   "not-forced-colors:[&::-webkit-scrollbar]:size-1.5 not-forced-colors:[&::-webkit-scrollbar]:bg-transparent",
@@ -26,11 +26,11 @@ export const codeMenuClassName = [
 export const codeControlClassName = [
   "harness-setting-trigger flex min-h-8 min-w-8 max-w-[185px] whitespace-nowrap",
   "data-[compact=true]:justify-center [&[data-compact=true]>:not(:first-child)]:invisible [&[data-compact=true]>:not(:first-child)]:absolute [&[data-compact=true]>:not(:first-child)]:w-max [&[data-compact=true]>:not(:first-child)]:max-w-none",
-  "cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1.5 text-sm leading-5 text-muted-ink hover:bg-hover-surface [&>svg]:size-4 [&>svg]:shrink-0 max-[1000px]:text-xs max-[700px]:px-1 max-[700px]:text-[11px]",
+  "cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1.5 text-[13px] leading-5 text-muted-ink hover:bg-hover-surface [&>svg]:size-4 [&>svg]:shrink-0 max-[1000px]:text-xs max-[700px]:px-1 max-[700px]:text-xs",
 ].join(" ");
 
 export const codeContextClassName =
-  "flex min-w-0 items-center gap-[7px] text-xs leading-[18px] text-muted-ink [&_svg]:size-[15px] [&_svg]:shrink-0 max-[700px]:gap-[5px] max-[700px]:text-[11px]";
+  "flex min-w-0 items-center gap-[7px] text-xs leading-[18px] text-muted-ink [&_svg]:size-[15px] [&_svg]:shrink-0 max-[700px]:gap-[5px] max-[700px]:text-xs";
 
 export const codeContextTriggerClassName = `${codeContextClassName} context-trigger cursor-pointer rounded-md border-0 bg-transparent p-1.5 hover:enabled:bg-hover-surface hover:enabled:text-ink disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-control-border [&>span:first-of-type]:truncate`;
 
