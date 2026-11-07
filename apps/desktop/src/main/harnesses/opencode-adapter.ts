@@ -172,8 +172,9 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         throw new Error("Update OpenCode to resume this conversation.");
       if (sessionId) await ensureSession();
     },
-    async submit(message) {
+    async submit(message, signal) {
       await ensureSession();
+      signal.throwIfAborted();
       costBaselineUSD = sessionCostUSD;
       costUSD = undefined;
       const emitTurn = context.turnEmitter();

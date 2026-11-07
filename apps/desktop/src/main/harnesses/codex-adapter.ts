@@ -8,7 +8,7 @@ import {
   type ApprovalDecision,
 } from "../../shared/contracts/permissions";
 import { createCodexEvents } from "./codex-events";
-import { object, text } from "./harness-transport";
+import { HarnessNotSubmittedError, object, text } from "./harness-transport";
 import { plainToolText } from "./tool-events";
 import type { AdapterContext, HarnessAdapter, TurnInput } from "./session-types";
 
@@ -46,6 +46,16 @@ const workEvent = z.object({ threadId: workId, turnId: workId, item: workItem })
 const threadStatus = z.object({
   threadId: workId,
   status: z.object({ type: z.enum(["active", "idle", "notLoaded", "systemError"]) }),
+});
+const modelDefaults = z.object({
+  data: z.array(
+    z.object({
+      model: z.string(),
+      isDefault: z.boolean().optional(),
+      defaultReasoningEffort: z.string().optional(),
+    }),
+  ),
+  nextCursor: z.string().nullish(),
 });
 
 function codexInput(message: Pick<TurnInput, "prompt" | "skill" | "images">) {
@@ -85,6 +95,51 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
     failure: HarnessFailureError | undefined;
   let started = Promise.withResolvers<void>();
   const completedTurns = new Set<string>();
+  let appliedSettings = input.settings ?? {};
+  let currentModel: string | undefined;
+  let acceptTurn = () => {};
+  // Omitted turn overrides inherit the previous turn. Resolve defaults explicitly
+  // when an override is removed, so the composer never silently keeps an old value.
+  const turnSettings = async (
+    settings: NonNullable<TurnInput["settings"]>,
+    signal: AbortSignal,
+  ) => {
+    let model = settings.model;
+    let effort = settings.effort;
+    const resetModel = !model && !!appliedSettings.model;
+    const resetEffort =
+      !effort && (!!appliedSettings.effort || settings.model !== appliedSettings.model);
+    if (resetModel || resetEffort) {
+      const config = object(
+        object(await request("config/read", { includeLayers: false, cwd: input.cwd })).config,
+      );
+      signal.throwIfAborted();
+      if (resetModel) model = text(config.model) || undefined;
+      if (resetEffort) effort = text(config.model_reasoning_effort) || undefined;
+      const unresolved = () => (resetModel && !model) || (resetEffort && !effort);
+      let cursor: string | null | undefined;
+      const cursors = new Set<string>();
+      while (unresolved()) {
+        const result = modelDefaults.parse(
+          await request("model/list", { limit: 100, includeHidden: true, cursor }),
+        );
+        signal.throwIfAborted();
+        if (resetModel) model ||= result.data.find((item) => item.isDefault)?.model;
+        if (resetEffort && (!resetModel || model))
+          effort ||= result.data.find(
+            (item) => item.model === (model ?? currentModel),
+          )?.defaultReasoningEffort;
+        cursor = result.nextCursor;
+        if (!cursor || cursors.has(cursor)) break;
+        cursors.add(cursor);
+      }
+      if (unresolved())
+        throw new HarnessNotSubmittedError(
+          "Codex did not report its default model or reasoning effort. Choose a model and effort to continue.",
+        );
+    }
+    return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+  };
   const filePreviews = new Map<string, string>();
   const agents = new Set<string>();
   const agentActivity = (id: string, state: "started" | "progress" | "finished") => {
@@ -133,7 +188,8 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       threadId = text(object(response.thread).id);
       if (!threadId) throw new Error("Codex did not return a thread identifier.");
       emit({ type: "session", id: threadId });
-      if (typeof response.model === "string") emit({ type: "model", model: response.model });
+      currentModel = text(response.model) || input.settings?.model;
+      if (currentModel) emit({ type: "model", model: currentModel });
     },
     async setPermissionMode(next) {
       const previous = codexPermissions(mode),
@@ -175,24 +231,40 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       mode = next;
       return true;
     },
-    async submit(message) {
+    async submit(message, signal) {
       failure = undefined;
       turnId = undefined;
       filePreviews.clear();
       started = Promise.withResolvers<void>();
       codexEvent = createCodexEvents(context.turnEmitter());
+      const settings = message.settings ?? input.settings ?? {};
+      const overrides = await turnSettings(settings, signal);
+      signal.throwIfAborted();
+      let applied = false;
+      const accept = () => {
+        if (applied || signal.aborted) return;
+        applied = true;
+        appliedSettings = { ...settings };
+        if (overrides.model && overrides.model !== currentModel) {
+          currentModel = overrides.model;
+          emit({ type: "model", model: currentModel });
+        }
+        accepted();
+      };
+      acceptTurn = accept;
       context.submitting();
       const responseTurn = object(
         await request("turn/start", {
           threadId,
           input: codexInput(message),
-          ...(input.settings?.effort ? { effort: input.settings.effort } : {}),
+          ...overrides,
           ...(input.settings?.fastMode !== undefined
             ? { serviceTier: input.settings.fastMode ? "priority" : "default" }
             : {}),
         }),
       );
-      accepted();
+      if (signal.aborted) return;
+      accept();
       turnId = text(object(responseTurn.turn).id) || turnId;
     },
     consume(value) {
@@ -351,7 +423,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       }
       if (method === "serverRequest/resolved") cancelApproval(params.requestId);
       if (method === "turn/started") {
-        accepted();
+        acceptTurn();
         turnId = text(object(params.turn).id) || turnId;
         started.resolve();
       }
@@ -376,6 +448,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       if (method === "item/completed") filePreviews.delete(text(item.id));
       if (method === "error" && !params.willRetry) failure = codexFailure(params.error);
       if (method === "turn/completed") {
+        acceptTurn();
         const turn = object(params.turn);
         const completedId = text(turn.id) || turnId;
         if (completedId) {

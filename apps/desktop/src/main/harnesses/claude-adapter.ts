@@ -115,7 +115,8 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
       }
       return true;
     },
-    async submit(message) {
+    async submit(message, signal) {
+      signal.throwIfAborted();
       turnEmit = context.turnEmitter();
       // The session parser below owns tools that can outlive this turn.
       parse = createClaudeParser(emit, { parseTools: false });
