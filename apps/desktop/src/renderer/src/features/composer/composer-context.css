@@ -1,3 +1,6 @@
+:root[data-titlebar="hidden"] .thread-workspace {
+  z-index: 2;
+}
 :root[data-titlebar="hidden"] .thread-heading {
   position: relative;
   z-index: 2;
@@ -7,6 +10,6 @@
 :root[data-titlebar="hidden"] .thread-heading .content-heading {
   app-region: drag;
 }
-.thread-heading button {
+.thread-heading :is(button, input, [tabindex]) {
   app-region: no-drag;
 }
