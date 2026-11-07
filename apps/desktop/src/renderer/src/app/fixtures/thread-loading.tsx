@@ -260,6 +260,7 @@ async function workspaceFixture(root: Root) {
   };
 }
 
+/** Verify failure notifications stay passive until Details is chosen and clear on retry or access changes. */
 export async function runHarnessFailureNoticeTests(root: Root) {
   const listeners = new Set<(event: DesktopEvent) => void>();
   const api: DesktopAPI = {

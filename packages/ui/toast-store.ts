@@ -24,15 +24,18 @@ function publish(next: readonly ToastNotice[]) {
   notices = next;
   for (const listener of listeners) listener();
 }
+/** Remove a notice once and optionally notify its owner of an explicit user dismissal. */
 export function dismissToast(id: number, notifyOwner = false) {
   const notice = notices.find((notice) => notice.id === id);
   if (!notice) return;
   publish(notices.filter((notice) => notice.id !== id));
   if (notifyOwner) notice.onDismiss?.();
 }
+/** Clear the notification stack without publishing redundant empty snapshots. */
 export function clearToasts() {
   if (notices.length) publish([]);
 }
+/** Publish an owned, optionally actionable notice, deduplicating identical message and tone pairs. */
 export function showToast(
   message: string,
   tone: ToastNotice["tone"] = "error",

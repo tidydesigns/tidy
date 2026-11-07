@@ -71,6 +71,7 @@ export type WorkspacePlatform<Context> = {
 // Local IPC and remote handlers share the same persisted project selection.
 const projectSelections = new WeakMap<WorkspaceService, Promise<unknown>>();
 
+/** Enforce scoped project access around validated local and remote workspace operations. */
 export function createWorkspaceRequests<Context>(
   service: WorkspaceService,
   platform: WorkspacePlatform<Context>,
@@ -566,6 +567,9 @@ export function createWorkspaceRequests<Context>(
   );
   handle("stop-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.stopThread(value.projectId, value.threadId),
+  );
+  handle("thread-recovery-state", z.object({ projectId }).strict(), ({ projectId }) =>
+    service.threadRecoveryState(projectId),
   );
   handle("resume-limited-threads", threadRecoveryRequestSchema, (value) =>
     service.resumeLimitedThreads(value),

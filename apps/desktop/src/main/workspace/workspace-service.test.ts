@@ -1,3 +1,4 @@
+import { isRemoteMutation } from "../../shared/remote";
 import { videoChunkSchema } from "../../shared/contracts/video-preview";
 import { applyThreadPatch } from "../../shared/models/thread-updates";
 import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
@@ -4361,5 +4362,50 @@ test("a forced refresh arriving as a sweep settles still starts a fresh sweep", 
     expect(calls).toBe(2);
   } finally {
     check.mockRestore();
+  }
+});
+
+test("recovery discovery is authorized, read-only and returns no conversation or design data", async () => {
+  const f = await failedToolFixture();
+  const before = await f.service.readThread(f.project.id, f.thread.id);
+  const selected = f.store.activeProjectId;
+  const designs = spyOn(f.store, "designs").mockImplementation(async () => {
+    throw new Error("Discovery must not read designs");
+  });
+  const folders = spyOn(f.store, "folders").mockImplementation(async () => {
+    throw new Error("Discovery must not read folders");
+  });
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder: () => {},
+  });
+  try {
+    const result = await requests.invoke(
+      "thread-recovery-state",
+      { projectId: f.project.id },
+      undefined,
+    );
+    expect(result).toEqual([
+      { id: f.thread.id, projectId: f.project.id, revision: before.revision, limited: true },
+    ]);
+    expect(f.runs).toHaveLength(1);
+    expect(f.store.activeProjectId).toBe(selected);
+    expect(isRemoteMutation("thread-recovery-state")).toBe(false);
+    let accesses = 0;
+    const access = spyOn(f.service, "assertProjectAccess").mockImplementation(async () => {
+      if (++accesses === 2) throw new Error("Access revoked during read");
+    });
+    try {
+      await expect(f.service.threadRecoveryState(f.project.id)).rejects.toThrow(
+        "Access revoked during read",
+      );
+    } finally {
+      access.mockRestore();
+    }
+  } finally {
+    designs.mockRestore();
+    folders.mockRestore();
   }
 });

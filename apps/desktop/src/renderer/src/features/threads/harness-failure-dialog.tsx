@@ -5,7 +5,7 @@ import { useToastNotice } from "@tidy/ui/toast";
 import { isLimitedThread } from "../../../../shared/models/thread-recovery";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
-import type { DesktopAPI, ThreadSummary } from "../../../../shared/contracts/desktop";
+import type { DesktopAPI, Project, ThreadSummary } from "../../../../shared/contracts/desktop";
 import { describeHarnessFailure } from "../../../../shared/models/harness-failure";
 import { ChatLink } from "../../components/chat-link";
 
@@ -170,7 +170,19 @@ export function HarnessFailureDialog({
   );
 }
 
-export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
+const noProjects: Project[] = [];
+
+/** Notify new failures without stealing focus; bulk recovery owns only configured project threads. */
+export function HarnessFailureNotices({
+  api,
+  projects = noProjects,
+}: {
+  api?: DesktopAPI;
+  projects?: Project[];
+}) {
+  const coverage = useMemo(() => new Set(projects.map((project) => project.id)), [projects]);
+  const projectIds = useRef(coverage);
+  projectIds.current = coverage;
   const [queue, setQueue] = useState<Failure[]>([]);
   const [details, setDetails] = useState<Failure | null>(null);
   useEffect(() => {
@@ -200,12 +212,27 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
       }
       if (previous?.status !== "running") return;
       // Limited threads share one bulk recovery toast rather than one dialog per agent.
-      if (api?.resumeLimitedThreads && isLimitedThread(thread)) return;
+      if (
+        api?.resumeLimitedThreads &&
+        projectIds.current.has(thread.projectId) &&
+        isLimitedThread(thread)
+      )
+        return;
       const { id, projectId, revision, title, harness, error, errorKind } = thread;
       const notice: Failure = { id, projectId, revision, title, harness, error, errorKind };
       setQueue((current) => [...current, notice]);
     });
   }, [api]);
+  useEffect(() => {
+    if (!api?.resumeLimitedThreads) return;
+    setQueue((current) => {
+      const next = current.filter(
+        (failure) =>
+          !coverage.has(failure.projectId) || !isLimitedThread({ ...failure, status: "failed" }),
+      );
+      return next.length === current.length ? current : next;
+    });
+  }, [api, coverage]);
   const thread = queue[0];
   const notice = useMemo(() => {
     if (!thread) return null;

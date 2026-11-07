@@ -229,6 +229,70 @@ test("limited threads share a dismissible recovery toast; one click resumes acro
     );
     expect(action()).toBeNull();
     await act(async () => root.unmount());
+
+    // Startup discovery must reach unopened projects, retry after reconnect, and retain skipped work.
+    root = createRoot(container);
+    const reads: string[] = [];
+    const recovered: string[] = [];
+    let limited = true,
+      unavailable = false;
+    const remoteThread = {
+      id: crypto.randomUUID(),
+      projectId: projects[1].id,
+      revision: 1,
+      limited: true,
+    };
+    const discovering = {
+      ...api,
+      threadRecoveryState: async (projectId: string) => {
+        reads.push(projectId);
+        if (unavailable) throw new Error("Host unavailable");
+        return projectId === remoteThread.projectId && limited ? [remoteThread] : [];
+      },
+      resumeLimitedThreads: async ({ projectId }: ThreadRecoveryRequest) => {
+        recovered.push(projectId);
+        return {
+          resumed: [],
+          skipped: projectId === remoteThread.projectId ? [remoteThread.id] : [],
+          failed: [],
+        };
+      },
+    };
+    const discover = (connected: boolean) =>
+      root.render(
+        createElement(
+          ToastViewport,
+          null,
+          createElement(ResumeLimitedThreads, {
+            api: discovering,
+            projects,
+            connected,
+            snapshots: {
+              [projects[0].id]: { project: projects[0], threads: [], designs: [], folders: [] },
+            },
+          }),
+        ),
+      );
+    await act(async () => {
+      clearToasts();
+      discover(false);
+    });
+    expect(reads).toHaveLength(0);
+    await act(async () => discover(true));
+    expect(reads).toEqual(projects.map((project) => project.id).sort());
+    expect(document.body.textContent).toContain("1 thread is blocked");
+    expect(recovered).toHaveLength(0);
+    await act(async () => action()!.click());
+    expect(recovered).toEqual(projects.map((project) => project.id));
+    expect(action()?.disabled).toBe(false); // A confirmed still-limited skip stays actionable.
+    unavailable = true;
+    await act(async () => action()!.click());
+    expect(action()?.disabled).toBe(false); // Failure to revalidate must not erase the notice.
+    unavailable = false;
+    limited = false;
+    await act(async () => action()!.click());
+    expect(action()).toBeNull(); // Authoritative removal clears the stale count.
+    await act(async () => root.unmount());
   } finally {
     await act(async () => root.unmount());
     clearToasts();

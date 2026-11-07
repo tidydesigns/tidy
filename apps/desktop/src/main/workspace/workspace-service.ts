@@ -2294,6 +2294,20 @@ export class WorkspaceService {
     });
   }
 
+  /** Discover eligibility from cached thread metadata while checking access on both sides of the read. */
+  async threadRecoveryState(projectId: string) {
+    await this.assertProjectAccess(projectId);
+    const threads = this.withLiveThreads(projectId, await this.store.threadSummaries(projectId));
+    await this.assertProjectAccess(projectId);
+    return threads.map((thread) => ({
+      id: thread.id,
+      projectId,
+      revision: thread.revision,
+      limited: isLimitedThread(thread) && !this.tasks.isManagedExecution(projectId, thread.id),
+    }));
+  }
+
+  /** Resume only privately authorized unfinished work, preserving Stop and revision guards. */
   async resumeLimitedThreads(input: ThreadRecoveryRequest): Promise<ThreadRecoveryResult> {
     const { projectId, threads } = threadRecoveryRequestSchema.parse(input);
     const result: ThreadRecoveryResult = { resumed: [], skipped: [], failed: [] };

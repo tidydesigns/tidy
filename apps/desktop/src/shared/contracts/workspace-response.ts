@@ -1,5 +1,5 @@
 import { worktreePreferencesSchema, worktreeStorageSchema } from "./worktree-settings";
-import { threadRecoveryResultSchema } from "./thread-recovery";
+import { threadRecoveryResultSchema, threadRecoveryStateSchema } from "./thread-recovery";
 import { repositorySearchSchema } from "./repository-search";
 import { mobileStateSchema, mobileFrameSchema } from "./mobile";
 import { harnessUsageSchema } from "./harness-usage";
@@ -122,6 +122,7 @@ export const workspaceResponseSchemas = {
   "respond-approval": liveThreadSchema,
   "stop-thread": z.void(),
   "resume-limited-threads": threadRecoveryResultSchema,
+  "thread-recovery-state": z.array(threadRecoveryStateSchema),
   "thread-ports": threadPortsSchema,
   "stop-thread-port": z.void(),
   "add-attachment": attachedFileSchema,
