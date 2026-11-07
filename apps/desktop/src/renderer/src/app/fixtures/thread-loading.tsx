@@ -781,6 +781,109 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
+  await run("desktop titlebar keeps thread header controls clickable", async (root) => {
+    const titlebar = document.documentElement.dataset.titlebar;
+    const fullscreen = document.documentElement.hasAttribute("data-window-fullscreen");
+    document.documentElement.dataset.titlebar = "hidden";
+    const api = {
+      onEvent: () => () => {},
+      repositoryDirectory: async () => ({ entries: [], limited: false }),
+      repositoryChanges: async () => ({ repository: true, head: null, changes: [] }),
+      repositoryFile: async () => ({ kind: "unavailable" as const, reason: "missing" as const }),
+    };
+    function Probe() {
+      const [open, setOpen] = useState(false);
+      return (
+        <DesktopShell canvasFocused={false}>
+          <nav className="desktop-navigation" style={{ gridRow: 2, gridColumn: 1 }}>
+            <div className="workspace-header">
+              <SidebarToggle />
+            </div>
+          </nav>
+          <main className="workspace">
+            <section className="project-workspace surfaces-workspace" data-panel-open={open}>
+              <div className="thread-workspace relative isolate flex min-w-0 flex-col">
+                <div className="thread-heading flex min-h-[42px] items-center gap-6 px-5 py-1">
+                  <div className="content-heading flex min-w-0 flex-1 items-center gap-4">
+                    <h1 tabIndex={0}>Thread title</h1>
+                    <input aria-label="Thread name" defaultValue="Editable title" />
+                    <button>Thread menu</button>
+                  </div>
+                  <button className="workspace-panel-trigger" onClick={() => setOpen(true)}>
+                    Open panel
+                  </button>
+                </div>
+              </div>
+              <WorkspaceSurfaces
+                projectId={projectId}
+                repositoryAPI={api}
+                active={open}
+                open={open}
+                onClose={() => setOpen(false)}
+              />
+            </section>
+          </main>
+        </DesktopShell>
+      );
+    }
+    function reachable(element: HTMLElement) {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      check(
+        hit && element.contains(hit),
+        `Window drag region covered ${element.textContent || element.tagName}`,
+      );
+      check(
+        getComputedStyle(element).getPropertyValue("app-region") === "no-drag",
+        "Header control is a native drag region",
+      );
+    }
+    try {
+      flushSync(() => root.render(<Probe />));
+      for (const full of [false, true]) {
+        document.documentElement.toggleAttribute("data-window-fullscreen", full);
+        for (const sidebar of [true, false]) {
+          const shell = required(host.querySelector(".desktop"), "Desktop shell");
+          if (shell.classList.contains("desktop-sidebar-hidden") === sidebar) {
+            required(
+              host.querySelector<HTMLButtonElement>(".desktop-sidebar-toggle"),
+              "Sidebar toggle",
+            ).click();
+            await settle();
+          }
+          for (const control of host.querySelectorAll<HTMLElement>(
+            ".thread-heading :is(button, input, [tabindex])",
+          ))
+            reachable(control);
+          const trigger = required(
+            host.querySelector<HTMLButtonElement>(".workspace-panel-trigger"),
+            "Panel opener",
+          );
+          trigger.focus();
+          trigger.click();
+          const panel = required(
+            host.querySelector<HTMLDialogElement>("#workspace-side-panel"),
+            "Panel",
+          );
+          await until(() => panel.open, "Panel opens under native titlebar");
+          const close = required(
+            panel.querySelector<HTMLButtonElement>('[aria-label="Close side panel"]'),
+            "Panel closer",
+          );
+          reachable(close);
+          close.click();
+          await until(() => !panel.open, "Panel closes under native titlebar");
+          check(document.activeElement === trigger, "Closing panel lost the opener focus");
+          reachable(trigger);
+        }
+      }
+    } finally {
+      if (titlebar === undefined) delete document.documentElement.dataset.titlebar;
+      else document.documentElement.dataset.titlebar = titlebar;
+      document.documentElement.toggleAttribute("data-window-fullscreen", fullscreen);
+    }
+  });
+
   await run(
     "workspace panel preserves chat width on narrow screens and restores focus",
     async (root) => {
