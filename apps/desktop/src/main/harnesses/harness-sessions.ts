@@ -406,14 +406,14 @@ export class HarnessSessions {
         run = entry.session.start({
           ...input,
           settings: input.settings ?? {},
-          onUpdate(update) {
-            if (update.type === "started" && input.harness === "codex")
+          onAccepted() {
+            if (input.harness === "codex")
               entry.context.settings = {
                 ...entry.context.settings,
                 model: input.settings?.model,
                 effort: input.settings?.effort,
               };
-            input.onUpdate(update);
+            input.onAccepted?.();
           },
         });
         await run.done;

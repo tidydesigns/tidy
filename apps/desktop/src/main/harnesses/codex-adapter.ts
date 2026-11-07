@@ -118,7 +118,8 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       if (resetEffort) effort = text(config.model_reasoning_effort) || undefined;
       const unresolved = () => (resetModel && !model) || (resetEffort && !effort);
       let cursor: string | null | undefined;
-      for (let page = 0; unresolved() && page < 5; page++) {
+      const cursors = new Set<string>();
+      while (unresolved()) {
         const result = modelDefaults.parse(
           await request("model/list", { limit: 100, includeHidden: true, cursor }),
         );
@@ -129,7 +130,8 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
             (item) => item.model === (model ?? currentModel),
           )?.defaultReasoningEffort;
         cursor = result.nextCursor;
-        if (!cursor) break;
+        if (!cursor || cursors.has(cursor)) break;
+        cursors.add(cursor);
       }
       if (unresolved())
         throw new HarnessNotSubmittedError(

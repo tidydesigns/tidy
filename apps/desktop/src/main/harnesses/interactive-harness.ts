@@ -225,11 +225,12 @@ export class HarnessSession {
         if (this.state.kind === "running") this.state.turn.delivery = "unknown";
       },
       accepted: () => {
-        if (this.state.kind !== "running") return;
+        if (this.state.kind !== "running" && this.state.kind !== "cancelling") return;
         const turn = this.state.turn;
         turn.delivery = "accepted";
         if (!turn.started) {
           turn.started = true;
+          turn.input.onAccepted?.();
           this.emit({ type: "started" });
         }
       },

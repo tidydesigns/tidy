@@ -9,6 +9,8 @@ import { BrowserService } from "../browser/browser-service";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { HarnessSession } from "./interactive-harness";
 import { HarnessSessions } from "./harness-sessions";
+import { createOpenCodeAdapter } from "./opencode-adapter";
+import type { AdapterContext } from "./session-types";
 import { harnessIdSchema, nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import type { HarnessUpdate } from "./harnesses";
 let directory: string;
@@ -984,6 +986,108 @@ test("Codex defaults resolve only missing values, stop paging early, and remain 
   }
 });
 
+test("Codex resolves defaults beyond five pages and stops on repeated cursors", async () => {
+  const cwd = await mkdtemp(join(directory, "paginated-defaults-"));
+  const sessions = new HarnessSessions();
+  const context = {
+    projectId: "project",
+    harness: "codex" as const,
+    executable,
+    cwd,
+  };
+  const settings = { model: "fixture/other", effort: "high" };
+  const send = (settings: { model?: string; effort?: string }) =>
+    sessions.start("thread", {
+      ...context,
+      settings,
+      prompt: "continue",
+      onUpdate() {},
+    }).done;
+  try {
+    await sessions.start("thread", {
+      ...context,
+      settings,
+      prompt: "background silent",
+      onUpdate() {},
+    }).done;
+    await writeFile(
+      join(cwd, "codex-defaults.json"),
+      JSON.stringify({
+        config: {},
+        pages: [
+          ...Array.from({ length: 5 }, (_, page) => ({
+            data: [],
+            nextCursor: String(page + 1),
+          })),
+          {
+            data: [
+              {
+                model: "catalog/default",
+                isDefault: true,
+                defaultReasoningEffort: "medium",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    await send({});
+    expect((await events(cwd)).filter((event) => event.method === "model/list")).toHaveLength(6);
+    expect(
+      (await events(cwd)).filter((event) => event.method === "turn/start").at(-1)?.value.params,
+    ).toMatchObject({ model: "catalog/default", effort: "medium" });
+    await send(settings);
+    await writeFile(
+      join(cwd, "codex-defaults.json"),
+      JSON.stringify({
+        config: {},
+        pages: [
+          { data: [], nextCursor: "1" },
+          { data: [], nextCursor: "1" },
+        ],
+      }),
+    );
+    await expect(send({})).rejects.toThrow("did not report its default");
+    const recorded = await events(cwd);
+    expect(recorded.filter((event) => event.method === "model/list")).toHaveLength(8);
+    expect(recorded.filter((event) => event.method === "turn/start")).toHaveLength(3);
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+    expect(sessions.backgroundContexts).toHaveLength(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("OpenCode does not send a prompt when cancelled during session setup", async () => {
+  const setup = Promise.withResolvers<unknown>();
+  const requested: string[] = [];
+  const transport = {
+    request(method: string) {
+      requested.push(method);
+      return setup.promise;
+    },
+  } as unknown as AdapterContext["transport"];
+  const adapter = createOpenCodeAdapter({
+    input: { harness: "opencode", executable: "unused", cwd: directory },
+    transport,
+    emit() {},
+    complete() {},
+    accepted() {},
+    submitting() {},
+    ask() {},
+    cancelApproval() {},
+    isActive: () => false,
+    activity() {},
+  });
+  const abort = new AbortController();
+  const submission = adapter.submit({ prompt: "must not run", onUpdate() {} }, abort.signal);
+  expect(requested).toEqual(["session/new"]);
+  abort.abort();
+  setup.resolve({ sessionId: "ses_fixture", configOptions: [] });
+  await expect(submission).rejects.toThrow();
+  expect(requested).toEqual(["session/new"]);
+});
+
 test("cancelling a pending Codex defaults lookup preserves background work and cannot submit later", async () => {
   const cwd = await mkdtemp(join(directory, "background-cancel-defaults-"));
   const sessions = new HarnessSessions();
@@ -1101,6 +1205,53 @@ test("Codex keeps live permission updates compatible after a next-turn model cha
     ).toBe(true);
     running.stop();
     await running.done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("Codex records model changes accepted during cancellation without emitting a stale start", async () => {
+  const cwd = await mkdtemp(join(directory, "cancelled-model-permissions-"));
+  await writeFile(join(cwd, "live-permissions"), "");
+  const sessions = new HarnessSessions();
+  const context = {
+    projectId: "project",
+    harness: "codex" as const,
+    executable,
+    cwd,
+  };
+  try {
+    await sessions.start("thread", {
+      ...context,
+      prompt: "first",
+      onUpdate() {},
+    }).done;
+    const settings = { model: "fixture/other", effort: "high" };
+    const updates: HarnessUpdate[] = [];
+    const cancelled = sessions.start("thread", {
+      ...context,
+      settings,
+      prompt: "delayed-accept hold",
+      onUpdate: (update) => updates.push(update),
+    });
+    const deadline = performance.now() + 1000;
+    while ((await events(cwd)).filter((event) => event.method === "turn/start").length < 2) {
+      if (performance.now() > deadline) throw new Error("Follow-up never submitted");
+      await Bun.sleep(5);
+    }
+    expect(cancelled.deliveryState).toBe("unknown");
+    cancelled.stop();
+    await writeFile(join(cwd, "accept-turn"), "");
+    await cancelled.done;
+    expect(updates.some((update) => update.type === "started")).toBe(false);
+    expect(cancelled.deliveryState).toBe("accepted");
+    expect(
+      await sessions.updatePermissions("thread", "project", {
+        ...settings,
+        permissionMode: "provider-auto",
+      }),
+    ).toBe(true);
     expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
   } finally {
     await sessions.clear();

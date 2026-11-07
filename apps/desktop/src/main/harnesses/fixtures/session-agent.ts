@@ -295,14 +295,23 @@ for await (const line of createInterface({ input: process.stdin })) {
     else if (claude) send({ type: "system", subtype: "init", session_id: sessionId });
     else {
       const response = { turn: { id: turnId } };
-      if (prompt.includes("delayed-ack")) setTimeout(() => reply(value, response), 50);
-      else reply(value, response);
       const begin = () => {
         nativeStarted = true;
         send({ method: "turn/started", params: { threadId: sessionId, turn: { id: turnId } } });
       };
-      if (prompt.includes("early-stop")) setTimeout(begin, 20);
-      else begin();
+      if (prompt.includes("delayed-accept")) {
+        const waiting = setInterval(() => {
+          if (!existsSync("accept-turn")) return;
+          clearInterval(waiting);
+          reply(value, response);
+          begin();
+        }, 5);
+      } else {
+        if (prompt.includes("delayed-ack")) setTimeout(() => reply(value, response), 50);
+        else reply(value, response);
+        if (prompt.includes("early-stop")) setTimeout(begin, 20);
+        else begin();
+      }
     }
     if (prompt === "lifecycle-owner" || prompt === "lifecycle-reused-id") {
       background("started", "reused-tool", turnId);

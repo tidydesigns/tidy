@@ -45,6 +45,8 @@ export type TurnInput = {
     prompt: string;
   };
   images?: Array<{ path: string; mimeType: string; data: string }>;
+  /** Record provider acceptance even when cancellation suppresses visible updates. */
+  onAccepted?: () => void;
   onUpdate: (update: HarnessUpdate) => void;
   /** Only previously observed tools from this turn may arrive after its completion. */
   onLateTool?: (tool: Extract<HarnessUpdate, { type: "tool" }>["tool"]) => void;
