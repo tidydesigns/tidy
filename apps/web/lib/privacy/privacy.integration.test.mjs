@@ -351,6 +351,142 @@ integration(
     );
   },
 );
+
+async function sharedExportContributions() {
+  const threadId = "11111111-1111-4111-8111-111111111111";
+  await admin.query(
+    `insert into "agentThread" (id,"organizationId","createdBy",title) values
+    ($1,'org','alice','Original shared thread'),
+    ('22222222-2222-4222-8222-222222222222','org','bob','Another persons thread')`,
+    [threadId],
+  );
+  await admin.query(
+    `insert into "agentMessage" (id,"threadId","userId",kind,content,sequence) values
+    ('33333333-3333-4333-8333-333333333333',$1,'alice','user','My agent contribution',1),
+    ('44444444-4444-4444-8444-444444444444',$1,'bob','user','Another persons agent message',2)`,
+    [threadId],
+  );
+  await admin.query(`insert into "githubConnection" ("organizationId","installationId",account)
+    values ('org',1,'export-fixture');
+    insert into "githubReview"
+    (id,"fileId","organizationId","installationId","repositoryId",repository,number,title,url,state,branch,"baseSha","headSha","linkedSha",revision,"frameIds","frameKey",content,"createdBy") values
+    ('own-review','f','org',1,1,'fixture/repository',1,'Original shared review','https://example.test/1','open','main','base','head','head',1,'[]','own','{}','alice'),
+    ('other-review','f','org',1,1,'fixture/repository',2,'Another persons review','https://example.test/2','open','main','base','head','head',1,'[]','other','{}','bob');
+    insert into "githubFeedback" (id,"reviewId",sha,body,"authorId",status,response) values
+    ('own-feedback','own-review','head','My feedback','alice','proposed','Original shared response'),
+    ('own-feedback-other-review','other-review','head','My feedback on another review','alice','proposed','Original shared response'),
+    ('other-feedback','own-review','head','Another persons feedback','bob','open',null)`);
+  return threadId;
+}
+
+integration(
+  "export revokes mutable shared metadata but preserves authored contributions after membership removal",
+  async () => {
+    const threadId = await sharedExportContributions();
+    const before = await exportAccount("alice", "alice-session");
+    expect(before.agentThreads.map((row) => row.title)).toEqual(["Original shared thread"]);
+    expect(before.githubReviews.map((row) => row.id)).toEqual(["own-review"]);
+    // Feedback access follows its resource, even when someone else created the review.
+    expect(before.githubFeedback).toHaveLength(2);
+    for (const row of before.githubFeedback) {
+      expect(row.status).toBe("proposed");
+      expect(row.response).toBe("Original shared response");
+    }
+    await admin.query("delete from member where \"userId\"='alice' and \"organizationId\"='org'");
+    await admin.query(
+      "update \"agentThread\" set title='After removal shared thread' where id=$1",
+      [threadId],
+    );
+    await admin.query(`update "githubReview" set title='After removal shared review';
+      update "githubFeedback" set status='verified',response='After removal shared response'`);
+
+    const revoked = await exportAccount("alice", "alice-session");
+    expect(revoked.agentThreads).toEqual([]);
+    expect(revoked.githubReviews).toEqual([]);
+    expect(revoked.files).toEqual([]);
+    expect(revoked.githubFeedback.map((row) => row.body).sort()).toEqual([
+      "My feedback",
+      "My feedback on another review",
+    ]);
+    for (const row of revoked.githubFeedback) {
+      expect(row.status).toBeNull();
+      expect(row.response).toBeNull();
+    }
+    expect(revoked.comments.map((row) => row.body)).toEqual(["My private comment"]);
+    expect(revoked.agentMessages.map((row) => row.content)).toEqual(["My agent contribution"]);
+    expect(JSON.stringify(revoked)).not.toMatch(/After removal|Another persons/);
+
+    // Rejoining as a viewer restores shared export metadata without granting edit rights.
+    await admin.query(`insert into member (id,"userId","organizationId",role,"createdAt")
+      values ('rejoined','alice','org','viewer',now())`);
+    const restored = await exportAccount("alice", "alice-session");
+    expect(restored.agentThreads.map((row) => row.title)).toEqual(["After removal shared thread"]);
+    expect(restored.githubReviews.map((row) => row.title)).toEqual(["After removal shared review"]);
+    for (const row of restored.githubFeedback) {
+      expect(row.status).toBe("verified");
+      expect(row.response).toBe("After removal shared response");
+    }
+  },
+);
+
+integration(
+  "export requires reader roles for shared metadata while retaining authored feedback for inactive memberships",
+  async () => {
+    await sharedExportContributions();
+    for (const role of [
+      "inactive",
+      "unknown-role",
+      "viewer",
+      "editor",
+      "member",
+      "admin",
+      "owner",
+    ]) {
+      await admin.query(
+        "update member set role=$1 where \"userId\"='alice' and \"organizationId\"='org'",
+        [role],
+      );
+      const data = await exportAccount("alice", "alice-session");
+      const readable = !["inactive", "unknown-role"].includes(role);
+      expect(data.agentThreads).toHaveLength(readable ? 1 : 0);
+      expect(data.githubReviews).toHaveLength(readable ? 1 : 0);
+      expect(data.files).toHaveLength(readable ? 1 : 0);
+      expect(data.githubFeedback.map((row) => row.body).sort()).toEqual([
+        "My feedback",
+        "My feedback on another review",
+      ]);
+      for (const row of data.githubFeedback) {
+        expect(row.status).toBe(readable ? "proposed" : null);
+        expect(row.response).toBe(readable ? "Original shared response" : null);
+      }
+      expect(data.comments.map((row) => row.body)).toEqual(["My private comment"]);
+      expect(data.agentMessages.map((row) => row.content)).toEqual(["My agent contribution"]);
+    }
+  },
+);
+
+integration(
+  "export checks the current file organization for review metadata and feedback state",
+  async () => {
+    await sharedExportContributions();
+    await admin.query(`insert into organization (id,name,slug,"createdAt","createdByUserId")
+    values ('other-org','Other workspace','other-workspace',now(),'bob');
+    insert into member (id,"userId","organizationId",role,"createdAt")
+    values ('other-owner','bob','other-org','owner',now());
+    update "designFile" set "organizationId"='other-org' where id='f'`);
+    const moved = await exportAccount("alice", "alice-session");
+    expect(moved.githubReviews).toEqual([]);
+    expect(moved.githubFeedback).toHaveLength(2);
+    for (const row of moved.githubFeedback) {
+      expect(row.status).toBeNull();
+      expect(row.response).toBeNull();
+    }
+    // Retaining membership in the original organization still permits its thread.
+    expect(moved.agentThreads.map((row) => row.title)).toEqual(["Original shared thread"]);
+    expect(moved.comments.map((row) => row.body)).toEqual(["My private comment"]);
+  },
+);
+
 integration(
   "deletion authentication check is read-only and rejects stale or revoked sessions",
   async () => {

@@ -269,6 +269,113 @@ integration("verification signs in and preserves invitation and MCP destinations
 });
 
 integration(
+  "native invitation lists require a current verified manager for the selected workspace",
+  async () => {
+    const account = await signUp();
+    const verified = await verify();
+    const headers = new Headers({ cookie: cookie(verified.headers) });
+    const userId = account.response.user.id;
+    await db.query(`insert into organization (id,name,slug,"createdAt") values
+    ('list-org','Invitation list','invitation-list',now()),
+    ('other-list-org','Other workspace','other-invitation-list',now())`);
+    await db.query(
+      `insert into member (id,"userId","organizationId",role,"createdAt")
+    values ('list-member',$1,'list-org','owner',now());`,
+      [userId],
+    );
+    await db.query(
+      `insert into invitation (id,"organizationId",email,role,status,"expiresAt","inviterId")
+    values ('list-invite','list-org','private-recipient@example.test','viewer','pending',now()+interval '1 day',$1)`,
+      [userId],
+    );
+    await db.query('update session set "activeOrganizationId"=$1 where "userId"=$2', [
+      "list-org",
+      userId,
+    ]);
+    const list = (query = "") =>
+      auth.handler(
+        new Request(`${origin}/api/auth/organization/list-invitations${query}`, { headers }),
+      );
+
+    for (const role of ["owner", "admin", "viewer", "editor", "member"]) {
+      await db.query("update member set role=$1 where id='list-member'", [role]);
+      const allowed = role === "owner" || role === "admin";
+      for (const query of ["?organizationId=list-org", "", "?organizationId="]) {
+        const response = await list(query);
+        expect(response.status).toBe(allowed ? 200 : 403);
+        const body = await response.json();
+        if (allowed) {
+          if (!Array.isArray(body)) throw new Error("Expected an invitation list.");
+          expect(body.map((row: { id: string }) => row.id)).toEqual(["list-invite"]);
+        } else expect(JSON.stringify(body)).not.toContain("private-recipient@example.test");
+      }
+    }
+    await db.query("update member set role='owner' where id='list-member'");
+    // An explicit foreign organization cannot fall back to the active workspace.
+    expect((await list("?organizationId=other-list-org")).status).toBe(403);
+    await db.query('update "user" set "emailVerified"=false where id=$1', [userId]);
+    expect((await list("?organizationId=list-org")).status).toBe(403);
+    expect((await list()).status).toBe(403);
+    await db.query('update "user" set "emailVerified"=true where id=$1', [userId]);
+    await db.query("delete from member where id='list-member'");
+    expect((await list("?organizationId=list-org")).status).toBe(403);
+    expect((await list()).status).toBe(403);
+    await db.query('update session set "activeOrganizationId"=null where "userId"=$1', [userId]);
+    expect((await list()).status).toBe(400);
+    expect(
+      (
+        await auth.handler(
+          new Request(`${origin}/api/auth/organization/list-invitations?organizationId=list-org`),
+        )
+      ).status,
+    ).toBe(401);
+  },
+);
+
+integration(
+  "a verified invitation recipient can still read their invitation before joining",
+  async () => {
+    const recipient = await signUp();
+    const verified = await verify();
+    const headers = new Headers({ cookie: cookie(verified.headers) });
+    await db.query(`insert into "user" (id,name,email,"emailVerified")
+    values ('invitation-owner','Owner','owner@example.test',true);
+    insert into organization (id,name,slug,"createdAt")
+    values ('recipient-org','Recipient workspace','recipient-workspace',now());
+    insert into member (id,"userId","organizationId",role,"createdAt")
+    values ('recipient-owner','invitation-owner','recipient-org','owner',now())`);
+    await db.query(
+      `insert into invitation (id,"organizationId",email,role,status,"expiresAt","inviterId")
+    values ('recipient-invite','recipient-org',$1,'viewer','pending',now()+interval '1 day','invitation-owner'),
+    ('someone-elses-invite','recipient-org','someone-else@example.test','viewer','pending',now()+interval '1 day','invitation-owner')`,
+      [recipient.response.user.email],
+    );
+    const get = (id: string) =>
+      auth.handler(
+        new Request(`${origin}/api/auth/organization/get-invitation?id=${id}`, { headers }),
+      );
+    const response = await get("recipient-invite");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id: "recipient-invite",
+      email: recipient.response.user.email,
+      organizationName: "Recipient workspace",
+    });
+    expect((await get("someone-elses-invite")).status).toBe(403);
+    expect(
+      (
+        await auth.handler(
+          new Request(
+            `${origin}/api/auth/organization/list-invitations?organizationId=recipient-org`,
+            { headers },
+          ),
+        )
+      ).status,
+    ).toBe(403);
+  },
+);
+
+integration(
   "expired and tampered verification tokens cannot verify or create sessions",
   async () => {
     await signUp();

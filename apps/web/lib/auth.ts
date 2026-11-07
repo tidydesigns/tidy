@@ -254,6 +254,22 @@ function createAuth() {
             });
           }
         }
+        // Better Auth only checks membership here. Invitation lists expose
+        // workspace addresses and must use the same policy as settings.
+        if (ctx.path === "/organization/list-invitations") {
+          const session = await getSessionFromCtx(ctx, { disableCookieCache: true });
+          if (!session) throw new APIError("UNAUTHORIZED", { message: "Sign in to continue." });
+          const organizationId = ctx.query?.organizationId || session.session.activeOrganizationId;
+          if (typeof organizationId !== "string" || !organizationId)
+            throw new APIError("BAD_REQUEST", { message: "Choose an organization." });
+          try {
+            await requireOrganizationPermission(session.user.id, organizationId, "manage");
+          } catch (error) {
+            if (error instanceof OrganizationAccessError)
+              throw new APIError("FORBIDDEN", { message: "Workspace access denied." });
+            throw error;
+          }
+        }
         const oauthScopes = String(ctx.query?.scope ?? ctx.body?.scope ?? "").split(" ");
         if (
           (ctx.path === "/oauth2/authorize" &&

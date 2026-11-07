@@ -229,13 +229,17 @@ export function startElementPicker({
               data-picker-target
               aria-pressed={!!target && selected.some((element) => contains(element, target!))}
               aria-describedby="picker-status picker-instructions"
-              onClick={toggleTarget}
+              onClick={(event) => {
+                if (event.nativeEvent.isTrusted) toggleTarget();
+              }}
             >
               {target ? `Select ${description(target)}` : "No selectable elements"}
             </Button>
             <Button
               disabled={!selected.length}
-              onClick={confirm}
+              onClick={(event) => {
+                if (event.nativeEvent.isTrusted) confirm();
+              }}
               title="Copy selected elements (Enter)"
             >
               {selected.length > 1
@@ -298,7 +302,7 @@ export function startElementPicker({
       .composedPath()
       .find((node): node is Element => node instanceof Element && selectable(node));
   const move = (event: PointerEvent) => {
-    if (inToolbar(event)) return;
+    if (!event.isTrusted || inToolbar(event)) return;
     const next = pageTarget(event);
     if (!next) return;
     pendingTarget = next;
@@ -307,6 +311,7 @@ export function startElementPicker({
   const click = (event: MouseEvent) => {
     if (inToolbar(event)) return;
     suppress(event);
+    if (!event.isTrusted) return;
     const next = pageTarget(event);
     if (!next) return;
     pendingTarget = undefined;
@@ -339,6 +344,7 @@ export function startElementPicker({
     render();
   }
   const key = (event: KeyboardEvent) => {
+    if (!event.isTrusted) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopImmediatePropagation();

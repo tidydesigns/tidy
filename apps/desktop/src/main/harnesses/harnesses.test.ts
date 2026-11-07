@@ -138,6 +138,92 @@ for (const harness of ["codex", "claude"] as const) {
         await run.done.catch(() => {});
       }
     });
+  for (const preview of [
+    {
+      name: "OSC terminated by BEL",
+      command: "printf visible\n# \x1b]0;\nreview-context\n# \x07",
+      visible: ["\\u001b]0;", "review-context", "\\u0007"],
+    },
+    {
+      name: "OSC terminated by ST",
+      command: "printf visible\n# \x1b]0;\nreview-context\n# \x1b\\",
+      visible: ["\\u001b]0;", "review-context", "\\u001b\\\\"],
+    },
+    {
+      name: "CSI, C0, C1 and directional controls",
+      command: "echo \x1b[31mmarker\x1b[0m\r\b\t\0\x7f\x9b\u200f",
+      visible: [
+        "\\u001b[31mmarker",
+        "\\u001b[0m",
+        ...(harness === "codex" ? ["\\u000d", "\\u0008", "\\u0009"] : ["\\\\r", "\\\\b", "\\\\t"]),
+        "\\u0000",
+        "\\u007f",
+        "\\u009b",
+        "\\u200f",
+      ],
+    },
+    {
+      name: "literal escape notation",
+      command: "echo \\u001b",
+      visible: ["\\\\u001b"],
+    },
+    {
+      name: "oversized OSC content",
+      command: `echo \x1b]0;${"x".repeat(17_000)} hidden-action\x07`,
+      visible: [],
+      denyOnly: true,
+    },
+    {
+      name: "escaping expands beyond the review limit",
+      command: "\x1b".repeat(2700),
+      visible: [],
+      denyOnly: true,
+    },
+  ])
+    test(`${harness} preserves approval command content: ${preview.name}`, async () => {
+      const { directory, executable } = await fixture();
+      await writeFile(join(directory, "approval-command.txt"), preview.command);
+      const approval =
+        Promise.withResolvers<Extract<HarnessUpdate, { type: "approval" }>["request"]>();
+      const run = startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        prompt: "permission-fixture",
+        onUpdate: (event) => {
+          if (event.type === "approval") approval.resolve(event.request);
+        },
+      });
+      try {
+        const request = await approval.promise;
+        expect(request.details).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u200f]/);
+        if (preview.denyOnly) {
+          expect(request.shortened).toBe(true);
+          expect(request.choices).toEqual(["deny"]);
+          expect(run.respondToApproval!(request.id, "allow")).toBe(false);
+          expect(run.respondToApproval!(request.id, "allow-session")).toBe(false);
+          expect(run.respondToApproval!(request.id, "deny")).toBe(true);
+        } else {
+          expect(request.shortened).toBe(false);
+          for (const text of preview.visible) expect(request.details).toContain(text);
+          expect(run.respondToApproval!(request.id, "allow")).toBe(true);
+        }
+        await run.done;
+        if (preview.denyOnly) await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+        else {
+          expect(await readFile(join(directory, "approved.txt"), "utf8")).toBe("approved");
+          if (harness === "claude") {
+            const response = JSON.parse(
+              await readFile(join(directory, "permission-response.json"), "utf8"),
+            );
+            expect(response.response.response.updatedInput.command).toBe(preview.command);
+          }
+        }
+      } finally {
+        run.stop();
+        await run.done.catch(() => {});
+      }
+    });
   for (const decision of [
     "allow",
     "deny",

@@ -26,6 +26,9 @@ async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
   let refreshes = 0,
     registrations = 0;
   let beforeRefresh: (() => Promise<void>) | undefined;
+  let nextAccountId = "alice",
+    tokenSequence = 0;
+  const tokenAccounts = new Map<string, string>();
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/oauth2/register")) {
@@ -39,6 +42,11 @@ async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
     if (url.endsWith("/oauth2/token")) {
       const body = init?.body as URLSearchParams;
       expect(body.get("resource")).toBe("https://example.test/api/desktop");
+      const accountId =
+        body.get("grant_type") === "authorization_code"
+          ? nextAccountId
+          : tokenAccounts.get(body.get("refresh_token")!);
+      expect(accountId).toBeDefined();
       if (body.get("grant_type") === "authorization_code") {
         expect(body.get("code")).toBe("single-use-code");
         expect(createHash("sha256").update(body.get("code_verifier")!).digest("base64url")).toBe(
@@ -48,16 +56,24 @@ async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
         refreshes++;
         await beforeRefresh?.();
       }
+      const accessToken = `access-fixture-value-${++tokenSequence}`,
+        refreshToken = `refresh-fixture-value-${tokenSequence}`;
+      tokenAccounts.set(accessToken, accountId!);
+      tokenAccounts.set(refreshToken, accountId!);
       return Response.json({
-        access_token: "access-fixture-value",
-        refresh_token: "refresh-fixture-value",
+        access_token: accessToken,
+        refresh_token: refreshToken,
         expires_in: 30,
         token_type: "Bearer",
       });
     }
     if (url.endsWith("/oauth2/revoke")) return Response.json({});
-    if (url.endsWith("/api/desktop/account"))
-      return Response.json({ id: "alice", organizations: [] });
+    if (url.endsWith("/api/desktop/account")) {
+      const token = new Headers(init?.headers).get("Authorization")?.replace(/^Bearer /, "");
+      const accountId = tokenAccounts.get(token!);
+      expect(accountId).toBeDefined();
+      return Response.json({ id: accountId, organizations: [] });
+    }
     throw new Error(`Unexpected auth request: ${url}`);
   }) as typeof fetch;
   const make = (credentialProtection = protection) =>
@@ -91,6 +107,10 @@ async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
     make,
     registrations: () => registrations,
     refreshes: () => refreshes,
+    connectAs: (accountId: string) => {
+      nextAccountId = accountId;
+      return auth.signIn();
+    },
     pauseRefresh: (callback: () => Promise<void>) => {
       beforeRefresh = callback;
     },
@@ -290,6 +310,72 @@ test("signing out during refresh cannot restore credentials or send the queued r
   expect(f.auth.accountId).toBeUndefined();
   expect(await f.state.read("credentials")).toBeUndefined();
 });
+
+for (const schedule of [
+  "before-reconnect",
+  "after-reconnect",
+  "same-account-reconnect",
+  "signed-out-reconnect",
+  "failed-reconnect",
+] as const)
+  test(`refresh persistence stays bound to its original session: ${schedule}`, async () => {
+    let failLogin = false;
+    const f = await fixture(async () => {
+      if (failLogin) throw new Error("Fixture login failed");
+    });
+    await f.auth.signIn();
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    f.pauseRefresh(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    const request = f.auth.request("/api/desktop/account");
+    void request.catch(() => {});
+    await entered.promise;
+    let reconnectCredentials: unknown;
+    const accountId = schedule === "same-account-reconnect" ? "alice" : "bob";
+    try {
+      if (schedule === "before-reconnect") {
+        release.resolve();
+        expect(await (await request).json()).toMatchObject({ id: "alice" });
+      }
+      if (schedule === "signed-out-reconnect") await f.auth.signOut();
+      if (schedule === "failed-reconnect") {
+        failLogin = true;
+        await expect(f.connectAs(accountId)).rejects.toThrow("Fixture login failed");
+      } else {
+        await f.connectAs(accountId);
+        reconnectCredentials = await f.state.read("credentials");
+        expect(f.auth.accountId).toBe(accountId);
+      }
+    } finally {
+      release.resolve();
+    }
+    if (
+      schedule === "after-reconnect" ||
+      schedule === "same-account-reconnect" ||
+      schedule === "signed-out-reconnect"
+    )
+      await expect(request).rejects.toMatchObject({ status: 401 });
+    else await request;
+    const expectedAccount = schedule === "failed-reconnect" ? "alice" : accountId;
+    expect(f.auth.accountId).toBe(expectedAccount);
+    if (reconnectCredentials)
+      expect(await f.state.read("credentials")).toEqual(reconnectCredentials);
+    const restored = new CloudAuth(
+      "https://example.test",
+      f.state,
+      protection,
+      async () => {},
+      f.fetcher,
+    );
+    await restored.initialize();
+    expect(restored.accountId).toBe(expectedAccount);
+    expect(await (await f.auth.request("/api/desktop/account")).json()).toMatchObject({
+      id: expectedAccount,
+    });
+  });
 
 test("protected storage is required and cloud origins cannot downgrade to arbitrary HTTP", async () => {
   expect(() => cloudOrigin("http://example.test")).toThrow();

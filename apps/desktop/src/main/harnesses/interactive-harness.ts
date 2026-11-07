@@ -19,11 +19,13 @@ import {
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SessionContext, TurnInput, HarnessAdapter, AdapterContext } from "./session-types";
 
-/** Preserve approval content while making terminal controls and bidirectional overrides visible as literals. */
+// Approval text describes the action itself, so never strip terminal spans or controls.
+// Escape backslashes too, distinguishing literal escape notation from actual controls.
 const approvalText = (value: string) =>
   value.replace(
-    /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
-    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    /[\\\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g,
+    (character) =>
+      character === "\\" ? "\\\\" : `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 type Turn = {
   input: TurnInput;
