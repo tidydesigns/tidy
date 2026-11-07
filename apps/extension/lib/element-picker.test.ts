@@ -199,7 +199,15 @@ test("page-generated events cannot select, move, confirm or cancel a capture", (
   const section = win.document.querySelector("section")!;
   const footer = win.document.querySelector("footer")!;
   footer.dispatchEvent(new win.PointerEvent("pointermove", { bubbles: true, composed: true }));
-  footer.dispatchEvent(new win.MouseEvent("click", { bubbles: true, composed: true }));
+  const pageClick = mock(() => {});
+  footer.addEventListener("click", pageClick);
+  const syntheticClick = new win.MouseEvent("click", {
+    bubbles: true,
+    composed: true,
+    cancelable: true,
+  });
+  expect(footer.dispatchEvent(syntheticClick)).toBe(true);
+  expect(pageClick).toHaveBeenCalledTimes(1);
   expect(targetButton().textContent).toContain("section: First");
   expect(targetButton().getAttribute("aria-pressed")).toBe("false");
   click(section as unknown as Element);

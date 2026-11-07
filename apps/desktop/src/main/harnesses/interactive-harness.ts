@@ -19,14 +19,8 @@ import {
 import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SessionContext, TurnInput, HarnessAdapter, AdapterContext } from "./session-types";
 
-// Approval text describes the action itself, so never strip terminal spans or controls.
-// Escape backslashes too, distinguishing literal escape notation from actual controls.
-const approvalText = (value: string) =>
-  value.replace(
-    /[\\\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g,
-    (character) =>
-      character === "\\" ? "\\\\" : `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
+import { approvalText, clipApprovalText } from "./approval-text";
+
 type Turn = {
   input: TurnInput;
   abort: AbortController;
@@ -388,11 +382,11 @@ export class HarnessSession {
       type: "approval",
       request: {
         id,
-        title: approvalText(title).slice(0, 240),
+        title: approvalText(title, 240),
         reason: shortened
           ? "This request is too large to review here. Ask the harness to split it into smaller actions."
-          : approvalText(reason).slice(0, 4000) || undefined,
-        details: preview.slice(0, 16_000) || undefined,
+          : approvalText(reason, 4000) || undefined,
+        details: clipApprovalText(preview, 16_000) || undefined,
         shortened,
         choices: available,
         scope,

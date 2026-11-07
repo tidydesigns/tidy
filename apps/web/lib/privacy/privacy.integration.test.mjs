@@ -488,6 +488,47 @@ integration(
 );
 
 integration(
+  "folder export follows reader roles and membership changes while retaining authored comments",
+  async () => {
+    await admin.query(`insert into "designFolder" (id,"organizationId",name,"createdBy") values
+      ('folder-alice','org','Alice folder','alice'),
+      ('folder-bob','org','Bob folder','bob')`);
+    const expectFolders = async (canView) => {
+      const data = await exportAccount("alice", "alice-session");
+      expect(data.folders.map((folder) => folder.id)).toEqual(canView ? ["folder-alice"] : []);
+      if (canView) expect(data.folders[0].name).toBe("Current folder");
+      expect(data.comments.map((comment) => comment.id)).toEqual(["ma"]);
+    };
+    for (const [role, canView] of [
+      ["viewer", true],
+      ["editor", true],
+      ["member", true],
+      ["admin", true],
+      ["owner", true],
+      ["unknown", false],
+      ["inactive", false],
+      ["", false],
+    ]) {
+      await admin.query("update member set role=$1 where id=$2", [role, "a"]);
+      await admin.query('update "designFolder" set name=$1 where id=$2', [
+        "Current folder",
+        "folder-alice",
+      ]);
+      await expectFolders(canView);
+    }
+    await admin.query("update member set role=$1 where id=$2", ["viewer", "a"]);
+    await expectFolders(true);
+    await admin.query("delete from member where id=$1", ["a"]);
+    await expectFolders(false);
+    await admin.query(
+      `insert into member (id,"userId","organizationId",role,"createdAt")
+       values ('a','alice','org','viewer',now())`,
+    );
+    await expectFolders(true);
+  },
+);
+
+integration(
   "deletion authentication check is read-only and rejects stale or revoked sessions",
   async () => {
     const { checkPrivacyAuthentication } = await import("./reauth");

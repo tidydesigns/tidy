@@ -125,6 +125,10 @@ test("exported root identifiers remain string literals in JSX expressions", () =
     }
     visit(source);
     expect(attributes).toHaveLength(1);
+    const owner = attributes[0].parent.parent;
+    if (!ts.isJsxOpeningElement(owner) && !ts.isJsxSelfClosingElement(owner))
+      throw new Error("Expected an attribute on a JSX element");
+    expect(owner.tagName.getText(source)).toBe("TidyDesign");
     const initializer = attributes[0].initializer!;
     expect(ts.isJsxExpression(initializer)).toBe(true);
     if (!ts.isJsxExpression(initializer)) throw new Error("Expected JSX expression");

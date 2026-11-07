@@ -181,8 +181,7 @@ for (const harness of ["codex", "claude"] as const) {
     },
   ])
     test(`${harness} preserves approval command content: ${preview.name}`, async () => {
-      const { directory, executable } = await fixture();
-      await writeFile(join(directory, "approval-command.txt"), preview.command);
+      const { directory, executable } = await fixture(preview.command);
       const approval =
         Promise.withResolvers<Extract<HarnessUpdate, { type: "approval" }>["request"]>();
       const run = startHarness({

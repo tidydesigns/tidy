@@ -309,9 +309,8 @@ export function startElementPicker({
     schedulePaint();
   };
   const click = (event: MouseEvent) => {
-    if (inToolbar(event)) return;
+    if (!event.isTrusted || inToolbar(event)) return;
     suppress(event);
-    if (!event.isTrusted) return;
     const next = pageTarget(event);
     if (!next) return;
     pendingTarget = undefined;

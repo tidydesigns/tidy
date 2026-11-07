@@ -210,13 +210,11 @@ if (prompt.includes("invalid-event")) {
   process.exit(0);
 }
 if (prompt.includes("permission-fixture")) {
-  const command = existsSync("approval-command.txt")
-    ? readFileSync("approval-command.txt", "utf8")
-    : prompt.includes("oversized-approval")
-      ? `echo ${"x".repeat(17_000)}`
-      : prompt.includes("bidi-approval")
-        ? "echo \u202espoof\u202c"
-        : "touch approved.txt";
+  const command = prompt.includes("oversized-approval")
+    ? `echo ${"x".repeat(17_000)}`
+    : prompt.includes("bidi-approval")
+      ? "echo \u202espoof\u202c"
+      : "touch approved.txt";
   if (codex)
     send({
       type: "item.started",

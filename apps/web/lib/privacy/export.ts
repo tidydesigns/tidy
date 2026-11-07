@@ -26,8 +26,7 @@ export const exportQueries: Record<string, string> = {
     'select "organizationId",role,status,"createdAt","expiresAt" from invitation where "inviterId"=$1',
   files: `select id,"organizationId",name,"createdAt","updatedAt" from "designFile" where "createdBy"=$1 and id in (${memberFile})`,
   documents: `select d."fileId",d.revision,d.content,d."updatedAt" from "designDocument" d join "designFile" f on f.id=d."fileId" where f."createdBy"=$1 and f.id in (${memberFile})`,
-  folders:
-    'select f.id,f."organizationId",f.name,f."createdAt" from "designFolder" f join member m on m."organizationId"=f."organizationId" where f."createdBy"=$1 and m."userId"=$1',
+  folders: `select f.id,f."organizationId",f.name,f."createdAt" from "designFolder" f join member m on m."organizationId"=f."organizationId" where f."createdBy"=$1 and m."userId"=$1 and m.role in ${VIEW_ROLES_SQL}`,
   comments: 'select id,"threadId",body,"createdAt" from "designCommentMessage" where "authorId"=$1',
   commentThreads:
     'select id,"fileId",x,y,"createdAt" from "designCommentThread" where "createdBy"=$1',
