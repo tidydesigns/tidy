@@ -27,3 +27,5 @@
 @import "./features/designs/thread-preview/dock.css";
 @import "./features/composer/composer-context.css";
 @import "./features/settings/privacy-settings.css";
+
+@import "./styles/interface.css";

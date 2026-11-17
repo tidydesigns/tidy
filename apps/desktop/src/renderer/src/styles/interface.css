@@ -1,0 +1,388 @@
+.desktop-navigation,
+.thread-workspace,
+.workspace-side-panel,
+.browser-workspace {
+  font-family: var(--font-instrument-sans);
+}
+
+.desktop-navigation .thread-item {
+  border-radius: 8px;
+}
+
+.desktop-navigation .thread-item.selected {
+  border-color: light-dark(#cacac1, #4b4b42);
+  background: light-dark(#ffffff, #34342e);
+  box-shadow: none;
+}
+
+.desktop-navigation .thread-select {
+  padding: 8px 10px;
+  gap: 2px;
+}
+
+.thread-heading {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+.thread-heading .content-heading {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.thread-workspace .message {
+  font-family: var(--font-instrument-sans);
+  line-height: 1.65;
+}
+
+.thread-workspace .message-user {
+  border-radius: 12px;
+  background: light-dark(#ededea, #2a2a27);
+  padding: 14px 18px;
+}
+
+.thread-workspace .message-markdown :is(h1, h2, h3, h4) {
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+}
+
+.thread-workspace .message-markdown h1 {
+  font-size: 21px;
+}
+
+.thread-workspace .message-markdown h2 {
+  font-size: 18px;
+}
+
+.thread-workspace .tool-activity-group {
+  font-size: 13px;
+}
+
+.thread-workspace .tool-activity-group > summary {
+  gap: 8px;
+  border-radius: 6px;
+}
+
+.thread-workspace .composer-body {
+  border-radius: 14px;
+  border-color: light-dark(#d4d4ce, #41413b);
+  background: light-dark(#ffffff, #252522);
+  padding: 10px 12px;
+  box-shadow: 0 2px 8px light-dark(#24241c06, #00000012);
+}
+
+.thread-workspace .composer-body:focus-within {
+  border-color: var(--color-control-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-control-border) 35%, transparent);
+}
+
+.thread-workspace .composer-lip {
+  border-radius: 10px 10px 0 0;
+}
+
+.thread-workspace .composer-actions {
+  padding-bottom: 0;
+}
+
+.thread-workspace .prompt-editor {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.workspace-side-panel .workspace-surface-tabs {
+  scrollbar-width: thin;
+}
+
+.workspace-side-panel .repository-navigation-header,
+.workspace-side-panel .repository-file-heading {
+  background: light-dark(#fafafa, #1b1b1b);
+}
+
+.workspace-side-panel .repository-tree-row {
+  border-radius: 6px;
+}
+
+:is(.desktop-navigation, .thread-heading, .composer, .workspace-side-panel)
+  :is(button, summary, input):focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .thread-workspace .tool-activity-group > summary:hover {
+    background: var(--color-hover-surface);
+  }
+}
+
+@container repository-conversation (max-width: 760px) {
+  .thread-heading {
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0 16px 6px;
+  }
+
+  .thread-heading .content-heading {
+    flex-basis: 100%;
+  }
+
+  .thread-heading .thread-context {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .thread-heading .composer-context {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 2px 8px;
+  }
+}
+
+@container repository-conversation (max-width: 560px) {
+  .conversation,
+  .composer {
+    --chat-gutter: 20px;
+  }
+
+  .thread-workspace .prompt-editor {
+    max-height: min(108px, 16dvh);
+  }
+}
+
+.desktop-navigation:not(.settings-navigation) {
+  background: light-dark(#f0f0ed, #191917);
+}
+
+.desktop-navigation .workspace-header {
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+.desktop-navigation .workspace-tabs {
+  gap: 2px;
+}
+
+.desktop-navigation .workspace-thread-search {
+  border-color: transparent;
+  background: light-dark(#e5e5e1, #262623);
+  border-radius: 8px;
+}
+
+.desktop-navigation .project-trigger {
+  font-weight: 600;
+}
+
+.thread-workspace {
+  background: light-dark(#fcfcfa, #1c1c19);
+}
+
+.thread-workspace .thread-heading {
+  min-height: 44px;
+  padding-inline: 24px;
+  border-color: light-dark(#e6e6df, #33332e);
+}
+
+.thread-workspace .transcript {
+  padding-top: 24px;
+}
+
+.thread-workspace .composer-actions {
+  margin-top: 2px;
+  padding-top: 4px;
+}
+
+.thread-workspace .tool-activity-group > summary {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+}
+
+.thread-workspace .tool-activity-list {
+  margin-left: 20px;
+}
+
+@container repository-conversation (max-width: 760px) {
+  .thread-workspace .thread-heading {
+    padding-inline: 16px;
+  }
+}
+
+.desktop-navigation .thread-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  line-height: 18px;
+}
+
+.thread-workspace .latest-message {
+  position: static;
+  flex-shrink: 0;
+  align-self: center;
+  transform: none;
+  margin: 4px auto 0;
+  padding: 4px 12px;
+  box-shadow: none;
+}
+
+.thread-workspace .composer-new {
+  margin-top: 24px;
+}
+
+.thread-workspace .composer-new .composer-lip {
+  position: relative;
+  inset: auto;
+  padding: 8px 12px;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: light-dark(#f1f1ec, #242420);
+}
+
+.thread-workspace .composer-new .composer-body {
+  border-radius: 0 0 14px 14px;
+}
+
+.workspace-side-panel {
+  --color-surface: light-dark(#fcfcfa, #1c1c19);
+  --color-panel: light-dark(#f5f5f1, #20201c);
+  --color-border: light-dark(#deded7, #353530);
+  --desktop-surface: var(--color-surface);
+}
+
+.workspace-side-panel .repository-navigation-header,
+.workspace-side-panel .repository-file-heading {
+  background: var(--color-panel);
+}
+
+.workspace-side-panel .repository-explorer-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 2px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--color-control-border);
+}
+
+.desktop-navigation .workspace-thread-search:focus-within,
+.model-picker-menu .model-search:focus-within {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.desktop-navigation .workspace-thread-search input:focus-visible,
+.model-picker-menu .model-search input:focus-visible {
+  outline: none;
+}
+
+.model-picker-menu .model-search input {
+  min-height: 28px;
+  padding: 0;
+}
+
+.thread-workspace .approval-request {
+  font-size: 13px;
+  border-color: light-dark(#d1c8ad, #5b5340);
+}
+
+.thread-workspace .approval-request strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.thread-workspace .approval-request pre {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-hover-surface);
+}
+
+@container repository-conversation (max-width: 560px) {
+  .thread-workspace .transcript {
+    padding-top: 16px;
+  }
+
+  .thread-workspace .composer-body {
+    padding: 8px;
+  }
+
+  .thread-workspace .thread-context .composer-context {
+    font-size: 12px;
+    gap: 2px 8px;
+  }
+
+  .thread-workspace .thread-context .context-trigger {
+    padding: 4px;
+  }
+
+  .thread-workspace .thread-context .context-machine > span,
+  .thread-workspace .thread-context .context-machine .context-trigger > span {
+    max-width: 72px;
+  }
+}
+
+.workspace-side-panel .workspace-surface-header {
+  height: 44px;
+  min-height: 44px;
+  padding-inline: 6px;
+}
+
+.workspace-side-panel .workspace-surface-tabs {
+  gap: 2px;
+}
+
+.workspace-side-panel .workspace-surface-tab [role="tab"] {
+  gap: 4px;
+  padding-inline: 6px;
+}
+
+@container repository-surface (max-width: 600px) {
+  .repository-panes {
+    --repository-number-width: 30px;
+    --repository-sign-width: 14px;
+  }
+}
+
+@media (max-height: 760px) {
+  .thread-workspace .prompt-editor {
+    max-height: 108px;
+  }
+}
+
+.thread-workspace .tool-activity-group > summary {
+  width: fit-content;
+  max-width: 100%;
+  padding-inline: 4px;
+  margin-left: -4px;
+}
+
+.thread-workspace .tool-activity-group > summary .activity-summary-content {
+  margin-right: 0;
+}
+
+.thread-workspace .tool-activity-group > summary .activity-summary-title {
+  flex: initial;
+}
+
+.workspace-side-panel .repository-explorer {
+  container: repository-tree-panel / inline-size;
+}
+
+@container repository-tree-panel (max-width: 220px) {
+  .repository-tree-row {
+    --repository-indent: 6px;
+    gap: 3px;
+    padding-right: 4px;
+  }
+}
+
+.workspace-side-panel .repository-explorer-resize:is(:hover, :focus-visible)::after {
+  width: 3px;
+  background: var(--color-muted-ink);
+}
+
+.desktop-navigation .thread-time {
+  top: 8px;
+  line-height: 18px;
+}
